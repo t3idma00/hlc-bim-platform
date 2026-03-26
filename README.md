@@ -1,8 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HLC BIM Platform
+
+A web-based platform for heat load analysis with interactive 3D building modeling, developed as a thesis project.
+
+The platform collects building survey data through an input interface, analyzes it using a heat load engine, and reflects the results in a 3D building model in real time — combining engineering analysis and visualization in one place.
+
+Currently the project has the initial Next.js setup and folder structure in place. Implementation will be built out incrementally.
+
+## Project Structure
+
+```text
+hlc-bim-platform/
+├── public/
+│   ├── textures/
+│   ├── models/
+│   └── icons/
+│
+├── src/
+│   ├── app/
+│   ├── components/
+│   │   ├── layout/
+│   │   ├── survey/
+│   │   ├── calculation/
+│   │   ├── viewer3d/
+│   │   └── common/
+│   │
+│   ├── features/
+│   │   ├── building-survey/
+│   │   ├── heat-load/
+│   │   ├── bim-model/
+│   │   └── materials/
+│   │
+│   ├── lib/
+│   │   ├── calculations/
+│   │   ├── geometry/
+│   │   ├── converters/
+│   │   └── validators/
+│   │
+│   ├── data/
+│   │   ├── materials/
+│   │   ├── defaults/
+│   │   └── mock/
+│   │
+│   ├── hooks/
+│   ├── store/
+│   ├── types/
+│   └── utils/
+```
 
 ## Getting Started
 
-First, run the development server:
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+Run the development server:
 
 ```bash
 npm run dev
@@ -14,7 +63,7 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
