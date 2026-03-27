@@ -25,6 +25,10 @@ export default function HeatLoadWorkspace() {
           <HeatLoadFormPanel />
           <HeatLoadCanvasPanel />
         </main>
+
+        <footer className="border-t border-rose-100 bg-[#fffafb] px-5 py-2 text-center text-xs text-rose-600">
+          HLC Platform
+        </footer>
       </div>
     </div>
   );
