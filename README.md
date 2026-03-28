@@ -1,6 +1,6 @@
 # HLC BIM Platform
 
-A web-based platform for heat load analysis with interactive 3D building modeling, developed as a thesis project.
+A web-based platform for heat load analysis with interactive 3D realtime building modeling, developed as a thesis project.
 
 The platform collects building survey data through an input interface, analyzes it using a heat load engine, and reflects the results in a 3D building model in real time — combining engineering analysis and visualization in one place.
 
