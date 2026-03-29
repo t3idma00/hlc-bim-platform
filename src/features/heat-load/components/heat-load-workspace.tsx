@@ -1,4 +1,4 @@
-import { HeatLoadCanvasPanel } from "./canvas-panel";
+import { HeatLoadCanvasPanel } from "../../bim-model/view2D";
 import { HeatLoadFormPanel } from "./form-panel";
 
 export default function HeatLoadWorkspace() {
