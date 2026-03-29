@@ -1,7 +1,19 @@
+"use client";
+
+import { useState } from "react";
 import { HeatLoadCanvasPanel } from "../../bim-model/view2D";
-import { HeatLoadFormPanel } from "./form-panel";
+import { HeatLoadFormPanel, initialFormValues, type FormValues } from "./form-panel";
 
 export default function HeatLoadWorkspace() {
+  const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
+
+  function handleFieldChange(name: string, value: string) {
+    setFormValues((currentValues) => ({
+      ...currentValues,
+      [name]: value,
+    }));
+  }
+
   return (
     <div className="h-screen overflow-hidden bg-[#fff4f6] text-slate-900">
       <div className="flex h-screen w-full flex-col overflow-hidden">
@@ -22,8 +34,8 @@ export default function HeatLoadWorkspace() {
         </header>
 
         <main className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[40%_60%]">
-          <HeatLoadFormPanel />
-          <HeatLoadCanvasPanel />
+          <HeatLoadFormPanel formValues={formValues} onFieldChange={handleFieldChange} />
+          <HeatLoadCanvasPanel formValues={formValues} />
         </main>
 
         <footer className="border-t border-rose-100 bg-[#fffafb] px-5 py-2 text-center text-xs text-rose-600">

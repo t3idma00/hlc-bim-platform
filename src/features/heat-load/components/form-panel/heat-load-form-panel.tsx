@@ -7,11 +7,11 @@ import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
 
 type SurfaceType = "walls" | "windows";
 type UnitSystem = "si" | "imperial";
-type FormValues = Record<string, string>;
+export type FormValues = Record<string, string>;
 
 const topSectionRows = [0, 1, 2, 3];
 
-const initialFormValues: FormValues = {
+export const initialFormValues: FormValues = {
   wallNorthDirection: "North",
   wallNorthLength: "",
   wallNorthWidth: "",
@@ -51,17 +51,15 @@ const initialFormValues: FormValues = {
   conditionValue: "",
 };
 
-export function HeatLoadFormPanel() {
+export function HeatLoadFormPanel({
+  formValues,
+  onFieldChange,
+}: {
+  formValues: FormValues;
+  onFieldChange: (name: string, value: string) => void;
+}) {
   const [surfaceType, setSurfaceType] = useState<SurfaceType>("walls");
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("si");
-  const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
-
-  function handleFieldChange(name: string, value: string) {
-    setFormValues((currentValues) => ({
-      ...currentValues,
-      [name]: value,
-    }));
-  }
 
   return (
     <aside className="min-h-0 overflow-hidden border-b border-rose-100 bg-[#fff8fa] xl:border-r xl:border-b-0">
@@ -113,9 +111,9 @@ export function HeatLoadFormPanel() {
                       surfaceType={surfaceType}
                       rowIndex={rowIndex}
                       values={formValues}
-                      onFieldChange={handleFieldChange}
+                      onFieldChange={onFieldChange}
                     />
-                    <DesignConditionsRow rowIndex={rowIndex} values={formValues} onFieldChange={handleFieldChange} />
+                    <DesignConditionsRow rowIndex={rowIndex} values={formValues} onFieldChange={onFieldChange} />
                   </tr>
                 ))}
               </tbody>
