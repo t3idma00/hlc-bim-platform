@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -15,7 +15,7 @@ export default function ResetPasswordPage() {
   const searchParams = useSearchParams();
   const accessToken = searchParams.get("access_token");
 
-  // If no token, redirect to login
+  // Redirect if no token
   useEffect(() => {
     if (!accessToken) {
       router.push("/login");
@@ -50,7 +50,7 @@ export default function ResetPasswordPage() {
       if (error) {
         setError(error.message);
       } else {
-        setSuccess("Password updated successfully! Redirecting to login...");
+        setSuccess("Password updated successfully! Redirecting...");
         setTimeout(() => {
           router.push("/login");
         }, 2000);
@@ -118,5 +118,14 @@ export default function ResetPasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Wrap with Suspense to fix useSearchParams error
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center">Loading...</div>}>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }

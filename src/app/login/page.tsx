@@ -1,8 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn, signUp, resetPassword, signInWithGoogle } from "@/actions/auth";
+
+// Separate component to safely use useSearchParams
+function ErrorHandler() {
+  const searchParams = useSearchParams();
+  const errorParam = searchParams.get("error");
+
+  if (errorParam) {
+    return <p className="text-red-600 text-sm text-center font-medium">{decodeURIComponent(errorParam)}</p>;
+  }
+  return null;
+}
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
@@ -10,15 +21,6 @@ export default function LoginPage() {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const searchParams = useSearchParams();
-
-  // Show error from URL if any
-  useEffect(() => {
-    const errorParam = searchParams.get("error");
-    if (errorParam) {
-      setError(decodeURIComponent(errorParam));
-    }
-  }, [searchParams]);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -118,6 +120,11 @@ export default function LoginPage() {
                 className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:border-[#be123c]"
               />
             )}
+
+            {/* Show error from URL query param */}
+            <Suspense fallback={null}>
+              <ErrorHandler />
+            </Suspense>
 
             {error && <p className="text-red-600 text-sm text-center font-medium">{error}</p>}
             {success && <p className="text-green-600 text-sm text-center font-medium">{success}</p>}
