@@ -1,15 +1,24 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { signIn, signUp, signInWithGoogle, resetPassword } from "@/actions/auth";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signIn, signUp, resetPassword, signInWithGoogle } from "@/actions/auth";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup" | "reset">("login");
-  const [error, setError] = useState<string>("");
-  const [success, setSuccess] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Show error from URL if any
+  useEffect(() => {
+    const errorParam = searchParams.get("error");
+    if (errorParam) {
+      setError(decodeURIComponent(errorParam));
+    }
+  }, [searchParams]);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -32,30 +41,12 @@ export default function LoginPage() {
     try {
       let result: any;
 
-      if (mode === "login") {
-        result = await signIn(formData);
-      } else if (mode === "signup") {
-        result = await signUp(formData);
-      } else if (mode === "reset") {
-        result = await resetPassword(formData);
-      }
+      if (mode === "login") result = await signIn(formData);
+      else if (mode === "signup") result = await signUp(formData);
+      else if (mode === "reset") result = await resetPassword(formData);
 
-      // Safe handling of result
-      if (result && typeof result === "object") {
-        if ("error" in result && result.error) {
-          setError(result.error);
-        } else if ("success" in result && result.success) {
-          const message = result.message || "Operation completed successfully";
-          setSuccess(message);
-
-          if (mode === "reset") {
-            setTimeout(() => {
-              setMode("login");
-              setSuccess("");
-            }, 2500);
-          }
-        }
-      }
+      if (result?.error) setError(result.error);
+      else if (result?.success) setSuccess(result.message);
     } catch (err: any) {
       setError(err?.message || "An unexpected error occurred");
     } finally {
@@ -66,7 +57,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#fff4f6] flex items-center justify-center p-6">
       <div className="w-full max-w-md">
-        {/* Logo & Title */}
         <div className="text-center mb-10">
           <div className="mx-auto flex h-20 w-20 items-center justify-center bg-[#9f1239] text-white text-4xl font-bold rounded-2xl shadow-md">
             H
@@ -83,6 +73,23 @@ export default function LoginPage() {
             {mode === "signup" && "Create Account"}
             {mode === "reset" && "Reset Password"}
           </h2>
+
+          {/* Google Sign In */}
+          <form action={signInWithGoogle} className="my-6">
+            <button
+              type="submit"
+              className="w-full border-2 border-slate-300 hover:border-[#be123c] bg-white py-4 rounded-2xl flex items-center justify-center gap-3 font-medium text-base transition-all"
+            >
+              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-6 h-6" />
+              Continue with Google
+            </button>
+          </form>
+
+          <div className="my-6 flex items-center gap-4">
+            <div className="h-px flex-1 bg-slate-200" />
+            <span className="text-slate-400 text-sm">OR</span>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
 
           <form action={handleSubmit} className="space-y-5">
             {mode === "signup" && (
@@ -131,19 +138,7 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Google Sign In */}
-          <div className="my-6">
-            <button
-              onClick={signInWithGoogle}
-              className="w-full border border-slate-300 hover:bg-slate-50 py-3.5 rounded-2xl flex items-center justify-center gap-3 font-medium transition"
-            >
-              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
-              Continue with Google
-            </button>
-          </div>
-
-          {/* Toggle Links */}
-          <div className="text-center text-sm text-slate-600 space-y-2">
+          <div className="text-center text-sm text-slate-600 mt-8 space-y-2">
             {mode === "login" && (
               <>
                 Don't have an account?{" "}
