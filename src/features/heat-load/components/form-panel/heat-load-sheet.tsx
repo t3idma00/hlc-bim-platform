@@ -6,6 +6,7 @@ type Column = {
   align?: Align;
   wrap?: boolean;
   width?: string;
+  selectOptions?: string[];
 };
 
 type Row = Record<string, string>;
@@ -101,13 +102,13 @@ const sections: Section[] = [
       { key: "componentA", label: "Component", width: "10%" },
       { key: "qty", label: "Qty", align: "center", width: "6%" },
       { key: "crackLength", label: "Crack length", align: "right", width: "10%" },
-      { key: "componentB", label: "Component", wrap: true, width: "26%" },
+      { key: "componentB", label: "Component", wrap: true, width: "26%", selectOptions: ["Residential", "Non residential"] },
       { key: "sensible", label: "Sensible Heat", align: "right", width: "12%" },
       { key: "latent", label: "Latent heat", align: "right", width: "12%" },
       { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%" },
     ],
     rows: [
-      { id: "4.1", componentA: "Window", qty: "", crackLength: "", componentB: "", sensible: "", latent: "", heatLoad: "" },
+      { id: "4.1", componentA: "Window", qty: "", crackLength: "", componentB: "Residential", sensible: "", latent: "", heatLoad: "" },
     ],
   },
   {
@@ -206,10 +207,18 @@ function SectionTable({ number, title, columns, rows }: Section) {
               const cellValue = row[column.key] ?? "";
               const hasValue = cellValue.trim().length > 0;
               const fillClass = hasValue ? "bg-[#fff4f7]" : "bg-white";
+              const hasSelect = Boolean(column.selectOptions?.length);
 
               return (
                 <td key={column.key} className={`${cellClass} ${fillClass} p-0`}>
-                  {hasValue ? (
+                  {hasSelect ? (
+                    <SheetSelectCell
+                      ariaLabel={`${row.id} ${column.label || column.key}`}
+                      defaultValue={cellValue || column.selectOptions?.[0] || ""}
+                      align={column.align ?? "left"}
+                      options={column.selectOptions ?? []}
+                    />
+                  ) : hasValue ? (
                     <SheetCell
                       ariaLabel={`${row.id} ${column.label || column.key}`}
                       defaultValue={cellValue}
@@ -296,5 +305,42 @@ function SheetInputCell({
       type="text"
       className={`min-h-[24px] h-full w-full bg-transparent px-1 py-1 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
     />
+  );
+}
+
+function SheetSelectCell({
+  ariaLabel,
+  defaultValue,
+  align = "left",
+  options,
+}: {
+  ariaLabel: string;
+  defaultValue: string;
+  align?: Align;
+  options: string[];
+}) {
+  const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+
+  return (
+    <div className="relative min-h-[24px] h-full w-full">
+      <select
+        aria-label={ariaLabel}
+        defaultValue={defaultValue}
+        className={`min-h-[24px] h-full w-full appearance-none cursor-pointer bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 10 6"
+        className="pointer-events-none absolute right-1 top-1/2 h-[6px] w-[10px] -translate-y-1/2 text-slate-900"
+      >
+        <path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
+      </svg>
+    </div>
   );
 }

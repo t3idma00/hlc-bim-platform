@@ -1,28 +1,28 @@
 type FormValues = Record<string, string>;
+type SurfaceType = "walls" | "windows" | "doors";
 
 export function DirectionDimensionCell({
   name,
+  surfaceType,
   values,
   onFieldChange,
 }: {
   name: string;
+  surfaceType: SurfaceType;
   values: FormValues;
   onFieldChange: (name: string, value: string) => void;
 }) {
   const defaultHeight = name.startsWith("wall") ? "3" : "";
+  const isOpeningSurface = surfaceType === "windows" || surfaceType === "doors";
+  const primaryLabel = isOpeningSurface ? "W" : "L/W";
+  const primaryFieldName = `${name}${isOpeningSurface ? "Width" : "Length"}`;
 
   return (
-    <div className="grid min-h-[30px] grid-cols-[10px_minmax(0,1fr)_10px_minmax(0,1fr)_10px_minmax(0,1fr)] items-center gap-x-1 px-2 py-1">
+    <div className="grid min-h-[30px] grid-cols-[20px_minmax(0,1fr)_10px_minmax(0,1fr)] items-center gap-x-1 px-2 py-1">
       <DimensionField
-        label="L"
-        name={`${name}Length`}
-        value={values[`${name}Length`] ?? ""}
-        onValueChange={onFieldChange}
-      />
-      <DimensionField
-        label="W"
-        name={`${name}Width`}
-        value={values[`${name}Width`] ?? ""}
+        label={primaryLabel}
+        name={primaryFieldName}
+        value={values[primaryFieldName] ?? ""}
         onValueChange={onFieldChange}
       />
       <DimensionField

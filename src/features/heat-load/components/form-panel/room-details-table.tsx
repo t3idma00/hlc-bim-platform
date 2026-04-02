@@ -1,6 +1,6 @@
 import { DirectionDimensionCell, TopSelectField } from "./top-form-fields";
 
-type SurfaceType = "walls" | "windows";
+type SurfaceType = "walls" | "windows" | "doors";
 type FormValues = Record<string, string>;
 
 type RoomRow = {
@@ -13,6 +13,7 @@ const directionOptions = ["North", "East", "South", "West"];
 const surfaceTabs: { key: SurfaceType; label: string }[] = [
   { key: "walls", label: "Walls" },
   { key: "windows", label: "Windows" },
+  { key: "doors", label: "Doors" },
 ];
 
 const roomRowsBySurface: Record<SurfaceType, RoomRow[]> = {
@@ -27,6 +28,12 @@ const roomRowsBySurface: Record<SurfaceType, RoomRow[]> = {
     { name: "windowEast", defaultDirection: "East" },
     { name: "windowSouth", defaultDirection: "South" },
     { name: "windowWest", defaultDirection: "West" },
+  ],
+  doors: [
+    { name: "doorNorth", defaultDirection: "North" },
+    { name: "doorEast", defaultDirection: "East" },
+    { name: "doorSouth", defaultDirection: "South" },
+    { name: "doorWest", defaultDirection: "West" },
   ],
 };
 
@@ -53,7 +60,7 @@ export function RoomDetailsHeader({
                 key={tab.key}
                 type="button"
                 onClick={() => onSurfaceChange(tab.key)}
-                className={`relative flex h-7 w-[92px] items-center justify-center border px-3 text-[9px] font-semibold normal-case tracking-[0.14em] leading-none ${
+                className={`relative flex h-7 w-[78px] items-center justify-center border px-3 text-[9px] font-semibold normal-case tracking-[0.14em] leading-none ${
                   isActive
                     ? "-mb-px z-10 border-[#9f1239] border-b-[#fff8fa] bg-[#9f1239] text-white"
                     : "border-slate-300 bg-[#fff4f7] text-slate-900"
@@ -94,7 +101,12 @@ export function RoomDetailsRow({
         />
       </td>
       <td className="border border-slate-300 bg-white p-0">
-        <DirectionDimensionCell name={roomRow.name} values={values} onFieldChange={onFieldChange} />
+        <DirectionDimensionCell
+          name={roomRow.name}
+          surfaceType={surfaceType}
+          values={values}
+          onFieldChange={onFieldChange}
+        />
       </td>
     </>
   );

@@ -5,7 +5,7 @@ import { DesignConditionsHeader, DesignConditionsRow } from "./design-conditions
 import { HeatLoadSheet } from "./heat-load-sheet";
 import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
 
-type SurfaceType = "walls" | "windows";
+type SurfaceType = "walls" | "windows" | "doors";
 type UnitSystem = "si" | "imperial";
 export type FormValues = Record<string, string>;
 
@@ -44,6 +44,22 @@ export const initialFormValues: FormValues = {
   windowWestLength: "",
   windowWestWidth: "",
   windowWestHeight: "",
+  doorNorthDirection: "North",
+  doorNorthLength: "",
+  doorNorthWidth: "",
+  doorNorthHeight: "",
+  doorEastDirection: "East",
+  doorEastLength: "",
+  doorEastWidth: "",
+  doorEastHeight: "",
+  doorSouthDirection: "South",
+  doorSouthLength: "",
+  doorSouthWidth: "",
+  doorSouthHeight: "",
+  doorWestDirection: "West",
+  doorWestLength: "",
+  doorWestWidth: "",
+  doorWestHeight: "",
   outsideCondition: "",
   insideCondition: "",
   conditionDifference: "",
