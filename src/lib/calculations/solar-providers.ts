@@ -1,0 +1,347 @@
+import type {
+  AmbientConditions,
+  ResolvedSolarLocation,
+  SolarIntensity,
+  SolarLocationInput,
+  SolarMode,
+} from "./solar-types";
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function toYyyyMmDdUtc(date: Date): string {
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`;
+}
+
+function parseMeasurement(value: unknown): { value: number; available: boolean } {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) {
+    return { value: 0, available: false };
+  }
+
+  return { value: parsed, available: true };
+}
+
+function buildMissingVariables(availability: { ghi: boolean; dni: boolean; dhi: boolean }): string[] {
+  const missing: string[] = [];
+  if (!availability.ghi) {
+    missing.push("GHI");
+  }
+  if (!availability.dni) {
+    missing.push("DNI");
+  }
+  if (!availability.dhi) {
+    missing.push("DHI");
+  }
+  return missing;
+}
+
+function buildAmbientMissingVariables(availability: {
+  dryBulbTemp: boolean;
+  relativeHumidity: boolean;
+}): string[] {
+  const missing: string[] = [];
+  if (!availability.dryBulbTemp) {
+    missing.push("DryBulbTemp");
+  }
+  if (!availability.relativeHumidity) {
+    missing.push("RelativeHumidity");
+  }
+  return missing;
+}
+
+function findNearestHourlyIndex(times: string[], targetDateTime: Date): number {
+  const targetMs = targetDateTime.getTime();
+  let nearestIndex = 0;
+  let nearestDelta = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < times.length; index += 1) {
+    const sampleMs = new Date(times[index]).getTime();
+    const delta = Math.abs(sampleMs - targetMs);
+    if (delta < nearestDelta) {
+      nearestDelta = delta;
+      nearestIndex = index;
+    }
+  }
+
+  return nearestIndex;
+}
+
+// Decide which data source mode to use from the selected date.
+export function chooseModeByDate(targetDateTime: Date): SolarMode {
+  const now = new Date();
+  const startOfTodayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const targetUtc = Date.UTC(
+    targetDateTime.getUTCFullYear(),
+    targetDateTime.getUTCMonth(),
+    targetDateTime.getUTCDate(),
+  );
+
+  return targetUtc < startOfTodayUtc ? "historical" : "live";
+}
+
+// Resolve final location values for downstream provider calls.
+export async function resolveSolarLocation(input: SolarLocationInput): Promise<ResolvedSolarLocation> {
+  if (isFiniteNumber(input.latitude) && isFiniteNumber(input.longitude)) {
+    return {
+      latitude: input.latitude,
+      longitude: input.longitude,
+      city: input.city,
+      country: input.country,
+      timezone: input.timezone,
+    };
+  }
+
+  throw new Error("Provide latitude and longitude.");
+}
+
+// Live/near-live solar radiation from Open-Meteo forecast API.
+export async function fetchOpenMeteoSolarIntensity(
+  location: ResolvedSolarLocation,
+  targetDateTime: Date,
+): Promise<SolarIntensity> {
+  const dateIso = targetDateTime.toISOString().slice(0, 10);
+  const timezone = location.timezone ?? "UTC";
+  const params = new URLSearchParams({
+    latitude: String(location.latitude),
+    longitude: String(location.longitude),
+    timezone,
+    hourly: "shortwave_radiation,direct_normal_irradiance,diffuse_radiation",
+    start_date: dateIso,
+    end_date: dateIso,
+  });
+
+  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Open-Meteo request failed (${response.status}).`);
+  }
+
+  const payload = (await response.json()) as {
+    hourly?: {
+      time?: string[];
+      shortwave_radiation?: Array<number | null>;
+      direct_normal_irradiance?: Array<number | null>;
+      diffuse_radiation?: Array<number | null>;
+    };
+  };
+
+  const hourly = payload.hourly;
+  if (!hourly?.time?.length) {
+    throw new Error("Open-Meteo response does not contain hourly solar data.");
+  }
+
+  const nearestIndex = findNearestHourlyIndex(hourly.time, targetDateTime);
+  const ghi = parseMeasurement(hourly.shortwave_radiation?.[nearestIndex]);
+  const dni = parseMeasurement(hourly.direct_normal_irradiance?.[nearestIndex]);
+  const dhi = parseMeasurement(hourly.diffuse_radiation?.[nearestIndex]);
+
+  const availability = {
+    ghi: ghi.available,
+    dni: dni.available,
+    dhi: dhi.available,
+  };
+
+  return {
+    ghi: ghi.value,
+    dni: dni.value,
+    dhi: dhi.value,
+    source: "open-meteo",
+    availability,
+    missingVariables: buildMissingVariables(availability),
+  };
+}
+
+function parseNasaHourlyValue(
+  parameterMap: Record<string, number | string | null> | undefined,
+  dateTime: Date,
+): { value: number; available: boolean } {
+  if (!parameterMap) {
+    return { value: 0, available: false };
+  }
+
+  const key = `${toYyyyMmDdUtc(dateTime)}${pad(dateTime.getUTCHours())}`;
+  const value = parameterMap[key];
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed < -900) {
+    return { value: 0, available: false };
+  }
+
+  return { value: parsed, available: true };
+}
+
+// Historical solar radiation from NASA POWER hourly endpoint.
+export async function fetchNasaPowerSolarIntensity(
+  location: ResolvedSolarLocation,
+  targetDateTime: Date,
+): Promise<SolarIntensity> {
+  const date = toYyyyMmDdUtc(targetDateTime);
+  const params = new URLSearchParams({
+    parameters: "ALLSKY_SFC_SW_DWN,ALLSKY_SFC_SW_DNI,ALLSKY_SFC_SW_DIFF",
+    community: "RE",
+    longitude: String(location.longitude),
+    latitude: String(location.latitude),
+    start: date,
+    end: date,
+    format: "JSON",
+    "time-standard": "UTC",
+  });
+
+  const response = await fetch(`https://power.larc.nasa.gov/api/temporal/hourly/point?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`NASA POWER request failed (${response.status}).`);
+  }
+
+  const payload = (await response.json()) as {
+    properties?: {
+      parameter?: {
+        ALLSKY_SFC_SW_DWN?: Record<string, number | string | null>;
+        ALLSKY_SFC_SW_DNI?: Record<string, number | string | null>;
+        ALLSKY_SFC_SW_DIFF?: Record<string, number | string | null>;
+      };
+    };
+  };
+
+  const parameter = payload.properties?.parameter;
+  if (!parameter) {
+    throw new Error("NASA POWER response does not contain hourly solar parameters.");
+  }
+
+  const ghi = parseNasaHourlyValue(parameter.ALLSKY_SFC_SW_DWN, targetDateTime);
+  const dni = parseNasaHourlyValue(parameter.ALLSKY_SFC_SW_DNI, targetDateTime);
+  const dhi = parseNasaHourlyValue(parameter.ALLSKY_SFC_SW_DIFF, targetDateTime);
+
+  const availability = {
+    ghi: ghi.available,
+    dni: dni.available,
+    dhi: dhi.available,
+  };
+
+  return {
+    ghi: ghi.value,
+    dni: dni.value,
+    dhi: dhi.value,
+    source: "nasa-power",
+    availability,
+    missingVariables: buildMissingVariables(availability),
+  };
+}
+
+// Historical fallback solar radiation from Open-Meteo archive.
+export async function fetchOpenMeteoArchiveSolarIntensity(
+  location: ResolvedSolarLocation,
+  targetDateTime: Date,
+): Promise<SolarIntensity> {
+  const dateIso = targetDateTime.toISOString().slice(0, 10);
+  const timezone = location.timezone ?? "UTC";
+  const params = new URLSearchParams({
+    latitude: String(location.latitude),
+    longitude: String(location.longitude),
+    timezone,
+    hourly: "shortwave_radiation,direct_normal_irradiance,diffuse_radiation",
+    start_date: dateIso,
+    end_date: dateIso,
+  });
+
+  const response = await fetch(`https://archive-api.open-meteo.com/v1/archive?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Open-Meteo archive request failed (${response.status}).`);
+  }
+
+  const payload = (await response.json()) as {
+    hourly?: {
+      time?: string[];
+      shortwave_radiation?: Array<number | null>;
+      direct_normal_irradiance?: Array<number | null>;
+      diffuse_radiation?: Array<number | null>;
+    };
+  };
+
+  const hourly = payload.hourly;
+  if (!hourly?.time?.length) {
+    throw new Error("Open-Meteo archive response does not contain hourly solar data.");
+  }
+
+  const nearestIndex = findNearestHourlyIndex(hourly.time, targetDateTime);
+  const ghi = parseMeasurement(hourly.shortwave_radiation?.[nearestIndex]);
+  const dni = parseMeasurement(hourly.direct_normal_irradiance?.[nearestIndex]);
+  const dhi = parseMeasurement(hourly.diffuse_radiation?.[nearestIndex]);
+
+  const availability = {
+    ghi: ghi.available,
+    dni: dni.available,
+    dhi: dhi.available,
+  };
+
+  return {
+    ghi: ghi.value,
+    dni: dni.value,
+    dhi: dhi.value,
+    source: "open-meteo-archive",
+    availability,
+    missingVariables: buildMissingVariables(availability),
+  };
+}
+
+// Ambient weather values (dry bulb and RH) for the selected timestamp.
+export async function fetchOpenMeteoAmbientConditions(
+  location: ResolvedSolarLocation,
+  targetDateTime: Date,
+): Promise<AmbientConditions> {
+  const dateIso = targetDateTime.toISOString().slice(0, 10);
+  const timezone = location.timezone ?? "UTC";
+  const isHistorical = chooseModeByDate(targetDateTime) === "historical";
+  const endpoint = isHistorical
+    ? "https://archive-api.open-meteo.com/v1/archive"
+    : "https://api.open-meteo.com/v1/forecast";
+  const source: AmbientConditions["source"] = isHistorical ? "open-meteo-archive" : "open-meteo";
+
+  const params = new URLSearchParams({
+    latitude: String(location.latitude),
+    longitude: String(location.longitude),
+    timezone,
+    hourly: "temperature_2m,relative_humidity_2m",
+    start_date: dateIso,
+    end_date: dateIso,
+  });
+
+  const response = await fetch(`${endpoint}?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Open-Meteo ambient request failed (${response.status}).`);
+  }
+
+  const payload = (await response.json()) as {
+    hourly?: {
+      time?: string[];
+      temperature_2m?: Array<number | null>;
+      relative_humidity_2m?: Array<number | null>;
+    };
+  };
+
+  const hourly = payload.hourly;
+  if (!hourly?.time?.length) {
+    throw new Error("Open-Meteo ambient response does not contain hourly weather data.");
+  }
+
+  const nearestIndex = findNearestHourlyIndex(hourly.time, targetDateTime);
+  const dryBulbTemp = parseMeasurement(hourly.temperature_2m?.[nearestIndex]);
+  const relativeHumidity = parseMeasurement(hourly.relative_humidity_2m?.[nearestIndex]);
+
+  const availability = {
+    dryBulbTemp: dryBulbTemp.available,
+    relativeHumidity: relativeHumidity.available,
+  };
+
+  return {
+    dryBulbTemp: dryBulbTemp.value,
+    relativeHumidity: relativeHumidity.value,
+    source,
+    availability,
+    missingVariables: buildAmbientMissingVariables(availability),
+  };
+}
