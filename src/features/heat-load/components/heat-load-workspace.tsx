@@ -1,14 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { type User } from "@supabase/supabase-js";
 import { HeatLoadCanvasPanel } from "../../bim-model/view2D";
+import { HeatLoad3DPanel } from "../../bim-model/view3D";
+import { type WorkspaceView } from "../../bim-model/workspace-view-toggle";
 import { HeatLoadFormPanel, initialFormValues, type FormValues } from "./form-panel";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/actions/auth";
 
 export default function HeatLoadWorkspace() {
   const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
-  const [user, setUser] = useState<any>(null);
+  const [activeView, setActiveView] = useState<WorkspaceView>("2d");
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Listen to auth state
@@ -24,7 +28,7 @@ export default function HeatLoadWorkspace() {
     fetchUser();
 
     // Real-time auth listener
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
 
@@ -98,7 +102,19 @@ export default function HeatLoadWorkspace() {
             formValues={formValues} 
             onFieldChange={handleFieldChange} 
           />
-          <HeatLoadCanvasPanel formValues={formValues} />
+          {activeView === "2d" ? (
+            <HeatLoadCanvasPanel
+              formValues={formValues}
+              activeView={activeView}
+              onViewChange={setActiveView}
+            />
+          ) : (
+            <HeatLoad3DPanel
+              formValues={formValues}
+              activeView={activeView}
+              onViewChange={setActiveView}
+            />
+          )}
         </main>
 
         <footer className="border-t border-rose-100 bg-[#fffafb] px-5 py-2 text-center text-xs text-rose-600">

@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  WorkspaceViewToggle,
+  type WorkspaceView,
+} from "../workspace-view-toggle";
 
 const RULER_SIZE = 24;
 const LEFT_RULER_SIZE = 32;
 const BASE_GRID_SIZE = 40;
 const DEFAULT_WALL_THICKNESS = 0.2;
 const DIMENSION_GAP = 12;
+const GRID_TARGET_SIZE = 44;
 
 type CanvasFormValues = Record<string, string>;
 type Point = { x: number; y: number };
@@ -60,17 +65,184 @@ type WallChainBuildResult = {
   hasFullLoopInput: boolean;
 };
 
+type GridMetrics = {
+  pixelsPerMeter: number;
+  gridStepMeters: number;
+  gridSpacing: number;
+  subStepSpacing: number;
+};
+
+type SolarSnapshot = {
+  azimuth: number;
+  zenith: number;
+  altitude: number;
+  targetDateTime: string;
+  latitude: number;
+  longitude: number;
+  alerts: string[];
+};
+
+type SolarState =
+  | {
+      status: "loading";
+      snapshot: null;
+      message: string;
+    }
+  | {
+      status: "ready";
+      snapshot: SolarSnapshot;
+      message: string;
+    }
+  | {
+      status: "denied" | "unsupported" | "error";
+      snapshot: null;
+      message: string;
+    };
+
+type SolarApiResponse = {
+  targetDateTime: string;
+  location: {
+    latitude: number;
+    longitude: number;
+  };
+  solarPosition: {
+    azimuth: number;
+    zenith: number;
+  };
+  alerts?: string[];
+  error?: string;
+};
+
 export function HeatLoadCanvasPanel({
   formValues,
+  activeView,
+  onViewChange,
 }: {
   formValues: CanvasFormValues;
+  activeView: WorkspaceView;
+  onViewChange: (view: WorkspaceView) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [scale, setScale] = useState(1);
+  const [solarState, setSolarState] = useState<SolarState>({
+    status: "loading",
+    snapshot: null,
+    message: "Locating live sun...",
+  });
 
   const offsetRef = useRef({ x: 0, y: 0 });
   const isDragging = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (!("geolocation" in navigator)) {
+      setSolarState({
+        status: "unsupported",
+        snapshot: null,
+        message: "Geolocation is not supported in this browser.",
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: number | undefined;
+
+    const fetchSolar = async (latitude: number, longitude: number) => {
+      try {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const params = new URLSearchParams({
+          latitude: latitude.toString(),
+          longitude: longitude.toString(),
+          timezone,
+          datetime: new Date().toISOString(),
+          mode: "auto",
+        });
+
+        const response = await fetch(`/api/solar-details?${params.toString()}`);
+        const payload = (await response.json()) as SolarApiResponse;
+
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error ?? "Unable to load live sun data.");
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        const snapshot = createSolarSnapshot(payload);
+
+        setSolarState({
+          status: "ready",
+          snapshot,
+          message:
+            snapshot.altitude > 0
+              ? "Live sun synced to current location."
+              : "Sun is currently below the horizon at this location.",
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const message =
+          error instanceof Error ? error.message : "Unable to load live sun data.";
+
+        setSolarState({
+          status: "error",
+          snapshot: null,
+          message,
+        });
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (cancelled) {
+          return;
+        }
+
+        const { latitude, longitude } = position.coords;
+
+        void fetchSolar(latitude, longitude);
+        intervalId = window.setInterval(() => {
+          void fetchSolar(latitude, longitude);
+        }, 300000);
+      },
+      (error) => {
+        if (cancelled) {
+          return;
+        }
+
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Enable location access to show the live sun position."
+            : "Unable to access your location for live sun tracking.";
+
+        setSolarState({
+          status: "denied",
+          snapshot: null,
+          message,
+        });
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 10000,
+        maximumAge: 300000,
+      }
+    );
+
+    return () => {
+      cancelled = true;
+
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -89,7 +261,7 @@ export function HeatLoadCanvasPanel({
       context: CanvasRenderingContext2D,
       width: number,
       height: number,
-      gridSize: number,
+      gridMetrics: GridMetrics,
       offsetX: number,
       offsetY: number
     ) {
@@ -114,12 +286,12 @@ export function HeatLoadCanvasPanel({
       context.font = "10px sans-serif";
       context.textBaseline = "middle";
 
-      const subStep = gridSize / 4;
+      const subStep = gridMetrics.subStepSpacing;
 
       let indexX = Math.floor(-offsetX / subStep);
 
-      for (let x = LEFT_RULER_SIZE + (offsetX % subStep); x < width; x += subStep) {
-        const mod = indexX % 4;
+      for (let x = LEFT_RULER_SIZE + getOffsetWithinStep(offsetX, subStep); x < width; x += subStep) {
+        const mod = getPositiveModulo(indexX, 4);
 
         let tick = 4;
         let showLabel = false;
@@ -137,8 +309,8 @@ export function HeatLoadCanvasPanel({
         context.stroke();
 
         if (showLabel) {
-          const value = Math.floor(indexX / 4);
-          context.fillText(value.toString(), x + 2, 10);
+          const value = roundToPrecision((indexX / 4) * gridMetrics.gridStepMeters);
+          context.fillText(formatAxisValue(value), x + 2, 10);
         }
 
         indexX++;
@@ -146,8 +318,8 @@ export function HeatLoadCanvasPanel({
 
       let indexY = Math.floor(-offsetY / subStep);
 
-      for (let y = RULER_SIZE + (offsetY % subStep); y < height; y += subStep) {
-        const mod = indexY % 4;
+      for (let y = RULER_SIZE + getOffsetWithinStep(offsetY, subStep); y < height; y += subStep) {
+        const mod = getPositiveModulo(indexY, 4);
 
         let tick = 4;
         let showLabel = false;
@@ -165,12 +337,12 @@ export function HeatLoadCanvasPanel({
         context.stroke();
 
         if (showLabel) {
-          const value = -Math.floor(indexY / 4);
+          const value = roundToPrecision(-((indexY / 4) * gridMetrics.gridStepMeters));
 
           context.save();
           context.translate(10, y);
           context.rotate(-Math.PI / 2);
-          context.fillText(value.toString(), 0, 0);
+          context.fillText(formatAxisValue(value), 0, 0);
           context.restore();
         }
 
@@ -182,7 +354,7 @@ export function HeatLoadCanvasPanel({
       context: CanvasRenderingContext2D,
       width: number,
       height: number,
-      gridSize: number,
+      gridMetrics: GridMetrics,
       offsetX: number,
       offsetY: number
     ) {
@@ -199,19 +371,40 @@ export function HeatLoadCanvasPanel({
       context.fillStyle = "#ffffff";
       context.fillRect(drawX, drawY, drawWidth, drawHeight);
 
-      context.strokeStyle = "#e5e7eb";
+      const minorStep = gridMetrics.subStepSpacing;
+      const majorStep = gridMetrics.gridSpacing;
+
+      context.strokeStyle = "#f1f5f9";
       context.lineWidth = 1;
 
-      const startX = drawX + (((offsetX % gridSize) + gridSize) % gridSize);
-      for (let x = startX; x < width; x += gridSize) {
+      const minorStartX = drawX + getOffsetWithinStep(offsetX, minorStep);
+      for (let x = minorStartX; x < width; x += minorStep) {
         context.beginPath();
         context.moveTo(x, drawY);
         context.lineTo(x, height);
         context.stroke();
       }
 
-      const startY = drawY + (((offsetY % gridSize) + gridSize) % gridSize);
-      for (let y = startY; y < height; y += gridSize) {
+      const minorStartY = drawY + getOffsetWithinStep(offsetY, minorStep);
+      for (let y = minorStartY; y < height; y += minorStep) {
+        context.beginPath();
+        context.moveTo(drawX, y);
+        context.lineTo(width, y);
+        context.stroke();
+      }
+
+      context.strokeStyle = "#e2e8f0";
+
+      const majorStartX = drawX + getOffsetWithinStep(offsetX, majorStep);
+      for (let x = majorStartX; x < width; x += majorStep) {
+        context.beginPath();
+        context.moveTo(x, drawY);
+        context.lineTo(x, height);
+        context.stroke();
+      }
+
+      const majorStartY = drawY + getOffsetWithinStep(offsetY, majorStep);
+      for (let y = majorStartY; y < height; y += majorStep) {
         context.beginPath();
         context.moveTo(drawX, y);
         context.lineTo(width, y);
@@ -225,7 +418,7 @@ export function HeatLoadCanvasPanel({
       context: CanvasRenderingContext2D,
       width: number,
       height: number,
-      gridSize: number,
+      pixelsPerMeter: number,
       offsetX: number,
       offsetY: number
     ) {
@@ -275,15 +468,18 @@ export function HeatLoadCanvasPanel({
       const planWidth = Math.max(bounds.maxX - bounds.minX, 1);
       const planHeight = Math.max(bounds.maxY - bounds.minY, 1);
 
-      const originX = drawX + (drawWidth - planWidth * gridSize) / 2 - bounds.minX * gridSize + offsetX;
-      const originY = drawY + (drawHeight - planHeight * gridSize) / 2 - bounds.minY * gridSize + offsetY;
+      const originX =
+        drawX + (drawWidth - planWidth * pixelsPerMeter) / 2 - bounds.minX * pixelsPerMeter + offsetX;
+      const originY =
+        drawY + (drawHeight - planHeight * pixelsPerMeter) / 2 - bounds.minY * pixelsPerMeter + offsetY;
+
       laidOutChains.items.forEach((item) => {
         if (item.geometry.closed) {
           const translatedOuter = item.geometry.outerPoints.map((point) =>
-            translatePoint(addPoints(point, item.offset), originX, originY, gridSize)
+            translatePoint(addPoints(point, item.offset), originX, originY, pixelsPerMeter)
           );
           const translatedInner = item.geometry.innerPoints.map((point) =>
-            translatePoint(addPoints(point, item.offset), originX, originY, gridSize)
+            translatePoint(addPoints(point, item.offset), originX, originY, pixelsPerMeter)
           );
 
           context.beginPath();
@@ -298,7 +494,7 @@ export function HeatLoadCanvasPanel({
           context.fill();
         } else {
           const translatedPolygon = item.geometry.polygonPoints.map((point) =>
-            translatePoint(addPoints(point, item.offset), originX, originY, gridSize)
+            translatePoint(addPoints(point, item.offset), originX, originY, pixelsPerMeter)
           );
 
           context.beginPath();
@@ -308,8 +504,8 @@ export function HeatLoadCanvasPanel({
         }
 
         item.chain.segments.forEach((segment) => {
-          const start = translatePoint(addPoints(segment.start, item.offset), originX, originY, gridSize);
-          const end = translatePoint(addPoints(segment.end, item.offset), originX, originY, gridSize);
+          const start = translatePoint(addPoints(segment.start, item.offset), originX, originY, pixelsPerMeter);
+          const end = translatePoint(addPoints(segment.end, item.offset), originX, originY, pixelsPerMeter);
 
           drawSegmentDimension(
             context,
@@ -317,7 +513,7 @@ export function HeatLoadCanvasPanel({
             start,
             end,
             segment.length,
-            segment.thickness * gridSize,
+            segment.thickness * pixelsPerMeter,
           );
         });
 
@@ -325,8 +521,18 @@ export function HeatLoadCanvasPanel({
           const lastSegment = item.chain.segments[item.chain.segments.length - 1];
           const firstSegment = item.chain.segments[0];
 
-          const lastPoint = translatePoint(addPoints(lastSegment.end, item.offset), originX, originY, gridSize);
-          const firstPoint = translatePoint(addPoints(firstSegment.start, item.offset), originX, originY, gridSize);
+          const lastPoint = translatePoint(
+            addPoints(lastSegment.end, item.offset),
+            originX,
+            originY,
+            pixelsPerMeter
+          );
+          const firstPoint = translatePoint(
+            addPoints(firstSegment.start, item.offset),
+            originX,
+            originY,
+            pixelsPerMeter
+          );
 
           context.setLineDash([8, 6]);
           context.lineWidth = 2;
@@ -339,13 +545,37 @@ export function HeatLoadCanvasPanel({
         }
       });
 
+      if (solarState.status === "ready" && solarState.snapshot.altitude > 0) {
+        const planCenter = translatePoint(
+          {
+            x: bounds.minX + planWidth / 2,
+            y: bounds.minY + planHeight / 2,
+          },
+          originX,
+          originY,
+          pixelsPerMeter
+        );
+
+        drawSunOverlay(
+          context,
+          planCenter,
+          {
+            x: drawX,
+            y: drawY,
+            width: drawWidth,
+            height: drawHeight,
+          },
+          solarState.snapshot
+        );
+      }
+
       context.restore();
     }
 
     function draw(canvasElement: HTMLCanvasElement, context: CanvasRenderingContext2D) {
       const width = canvasElement.width;
       const height = canvasElement.height;
-      const gridSize = BASE_GRID_SIZE * scale;
+      const gridMetrics = getGridMetrics(scale);
 
       context.clearRect(0, 0, width, height);
 
@@ -353,7 +583,7 @@ export function HeatLoadCanvasPanel({
         context,
         width,
         height,
-        gridSize,
+        gridMetrics,
         offsetRef.current.x,
         offsetRef.current.y
       );
@@ -362,7 +592,7 @@ export function HeatLoadCanvasPanel({
         context,
         width,
         height,
-        gridSize,
+        gridMetrics.pixelsPerMeter,
         offsetRef.current.x,
         offsetRef.current.y
       );
@@ -371,7 +601,7 @@ export function HeatLoadCanvasPanel({
         context,
         width,
         height,
-        gridSize,
+        gridMetrics,
         offsetRef.current.x,
         offsetRef.current.y
       );
@@ -422,9 +652,14 @@ export function HeatLoadCanvasPanel({
       canvas.removeEventListener("mouseleave", handleMouseUp);
       canvas.removeEventListener("mousemove", handleMouseMove);
     };
-  }, [formValues, scale]);
+  }, [formValues, scale, solarState]);
 
   const wallSummary = getWallSummary(formValues);
+  const sunSummary = getSunSummary(solarState);
+  const compassMarker =
+    solarState.status === "ready" && solarState.snapshot.altitude > 0
+      ? getCompassMarkerPosition(solarState.snapshot.azimuth)
+      : null;
 
   return (
     <section className="flex min-h-0 flex-col overflow-hidden bg-white">
@@ -438,6 +673,10 @@ export function HeatLoadCanvasPanel({
               2D Plan Workspace
             </h2>
           </div>
+          <WorkspaceViewToggle
+            activeView={activeView}
+            onChange={onViewChange}
+          />
         </div>
       </div>
 
@@ -451,18 +690,41 @@ export function HeatLoadCanvasPanel({
             <svg
               aria-hidden="true"
               viewBox="0 0 72 72"
-              className="h-16 w-16"
+              className="h-24 w-24"
             >
-              <circle cx="36" cy="36" r="21" fill="white" fillOpacity="0.9" stroke="#fda4af" strokeWidth="1.5" />
+              <circle cx="36" cy="36" r="22" fill="white" fillOpacity="0.9" stroke="#fda4af" strokeWidth="1.5" />
               <path d="M36 16 L31 31 L36 28 L41 31 Z" fill="#be123c" />
               <path d="M36 56 L31 41 L36 44 L41 41 Z" fill="#94a3b8" />
               <path d="M56 36 L41 31 L44 36 L41 41 Z" fill="#94a3b8" />
               <path d="M16 36 L31 31 L28 36 L31 41 Z" fill="#94a3b8" />
               <circle cx="36" cy="36" r="3.2" fill="#0f172b" />
-              <text x="36" y="10" textAnchor="middle" fontSize="9" fontWeight="700" fill="#be123c">N</text>
-              <text x="62" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">E</text>
-              <text x="36" y="67" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">S</text>
-              <text x="10" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">W</text>
+              {compassMarker ? (
+                <>
+                  <path
+                    d={`M36 36 L${compassMarker.x} ${compassMarker.y}`}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                  />
+                  <g transform={`translate(${compassMarker.x} ${compassMarker.y})`}>
+                    <circle r="7.2" fill="rgba(251, 191, 36, 0.2)" />
+                    <circle r="4.2" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.1" />
+                    <path d="M0 -9.6 V-6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+                    <path d="M0 9.6 V6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+                    <path d="M-9.6 0 H-6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+                    <path d="M9.6 0 H6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+                    <path d="M-6.8 -6.8 L-4.8 -4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M6.8 -6.8 L4.8 -4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M-6.8 6.8 L-4.8 4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M6.8 6.8 L4.8 4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                  </g>
+                </>
+              ) : null}
+              <text x="36" y="8" textAnchor="middle" fontSize="9" fontWeight="700" fill="#be123c">N</text>
+              <text x="65" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">E</text>
+              <text x="36" y="70" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">S</text>
+              <text x="7" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">W</text>
             </svg>
           </div>
         </div>
@@ -473,6 +735,7 @@ export function HeatLoadCanvasPanel({
           <span>Mode: Plan View</span>
           <span>Zoom: {Math.round(scale * 100)}%</span>
           <span>{wallSummary}</span>
+          <span>{sunSummary.bar}</span>
         </div>
       </div>
     </section>
@@ -753,6 +1016,51 @@ function layoutChains(
   };
 }
 
+function getGridMetrics(scale: number): GridMetrics {
+  const pixelsPerMeter = BASE_GRID_SIZE * scale;
+  const desiredStepMeters = GRID_TARGET_SIZE / pixelsPerMeter;
+  const gridStepMeters = getRoundedGridStep(desiredStepMeters);
+
+  return {
+    pixelsPerMeter,
+    gridStepMeters,
+    gridSpacing: pixelsPerMeter * gridStepMeters,
+    subStepSpacing: (pixelsPerMeter * gridStepMeters) / 4,
+  };
+}
+
+function getRoundedGridStep(desiredStepMeters: number) {
+  if (!Number.isFinite(desiredStepMeters) || desiredStepMeters <= 0) {
+    return 1;
+  }
+
+  const exponent = Math.floor(Math.log10(desiredStepMeters));
+  const candidates: number[] = [];
+
+  for (let power = exponent - 1; power <= exponent + 1; power += 1) {
+    const magnitude = 10 ** power;
+
+    [1, 2, 5].forEach((multiplier) => {
+      candidates.push(multiplier * magnitude);
+    });
+  }
+
+  return candidates.reduce((bestStep, currentStep) => {
+    const bestDistance = Math.abs(Math.log(bestStep / desiredStepMeters));
+    const currentDistance = Math.abs(Math.log(currentStep / desiredStepMeters));
+
+    return currentDistance < bestDistance ? currentStep : bestStep;
+  });
+}
+
+function getOffsetWithinStep(offset: number, step: number) {
+  return getPositiveModulo(offset, step);
+}
+
+function getPositiveModulo(value: number, divisor: number) {
+  return ((value % divisor) + divisor) % divisor;
+}
+
 function getGeometryPoints(geometry: ChainGeometry) {
   return geometry.closed
     ? [...geometry.outerPoints, ...geometry.innerPoints]
@@ -945,6 +1253,77 @@ function drawDimensionTick(context: CanvasRenderingContext2D, point: Point, dime
   context.stroke();
 }
 
+function drawSunOverlay(
+  context: CanvasRenderingContext2D,
+  planCenter: Point,
+  bounds: { x: number; y: number; width: number; height: number },
+  solarSnapshot: SolarSnapshot
+) {
+  const sunVector = getSunScreenVector(solarSnapshot.azimuth);
+  const reach = Math.min(bounds.width, bounds.height) * 0.32;
+  const nearOffset = Math.max(28, reach * 0.2);
+  const altitudeFactor = clampNumber(solarSnapshot.altitude / 90, 0.15, 1);
+
+  const start = clampPointToBounds(
+    {
+      x: planCenter.x + sunVector.x * reach,
+      y: planCenter.y + sunVector.y * reach,
+    },
+    bounds,
+    24
+  );
+  const end = {
+    x: planCenter.x + sunVector.x * nearOffset,
+    y: planCenter.y + sunVector.y * nearOffset,
+  };
+
+  const direction = normalizeVector({
+    x: end.x - start.x,
+    y: end.y - start.y,
+  });
+  const perpendicular = {
+    x: -direction.y,
+    y: direction.x,
+  };
+  const arrowLength = 14;
+  const arrowWidth = 7;
+
+  context.save();
+  context.setLineDash([10, 8]);
+  context.strokeStyle = `rgba(245, 158, 11, ${0.35 + altitudeFactor * 0.35})`;
+  context.lineWidth = 2.5;
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.stroke();
+  context.setLineDash([]);
+
+  context.fillStyle = `rgba(251, 191, 36, ${0.3 + altitudeFactor * 0.2})`;
+  context.beginPath();
+  context.arc(start.x, start.y, 11, 0, Math.PI * 2);
+  context.fill();
+
+  context.strokeStyle = "#f59e0b";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(start.x, start.y, 6.5, 0, Math.PI * 2);
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(end.x, end.y);
+  context.lineTo(
+    end.x - direction.x * arrowLength + perpendicular.x * arrowWidth,
+    end.y - direction.y * arrowLength + perpendicular.y * arrowWidth
+  );
+  context.moveTo(end.x, end.y);
+  context.lineTo(
+    end.x - direction.x * arrowLength - perpendicular.x * arrowWidth,
+    end.y - direction.y * arrowLength - perpendicular.y * arrowWidth
+  );
+  context.stroke();
+  context.restore();
+}
+
 function getWallSummary(formValues: CanvasFormValues) {
   const visibleSegments = getRawWallInputs(formValues).filter((wall) => wall.length > 0);
 
@@ -953,6 +1332,34 @@ function getWallSummary(formValues: CanvasFormValues) {
   }
 
   return `Walls: ${visibleSegments.map((segment) => `${formatValue(segment.length)}m`).join(" | ")}`;
+}
+
+function getSunSummary(solarState: SolarState) {
+  if (solarState.status === "ready") {
+    const { snapshot } = solarState;
+
+    if (snapshot.altitude <= 0) {
+      return {
+        bar: `Sun below horizon | Azimuth ${formatDegree(snapshot.azimuth)}°`,
+      };
+    }
+
+    const direction = toCardinalDirection(snapshot.azimuth);
+
+    return {
+      bar: `Live sun | Azimuth ${formatDegree(snapshot.azimuth)}° ${direction} | Altitude ${formatDegree(snapshot.altitude)}°`,
+    };
+  }
+
+  if (solarState.status === "loading") {
+    return {
+      bar: "Sun: Syncing...",
+    };
+  }
+
+  return {
+    bar: solarState.message,
+  };
 }
 
 function parsePositiveNumber(value: string | undefined, fallback = 0) {
@@ -973,4 +1380,70 @@ function getDistance(a: Point, b: Point) {
 
 function formatValue(value: number) {
   return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+}
+
+function formatAxisValue(value: number) {
+  return Number(roundToPrecision(value).toFixed(2)).toString();
+}
+
+function roundToPrecision(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function createSolarSnapshot(payload: SolarApiResponse): SolarSnapshot {
+  return {
+    azimuth: payload.solarPosition.azimuth,
+    zenith: payload.solarPosition.zenith,
+    altitude: 90 - payload.solarPosition.zenith,
+    targetDateTime: payload.targetDateTime,
+    latitude: payload.location.latitude,
+    longitude: payload.location.longitude,
+    alerts: payload.alerts ?? [],
+  };
+}
+
+function getCompassMarkerPosition(azimuth: number) {
+  const angle = (azimuth * Math.PI) / 180;
+  const radius = 22;
+
+  return {
+    x: roundToPrecision(36 + Math.sin(angle) * radius),
+    y: roundToPrecision(36 - Math.cos(angle) * radius),
+  };
+}
+
+function getSunScreenVector(azimuth: number): Point {
+  const angle = (azimuth * Math.PI) / 180;
+
+  return {
+    x: Math.sin(angle),
+    y: -Math.cos(angle),
+  };
+}
+
+function clampPointToBounds(
+  point: Point,
+  bounds: { x: number; y: number; width: number; height: number },
+  padding: number
+): Point {
+  return {
+    x: clampNumber(point.x, bounds.x + padding, bounds.x + bounds.width - padding),
+    y: clampNumber(point.y, bounds.y + padding, bounds.y + bounds.height - padding),
+  };
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function formatDegree(value: number) {
+  return Math.round(value).toString();
+}
+
+function toCardinalDirection(azimuth: number) {
+  const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const normalized = ((azimuth % 360) + 360) % 360;
+  const index = Math.round(normalized / 45) % directions.length;
+
+  return directions[index];
 }
