@@ -662,7 +662,7 @@ export function HeatLoadCanvasPanel({
       : null;
 
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden bg-white">
+    <section className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-white">
       <div className="border-b border-rose-100 bg-white px-4 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -1261,7 +1261,6 @@ function drawSunOverlay(
 ) {
   const sunVector = getSunScreenVector(solarSnapshot.azimuth);
   const reach = Math.min(bounds.width, bounds.height) * 0.32;
-  const nearOffset = Math.max(28, reach * 0.2);
   const altitudeFactor = clampNumber(solarSnapshot.altitude / 90, 0.15, 1);
 
   const start = clampPointToBounds(
@@ -1272,32 +1271,8 @@ function drawSunOverlay(
     bounds,
     24
   );
-  const end = {
-    x: planCenter.x + sunVector.x * nearOffset,
-    y: planCenter.y + sunVector.y * nearOffset,
-  };
-
-  const direction = normalizeVector({
-    x: end.x - start.x,
-    y: end.y - start.y,
-  });
-  const perpendicular = {
-    x: -direction.y,
-    y: direction.x,
-  };
-  const arrowLength = 14;
-  const arrowWidth = 7;
 
   context.save();
-  context.setLineDash([10, 8]);
-  context.strokeStyle = `rgba(245, 158, 11, ${0.35 + altitudeFactor * 0.35})`;
-  context.lineWidth = 2.5;
-  context.beginPath();
-  context.moveTo(start.x, start.y);
-  context.lineTo(end.x, end.y);
-  context.stroke();
-  context.setLineDash([]);
-
   context.fillStyle = `rgba(251, 191, 36, ${0.3 + altitudeFactor * 0.2})`;
   context.beginPath();
   context.arc(start.x, start.y, 11, 0, Math.PI * 2);
@@ -1307,19 +1282,6 @@ function drawSunOverlay(
   context.lineWidth = 2;
   context.beginPath();
   context.arc(start.x, start.y, 6.5, 0, Math.PI * 2);
-  context.stroke();
-
-  context.beginPath();
-  context.moveTo(end.x, end.y);
-  context.lineTo(
-    end.x - direction.x * arrowLength + perpendicular.x * arrowWidth,
-    end.y - direction.y * arrowLength + perpendicular.y * arrowWidth
-  );
-  context.moveTo(end.x, end.y);
-  context.lineTo(
-    end.x - direction.x * arrowLength - perpendicular.x * arrowWidth,
-    end.y - direction.y * arrowLength - perpendicular.y * arrowWidth
-  );
   context.stroke();
   context.restore();
 }

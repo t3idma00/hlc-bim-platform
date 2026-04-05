@@ -19,6 +19,11 @@ type HeatLoad3DPanelProps = {
   onViewChange: (view: WorkspaceView) => void;
 };
 
+type RotationState = {
+  x: number;
+  y: number;
+};
+
 type Point3D = {
   x: number;
   y: number;
@@ -42,6 +47,52 @@ type Face = {
   points: number[];
   fill: string;
   stroke: string;
+};
+
+type SolarSnapshot = {
+  azimuth: number;
+  zenith: number;
+  altitude: number;
+  targetDateTime: string;
+  latitude: number;
+  longitude: number;
+  alerts: string[];
+};
+
+type SolarState =
+  | {
+      status: "loading";
+      snapshot: null;
+      message: string;
+    }
+  | {
+      status: "ready";
+      snapshot: SolarSnapshot;
+      message: string;
+    }
+  | {
+      status: "denied" | "unsupported" | "error";
+      snapshot: null;
+      message: string;
+    };
+
+type SolarApiResponse = {
+  targetDateTime: string;
+  location: {
+    latitude: number;
+    longitude: number;
+  };
+  solarPosition: {
+    azimuth: number;
+    zenith: number;
+  };
+  alerts?: string[];
+  error?: string;
+};
+
+const INITIAL_ROTATION: RotationState = {
+  x: -0.62,
+  y: 0.78,
 };
 
 const ROOM_FACES: Face[] = [
@@ -83,12 +134,127 @@ export function HeatLoad3DPanel({
   onViewChange,
 }: HeatLoad3DPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rotationRef = useRef({ x: -0.62, y: 0.78 });
+  const rotationRef = useRef(INITIAL_ROTATION);
   const isDragging = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [solarState, setSolarState] = useState<SolarState>({
+    status: "loading",
+    snapshot: null,
+    message: "Locating live sun...",
+  });
 
   const roomDimensions = getRoomDimensions(formValues);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (!("geolocation" in navigator)) {
+      setSolarState({
+        status: "unsupported",
+        snapshot: null,
+        message: "Geolocation is not supported in this browser.",
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: number | undefined;
+
+    const fetchSolar = async (latitude: number, longitude: number) => {
+      try {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const params = new URLSearchParams({
+          latitude: latitude.toString(),
+          longitude: longitude.toString(),
+          timezone,
+          datetime: new Date().toISOString(),
+          mode: "auto",
+        });
+
+        const response = await fetch(`/api/solar-details?${params.toString()}`);
+        const payload = (await response.json()) as SolarApiResponse;
+
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error ?? "Unable to load live sun data.");
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        const snapshot = createSolarSnapshot(payload);
+
+        setSolarState({
+          status: "ready",
+          snapshot,
+          message:
+            snapshot.altitude > 0
+              ? "Live sun synced to current location."
+              : "Sun is currently below the horizon at this location.",
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const message =
+          error instanceof Error ? error.message : "Unable to load live sun data.";
+
+        setSolarState({
+          status: "error",
+          snapshot: null,
+          message,
+        });
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (cancelled) {
+          return;
+        }
+
+        const { latitude, longitude } = position.coords;
+
+        void fetchSolar(latitude, longitude);
+        intervalId = window.setInterval(() => {
+          void fetchSolar(latitude, longitude);
+        }, 300000);
+      },
+      (error) => {
+        if (cancelled) {
+          return;
+        }
+
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Enable location access to show the live sun in 3D."
+            : "Unable to access your location for live sun tracking.";
+
+        setSolarState({
+          status: "denied",
+          snapshot: null,
+          message,
+        });
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 10000,
+        maximumAge: 300000,
+      }
+    );
+
+    return () => {
+      cancelled = true;
+
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -112,7 +278,8 @@ export function HeatLoad3DPanel({
         roomDimensions,
         rotationRef.current.x,
         rotationRef.current.y,
-        zoom
+        zoom,
+        solarState
       );
     };
 
@@ -139,10 +306,11 @@ export function HeatLoad3DPanel({
       const deltaX = event.clientX - lastMouse.current.x;
       const deltaY = event.clientY - lastMouse.current.y;
 
-      rotationRef.current = {
+      const nextRotation = {
         x: clamp(rotationRef.current.x - deltaY * 0.01, -1.2, 0.35),
         y: rotationRef.current.y + deltaX * 0.01,
       };
+      rotationRef.current = nextRotation;
 
       lastMouse.current = { x: event.clientX, y: event.clientY };
 
@@ -154,7 +322,8 @@ export function HeatLoad3DPanel({
         roomDimensions,
         rotationRef.current.x,
         rotationRef.current.y,
-        zoom
+        zoom,
+        solarState
       );
     };
 
@@ -174,10 +343,12 @@ export function HeatLoad3DPanel({
       canvas.removeEventListener("mouseleave", handleMouseUp);
       canvas.removeEventListener("mousemove", handleMouseMove);
     };
-  }, [roomDimensions, zoom]);
+  }, [roomDimensions, zoom, solarState]);
+
+  const sunSummary = getSunSummary(solarState);
 
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden bg-white">
+    <section className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-white">
       <div className="border-b border-rose-100 bg-white px-4 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -214,6 +385,7 @@ export function HeatLoad3DPanel({
           <span>Mode: 3D Orbit View</span>
           <span>Zoom: {Math.round(zoom * 100)}%</span>
           <span>{getRoomSummary(roomDimensions)}</span>
+          <span>{sunSummary}</span>
         </div>
       </div>
     </section>
@@ -227,7 +399,8 @@ function drawScene(
   roomDimensions: RoomDimensions | null,
   rotationX: number,
   rotationY: number,
-  zoom: number
+  zoom: number,
+  solarState: SolarState
 ) {
   context.clearRect(0, 0, width, height);
 
@@ -235,6 +408,50 @@ function drawScene(
   context.fillRect(0, 0, width, height);
 
   drawBackdrop(context, width, height);
+
+  const sceneDimensions = roomDimensions ?? {
+    width: 6,
+    depth: 6,
+    height: DEFAULT_HEIGHT,
+    wallThickness: DEFAULT_WALL_THICKNESS,
+  };
+  drawFloorGrid(
+    context,
+    width,
+    height,
+    sceneDimensions,
+    rotationX,
+    rotationY,
+    zoom
+  );
+  drawSceneAxes(
+    context,
+    width,
+    height,
+    sceneDimensions,
+    rotationX,
+    rotationY,
+    zoom
+  );
+  drawFloorCompass(
+    context,
+    width,
+    height,
+    sceneDimensions,
+    rotationX,
+    rotationY,
+    zoom
+  );
+  drawSunInScene(
+    context,
+    width,
+    height,
+    sceneDimensions,
+    rotationX,
+    rotationY,
+    zoom,
+    solarState
+  );
 
   if (!roomDimensions) {
     context.fillStyle = "#64748b";
@@ -320,6 +537,447 @@ function drawBackdrop(
   }
 }
 
+function drawFloorGrid(
+  context: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  roomDimensions: RoomDimensions,
+  rotationX: number,
+  rotationY: number,
+  zoom: number
+) {
+  const grid = getFloorGridSettings(roomDimensions);
+  const sizeReference = Math.max(
+    roomDimensions.width,
+    roomDimensions.depth,
+    roomDimensions.height,
+    6
+  );
+  const floorY = -roomDimensions.height / 2;
+
+  context.save();
+
+  for (let index = -grid.halfLines; index <= grid.halfLines; index += 1) {
+    const lineValue = index * grid.step;
+    const start = projectPoint(
+      rotatePoint({ x: lineValue, y: floorY, z: -grid.extent }, rotationX, rotationY),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    );
+    const end = projectPoint(
+      rotatePoint({ x: lineValue, y: floorY, z: grid.extent }, rotationX, rotationY),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    );
+    const crossStart = projectPoint(
+      rotatePoint({ x: -grid.extent, y: floorY, z: lineValue }, rotationX, rotationY),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    );
+    const crossEnd = projectPoint(
+      rotatePoint({ x: grid.extent, y: floorY, z: lineValue }, rotationX, rotationY),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    );
+    const isMajor = index % grid.majorEvery === 0;
+
+    context.strokeStyle = isMajor ? "rgba(148, 163, 184, 0.34)" : "rgba(148, 163, 184, 0.14)";
+    context.lineWidth = isMajor ? 1.15 : 0.75;
+
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+    context.lineTo(end.x, end.y);
+    context.stroke();
+
+    context.beginPath();
+    context.moveTo(crossStart.x, crossStart.y);
+    context.lineTo(crossEnd.x, crossEnd.y);
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function drawSceneAxes(
+  context: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  roomDimensions: RoomDimensions,
+  rotationX: number,
+  rotationY: number,
+  zoom: number
+) {
+  const axisLength = Math.max(
+    Math.min(Math.max(roomDimensions.width, roomDimensions.depth, roomDimensions.height) * 0.45, 4),
+    2
+  );
+  const sizeReference = Math.max(
+    roomDimensions.width,
+    roomDimensions.depth,
+    roomDimensions.height,
+    6
+  );
+  const floorY = -roomDimensions.height / 2;
+  const origin = projectPoint(
+    rotatePoint({ x: 0, y: floorY, z: 0 }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+
+  const axes = [
+    {
+      key: "x",
+      label: "X",
+      color: "#f87171",
+      end: projectPoint(
+        rotatePoint({ x: axisLength, y: floorY, z: 0 }, rotationX, rotationY),
+        canvasWidth,
+        canvasHeight,
+        sizeReference,
+        zoom
+      ),
+    },
+    {
+      key: "y",
+      label: "Y",
+      color: "#4ade80",
+      end: projectPoint(
+        rotatePoint({ x: 0, y: floorY + axisLength, z: 0 }, rotationX, rotationY),
+        canvasWidth,
+        canvasHeight,
+        sizeReference,
+        zoom
+      ),
+    },
+    {
+      key: "z",
+      label: "Z",
+      color: "#60a5fa",
+      end: projectPoint(
+        rotatePoint({ x: 0, y: floorY, z: -axisLength }, rotationX, rotationY),
+        canvasWidth,
+        canvasHeight,
+        sizeReference,
+        zoom
+      ),
+    },
+  ].sort((first, second) => {
+    const firstDepth = (origin.z + first.end.z) / 2;
+    const secondDepth = (origin.z + second.end.z) / 2;
+
+    return firstDepth - secondDepth;
+  });
+
+  context.save();
+
+  axes.forEach((axis) => {
+    const labelPoint = getProjectedLabelPoint(origin, axis.end, 12);
+
+    context.strokeStyle = axis.color;
+    context.fillStyle = axis.color;
+    context.lineWidth = 2.2;
+
+    context.beginPath();
+    context.moveTo(origin.x, origin.y);
+    context.lineTo(axis.end.x, axis.end.y);
+    context.stroke();
+
+    context.beginPath();
+    context.arc(axis.end.x, axis.end.y, 3.8, 0, Math.PI * 2);
+    context.fill();
+
+    context.font = "700 12px sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(axis.label, labelPoint.x, labelPoint.y);
+  });
+
+  context.beginPath();
+  context.fillStyle = "#ffffff";
+  context.strokeStyle = "#0f172b";
+  context.lineWidth = 1.4;
+  context.arc(origin.x, origin.y, 4.2, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+
+  context.restore();
+}
+
+function drawFloorCompass(
+  context: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  roomDimensions: RoomDimensions,
+  rotationX: number,
+  rotationY: number,
+  zoom: number
+) {
+  const grid = getFloorGridSettings(roomDimensions);
+  const sizeReference = Math.max(
+    roomDimensions.width,
+    roomDimensions.depth,
+    roomDimensions.height,
+    6
+  );
+  const floorY = -roomDimensions.height / 2;
+  const radius = Math.max(Math.min(grid.step * 1.25, 1.9), 1);
+  const padding = Math.min(grid.step * 1.9, grid.extent * 0.2);
+  const centerWorld = {
+    x: -grid.extent + padding + radius,
+    y: floorY,
+    z: -grid.extent + padding + radius,
+  };
+  const labelOffset = radius * 0.45;
+  const compassColor = "rgba(15, 23, 42, 0.34)";
+  const ringPoints = Array.from({ length: 28 }, (_, index) => {
+    const angle = (index / 27) * Math.PI * 2;
+
+    return projectPoint(
+      rotatePoint(
+        {
+          x: centerWorld.x + Math.cos(angle) * radius,
+          y: floorY,
+          z: centerWorld.z + Math.sin(angle) * radius,
+        },
+        rotationX,
+        rotationY
+      ),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    );
+  });
+  const north = projectPoint(
+    rotatePoint({ x: centerWorld.x, y: floorY, z: centerWorld.z - radius - labelOffset }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const east = projectPoint(
+    rotatePoint({ x: centerWorld.x + radius + labelOffset, y: floorY, z: centerWorld.z }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const south = projectPoint(
+    rotatePoint({ x: centerWorld.x, y: floorY, z: centerWorld.z + radius + labelOffset }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const west = projectPoint(
+    rotatePoint({ x: centerWorld.x - radius - labelOffset, y: floorY, z: centerWorld.z }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const ringStartX = projectPoint(
+    rotatePoint({ x: centerWorld.x - radius, y: floorY, z: centerWorld.z }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const ringEndX = projectPoint(
+    rotatePoint({ x: centerWorld.x + radius, y: floorY, z: centerWorld.z }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const ringStartZ = projectPoint(
+    rotatePoint({ x: centerWorld.x, y: floorY, z: centerWorld.z - radius }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const ringEndZ = projectPoint(
+    rotatePoint({ x: centerWorld.x, y: floorY, z: centerWorld.z + radius }, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const center = projectPoint(
+    rotatePoint(centerWorld, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+
+  context.save();
+  context.strokeStyle = compassColor;
+  context.fillStyle = compassColor;
+  context.lineWidth = 1.1;
+
+  context.beginPath();
+  context.moveTo(ringPoints[0].x, ringPoints[0].y);
+  for (let index = 1; index < ringPoints.length; index += 1) {
+    context.lineTo(ringPoints[index].x, ringPoints[index].y);
+  }
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(ringStartX.x, ringStartX.y);
+  context.lineTo(ringEndX.x, ringEndX.y);
+  context.moveTo(ringStartZ.x, ringStartZ.y);
+  context.lineTo(ringEndZ.x, ringEndZ.y);
+  context.stroke();
+
+  context.beginPath();
+  context.arc(center.x, center.y, 2.2, 0, Math.PI * 2);
+  context.fill();
+
+  context.font = "600 11px sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText("N", north.x, north.y);
+  context.fillText("E", east.x, east.y);
+  context.fillText("S", south.x, south.y);
+  context.fillText("W", west.x, west.y);
+
+  context.restore();
+}
+
+function drawSunInScene(
+  context: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  roomDimensions: RoomDimensions,
+  rotationX: number,
+  rotationY: number,
+  zoom: number,
+  solarState: SolarState
+) {
+  if (solarState.status !== "ready" || solarState.snapshot.altitude <= 0) {
+    return;
+  }
+
+  const sizeReference = Math.max(
+    roomDimensions.width,
+    roomDimensions.depth,
+    roomDimensions.height,
+    6
+  );
+  const sunWorld = getSunWorldPosition(solarState.snapshot, roomDimensions);
+  const targetWorld = {
+    x: 0,
+    y: roomDimensions.height * 0.08,
+    z: 0,
+  };
+  const projectedSun = projectPoint(
+    rotatePoint(sunWorld, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const projectedTarget = projectPoint(
+    rotatePoint(targetWorld, rotationX, rotationY),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+  const altitudeIntensity = clamp(solarState.snapshot.altitude / 90, 0.2, 1);
+  const haloRadius = 22 + altitudeIntensity * 12;
+  const coreRadius = 8 + altitudeIntensity * 3.5;
+  const glow = context.createRadialGradient(
+    projectedSun.x,
+    projectedSun.y,
+    0,
+    projectedSun.x,
+    projectedSun.y,
+    haloRadius
+  );
+
+  glow.addColorStop(0, "rgba(251, 191, 36, 0.95)");
+  glow.addColorStop(0.45, "rgba(251, 191, 36, 0.42)");
+  glow.addColorStop(1, "rgba(251, 191, 36, 0)");
+
+  context.save();
+  context.setLineDash([8, 8]);
+  context.strokeStyle = `rgba(245, 158, 11, ${0.18 + altitudeIntensity * 0.18})`;
+  context.lineWidth = 1.6;
+  context.beginPath();
+  context.moveTo(projectedSun.x, projectedSun.y);
+  context.lineTo(projectedTarget.x, projectedTarget.y);
+  context.stroke();
+  context.setLineDash([]);
+
+  context.fillStyle = glow;
+  context.beginPath();
+  context.arc(projectedSun.x, projectedSun.y, haloRadius, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = "#f59e0b";
+  context.beginPath();
+  context.arc(projectedSun.x, projectedSun.y, coreRadius, 0, Math.PI * 2);
+  context.fill();
+
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 1.2;
+  context.beginPath();
+  context.arc(projectedSun.x, projectedSun.y, coreRadius, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function getFloorGridSettings(roomDimensions: RoomDimensions) {
+  const maxSpan = Math.max(roomDimensions.width, roomDimensions.depth, 6);
+  const step = getRoundedStep(maxSpan / 7);
+  const targetExtent = Math.max(maxSpan * 2.4, 14);
+  const halfLines = Math.min(18, Math.max(8, Math.ceil(targetExtent / step)));
+
+  return {
+    step,
+    halfLines,
+    extent: halfLines * step,
+    majorEvery: 5,
+  };
+}
+
+function getRoundedStep(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 1;
+  }
+
+  const exponent = Math.floor(Math.log10(value));
+  const candidates: number[] = [];
+
+  for (let power = exponent - 1; power <= exponent + 1; power += 1) {
+    const magnitude = 10 ** power;
+
+    [1, 2, 5].forEach((multiplier) => {
+      candidates.push(multiplier * magnitude);
+    });
+  }
+
+  return candidates.reduce((best, current) => {
+    const bestDistance = Math.abs(Math.log(best / value));
+    const currentDistance = Math.abs(Math.log(current / value));
+
+    return currentDistance < bestDistance ? current : best;
+  });
+}
+
 function createRoomVertices(roomDimensions: RoomDimensions): Point3D[] {
   const halfWidth = roomDimensions.width / 2;
   const halfDepth = roomDimensions.depth / 2;
@@ -353,6 +1011,31 @@ function rotatePoint(point: Point3D, rotationX: number, rotationY: number): Poin
     x: rotatedY.x,
     y: rotatedY.y * cosX - rotatedY.z * sinX,
     z: rotatedY.y * sinX + rotatedY.z * cosX,
+  };
+}
+
+function getSunWorldPosition(solarSnapshot: SolarSnapshot, roomDimensions: RoomDimensions): Point3D {
+  const azimuthRad = (solarSnapshot.azimuth * Math.PI) / 180;
+  const altitudeRad = (solarSnapshot.altitude * Math.PI) / 180;
+  const sceneScale = Math.max(roomDimensions.width, roomDimensions.depth, roomDimensions.height, 6);
+  const distance = sceneScale * 3.2;
+  const horizontal = Math.cos(altitudeRad) * distance;
+
+  return {
+    x: Math.sin(azimuthRad) * horizontal,
+    y: Math.sin(altitudeRad) * distance,
+    z: -Math.cos(azimuthRad) * horizontal,
+  };
+}
+
+function getProjectedLabelPoint(start: { x: number; y: number }, end: { x: number; y: number }, offset: number) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy) || 1;
+
+  return {
+    x: end.x + (dx / length) * offset,
+    y: end.y + (dy / length) * offset,
   };
 }
 
@@ -519,4 +1202,48 @@ function formatValue(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getSunSummary(solarState: SolarState) {
+  if (solarState.status === "ready") {
+    const { snapshot } = solarState;
+
+    if (snapshot.altitude <= 0) {
+      return `Sun: Below horizon | Az ${formatDegree(snapshot.azimuth)}°`;
+    }
+
+    return `Sun: ${toCardinalDirection(snapshot.azimuth)} ${formatDegree(snapshot.azimuth)}° | Alt ${formatDegree(
+      snapshot.altitude
+    )}°`;
+  }
+
+  if (solarState.status === "loading") {
+    return "Sun: Syncing...";
+  }
+
+  return `Sun: ${solarState.message}`;
+}
+
+function createSolarSnapshot(payload: SolarApiResponse): SolarSnapshot {
+  return {
+    azimuth: payload.solarPosition.azimuth,
+    zenith: payload.solarPosition.zenith,
+    altitude: 90 - payload.solarPosition.zenith,
+    targetDateTime: payload.targetDateTime,
+    latitude: payload.location.latitude,
+    longitude: payload.location.longitude,
+    alerts: payload.alerts ?? [],
+  };
+}
+
+function formatDegree(value: number) {
+  return Math.round(value).toString();
+}
+
+function toCardinalDirection(azimuth: number) {
+  const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const normalized = ((azimuth % 360) + 360) % 360;
+  const index = Math.round(normalized / 45) % directions.length;
+
+  return directions[index];
 }

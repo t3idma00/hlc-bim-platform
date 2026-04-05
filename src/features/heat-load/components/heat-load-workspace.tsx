@@ -20,7 +20,9 @@ export default function HeatLoadWorkspace() {
     const supabase = createClient();
 
     const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       setUser(user);
       setLoading(false);
     };
@@ -74,23 +76,21 @@ export default function HeatLoadWorkspace() {
           <div className="flex items-center gap-4">
             {user && (
               <>
-                <span className="text-sm text-slate-600 hidden md:block">
-                  {user.email}
-                </span>
+                <span className="hidden text-sm text-slate-600 md:block">{user.email}</span>
                 <button
                   onClick={handleLogout}
-                  className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition"
+                  className="rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] transition hover:bg-rose-50"
                 >
                   Logout
                 </button>
               </>
             )}
 
-            <button className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition">
+            <button className="rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] transition hover:bg-rose-50">
               Export
             </button>
 
-            <button className="bg-[#be123c] px-5 py-2 text-sm font-semibold text-white hover:bg-[#9f1239] rounded-lg transition">
+            <button className="rounded-lg bg-[#be123c] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#9f1239]">
               Run Analysis
             </button>
           </div>
@@ -98,10 +98,7 @@ export default function HeatLoadWorkspace() {
 
         {/* Main Workspace */}
         <main className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[40%_60%]">
-          <HeatLoadFormPanel 
-            formValues={formValues} 
-            onFieldChange={handleFieldChange} 
-          />
+          <HeatLoadFormPanel formValues={formValues} onFieldChange={handleFieldChange} />
           {activeView === "2d" ? (
             <HeatLoadCanvasPanel
               formValues={formValues}
@@ -118,7 +115,7 @@ export default function HeatLoadWorkspace() {
         </main>
 
         <footer className="border-t border-rose-100 bg-[#fffafb] px-5 py-2 text-center text-xs text-rose-600">
-          HLC Platform — Thesis Project
+          HLC Platform - Thesis Project
         </footer>
       </div>
     </div>
