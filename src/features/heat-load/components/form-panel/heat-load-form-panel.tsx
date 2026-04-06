@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DesignConditionsHeader, DesignConditionsRow } from "./design-conditions-table";
 import { HeatLoadSheet } from "./heat-load-sheet";
 import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
@@ -9,9 +9,17 @@ type SurfaceType = "walls" | "windows" | "doors";
 type UnitSystem = "si" | "imperial";
 export type FormValues = Record<string, string>;
 
+type CountryOption = {
+  name: string;
+  iso2?: string;
+};
+
 const topSectionRows = [0, 1, 2, 3];
 
 export const initialFormValues: FormValues = {
+  selectedCountry: "",
+  selectedCountryCode: "",
+  selectedCity: "",
   wallNorthDirection: "North",
   wallNorthLength: "",
   wallNorthWidth: "",
@@ -76,6 +84,95 @@ export function HeatLoadFormPanel({
 }) {
   const [surfaceType, setSurfaceType] = useState<SurfaceType>("walls");
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("si");
+  const [countryOptions, setCountryOptions] = useState<CountryOption[]>([]);
+  const [cityOptions, setCityOptions] = useState<string[]>([]);
+  const [countryLoading, setCountryLoading] = useState(false);
+  const [cityLoading, setCityLoading] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadCountries() {
+      setCountryLoading(true);
+      setLocationError(null);
+      try {
+        const response = await fetch("/api/solar-countries");
+        const payload = (await response.json()) as { results?: CountryOption[]; error?: string };
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Failed to load countries.");
+        }
+
+        const countries = payload.results ?? [];
+        setCountryOptions(countries);
+
+        if (!countries.length) {
+          return;
+        }
+
+        const selected = formValues.selectedCountry;
+        const nextCountry = selected && countries.some((item) => item.name === selected) ? selected : countries[0].name;
+        const matched = countries.find((item) => item.name === nextCountry);
+
+        if (formValues.selectedCountry !== nextCountry) {
+          onFieldChange("selectedCountry", nextCountry);
+        }
+        onFieldChange("selectedCountryCode", matched?.iso2 ?? "");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load countries.";
+        setLocationError(message);
+      } finally {
+        setCountryLoading(false);
+      }
+    }
+
+    void loadCountries();
+  }, []);
+
+  useEffect(() => {
+    async function loadCities() {
+      const country = formValues.selectedCountry?.trim();
+      if (!country) {
+        setCityOptions([]);
+        return;
+      }
+
+      setCityLoading(true);
+      setLocationError(null);
+      try {
+        const response = await fetch(`/api/solar-country-cities?country=${encodeURIComponent(country)}`);
+        const payload = (await response.json()) as { results?: string[]; error?: string };
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Failed to load cities.");
+        }
+
+        const cities = payload.results ?? [];
+        setCityOptions(cities);
+
+        if (!cities.length) {
+          onFieldChange("selectedCity", "");
+          return;
+        }
+
+        const selected = formValues.selectedCity;
+        if (!selected || !cities.includes(selected)) {
+          onFieldChange("selectedCity", cities[0]);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load cities.";
+        setLocationError(message);
+        setCityOptions([]);
+      } finally {
+        setCityLoading(false);
+      }
+    }
+
+    void loadCities();
+  }, [formValues.selectedCountry]);
+
+  function handleCountryChange(nextCountry: string) {
+    onFieldChange("selectedCountry", nextCountry);
+    const matched = countryOptions.find((item) => item.name === nextCountry);
+    onFieldChange("selectedCountryCode", matched?.iso2 ?? "");
+  }
 
   return (
     <aside className="min-h-0 overflow-hidden border-b border-rose-100 bg-[#fff8fa] xl:border-r xl:border-b-0">
@@ -109,6 +206,45 @@ export function HeatLoadFormPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
           <div className="space-y-3">
+            <div className="border border-rose-200 bg-white px-2 py-2">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]">Location Selection</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="grid gap-1 text-[10px] font-semibold text-slate-700">
+                  Country
+                  <select
+                    value={formValues.selectedCountry}
+                    onChange={(event) => handleCountryChange(event.target.value)}
+                    disabled={countryLoading || countryOptions.length === 0}
+                    className="h-7 border border-rose-200 bg-white px-2 text-[10px] font-medium text-slate-900"
+                  >
+                    {countryOptions.map((option) => (
+                      <option key={option.name} value={option.name}>
+                        {option.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="grid gap-1 text-[10px] font-semibold text-slate-700">
+                  City
+                  <select
+                    value={formValues.selectedCity}
+                    onChange={(event) => onFieldChange("selectedCity", event.target.value)}
+                    disabled={cityLoading || cityOptions.length === 0}
+                    className="h-7 border border-rose-200 bg-white px-2 text-[10px] font-medium text-slate-900"
+                  >
+                    {cityOptions.map((city) => (
+                      <option key={city} value={city}>
+                        {city}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {locationError ? <p className="mt-2 text-[10px] text-rose-700">{locationError}</p> : null}
+            </div>
+
             <table className="w-full table-fixed border-collapse text-[10px] leading-none text-slate-900">
               <colgroup>
                 <col style={{ width: "22%" }} />
