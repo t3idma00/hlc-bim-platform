@@ -265,11 +265,11 @@ export function HeatLoadCanvasPanel({
       offsetX: number,
       offsetY: number
     ) {
-      context.fillStyle = "#f8fafc";
+      context.fillStyle = "#e0efff";
       context.fillRect(0, 0, width, RULER_SIZE);
       context.fillRect(0, 0, LEFT_RULER_SIZE, height);
 
-      context.strokeStyle = "#cbd5e1";
+      context.strokeStyle = "#93c5fd";
       context.lineWidth = 1;
 
       context.beginPath();
@@ -282,7 +282,7 @@ export function HeatLoadCanvasPanel({
       context.lineTo(LEFT_RULER_SIZE, height);
       context.stroke();
 
-      context.fillStyle = "#334155";
+      context.fillStyle = "#1e3a8a";
       context.font = "10px sans-serif";
       context.textBaseline = "middle";
 
@@ -368,13 +368,13 @@ export function HeatLoadCanvasPanel({
       context.rect(drawX, drawY, drawWidth, drawHeight);
       context.clip();
 
-      context.fillStyle = "#ffffff";
+      context.fillStyle = "#dbeafe";
       context.fillRect(drawX, drawY, drawWidth, drawHeight);
 
       const minorStep = gridMetrics.subStepSpacing;
       const majorStep = gridMetrics.gridSpacing;
 
-      context.strokeStyle = "#f1f5f9";
+      context.strokeStyle = "rgba(59, 130, 246, 0.12)";
       context.lineWidth = 1;
 
       const minorStartX = drawX + getOffsetWithinStep(offsetX, minorStep);
@@ -393,7 +393,7 @@ export function HeatLoadCanvasPanel({
         context.stroke();
       }
 
-      context.strokeStyle = "#e2e8f0";
+      context.strokeStyle = "rgba(29, 78, 216, 0.24)";
 
       const majorStartX = drawX + getOffsetWithinStep(offsetX, majorStep);
       for (let x = majorStartX; x < width; x += majorStep) {
@@ -681,7 +681,7 @@ export function HeatLoadCanvasPanel({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
-        <div className="relative flex h-full w-full flex-1 overflow-hidden border border-rose-100 bg-white">
+        <div className="relative flex h-full w-full flex-1 overflow-hidden border border-sky-100 bg-[#dbeafe]">
           <canvas
             ref={canvasRef}
             className="h-full w-full cursor-grab active:cursor-grabbing"
@@ -1302,14 +1302,14 @@ function getSunSummary(solarState: SolarState) {
 
     if (snapshot.altitude <= 0) {
       return {
-        bar: `Sun below horizon | Azimuth ${formatDegree(snapshot.azimuth)}°`,
+        bar: `Sun below horizon | Azimuth ${formatDegree(snapshot.azimuth)}° | Zenith ${formatDegree(snapshot.zenith)}°`,
       };
     }
 
     const direction = toCardinalDirection(snapshot.azimuth);
 
     return {
-      bar: `Live sun | Azimuth ${formatDegree(snapshot.azimuth)}° ${direction} | Altitude ${formatDegree(snapshot.altitude)}°`,
+      bar: `Live sun | Azimuth ${formatDegree(snapshot.azimuth)}° ${direction} | Zenith ${formatDegree(snapshot.zenith)}° | Altitude ${formatDegree(snapshot.altitude)}°`,
     };
   }
 

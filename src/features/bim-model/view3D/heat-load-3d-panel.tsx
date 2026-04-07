@@ -10,6 +10,8 @@ const DEFAULT_HEIGHT = 3;
 const DEFAULT_WALL_THICKNESS = 0.2;
 const MIN_ZOOM = 0.65;
 const MAX_ZOOM = 2.2;
+const MIN_ORBIT_TILT = -1.2;
+const MAX_ORBIT_TILT = -0.08;
 
 type CanvasFormValues = Record<string, string>;
 
@@ -33,6 +35,11 @@ type Point3D = {
 type ProjectedPoint = {
   x: number;
   y: number;
+  z: number;
+};
+
+type PlanePoint = {
+  x: number;
   z: number;
 };
 
@@ -307,7 +314,11 @@ export function HeatLoad3DPanel({
       const deltaY = event.clientY - lastMouse.current.y;
 
       const nextRotation = {
-        x: clamp(rotationRef.current.x - deltaY * 0.01, -1.2, 0.35),
+        x: clamp(
+          rotationRef.current.x - deltaY * 0.01,
+          MIN_ORBIT_TILT,
+          MAX_ORBIT_TILT
+        ),
         y: rotationRef.current.y + deltaX * 0.01,
       };
       rotationRef.current = nextRotation;
@@ -440,7 +451,8 @@ function drawScene(
     sceneDimensions,
     rotationX,
     rotationY,
-    zoom
+    zoom,
+    solarState
   );
   drawSunInScene(
     context,
@@ -519,22 +531,36 @@ function drawBackdrop(
   height: number
 ) {
   const gradient = context.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "#fff1f2");
-  gradient.addColorStop(0.55, "#ffffff");
-  gradient.addColorStop(1, "#fff7f8");
+  gradient.addColorStop(0, "#f9fcff");
+  gradient.addColorStop(0.38, "#edf5ff");
+  gradient.addColorStop(0.72, "#dbeafe");
+  gradient.addColorStop(1, "#c7ddff");
 
   context.fillStyle = gradient;
   context.fillRect(0, 0, width, height);
 
-  context.strokeStyle = "rgba(244, 63, 94, 0.08)";
-  context.lineWidth = 1;
+  const glow = context.createRadialGradient(
+    width * 0.5,
+    height * 0.14,
+    0,
+    width * 0.5,
+    height * 0.14,
+    Math.max(width, height) * 0.72
+  );
+  glow.addColorStop(0, "rgba(255, 255, 255, 0.96)");
+  glow.addColorStop(0.45, "rgba(255, 255, 255, 0.32)");
+  glow.addColorStop(1, "rgba(255, 255, 255, 0)");
 
-  for (let y = Math.floor(height * 0.62); y < height; y += 22) {
-    context.beginPath();
-    context.moveTo(0, y);
-    context.lineTo(width, y);
-    context.stroke();
-  }
+  context.fillStyle = glow;
+  context.fillRect(0, 0, width, height);
+
+  const horizonBand = context.createLinearGradient(0, height * 0.34, 0, height * 0.82);
+  horizonBand.addColorStop(0, "rgba(191, 219, 254, 0)");
+  horizonBand.addColorStop(0.6, "rgba(147, 197, 253, 0.1)");
+  horizonBand.addColorStop(1, "rgba(96, 165, 250, 0.18)");
+
+  context.fillStyle = horizonBand;
+  context.fillRect(0, 0, width, height);
 }
 
 function drawFloorGrid(
@@ -554,43 +580,98 @@ function drawFloorGrid(
     6
   );
   const floorY = -roomDimensions.height / 2;
+  const projectGridPoint = (x: number, z: number) =>
+    projectPoint(
+      rotatePoint({ x, y: floorY, z }, rotationX, rotationY),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    );
+  const planeCorners = [
+    projectGridPoint(-grid.extent, -grid.extent),
+    projectGridPoint(grid.extent, -grid.extent),
+    projectGridPoint(grid.extent, grid.extent),
+    projectGridPoint(-grid.extent, grid.extent),
+  ];
+  const farCenter = projectGridPoint(0, -grid.extent);
+  const nearCenter = projectGridPoint(0, grid.extent);
+  const minorStep = grid.step / 2;
+  const minorHalfLines = grid.halfLines * 2;
 
   context.save();
 
+  const planeGradient = context.createLinearGradient(
+    farCenter.x,
+    farCenter.y,
+    nearCenter.x,
+    nearCenter.y
+  );
+  planeGradient.addColorStop(0, "rgba(248, 252, 255, 0.18)");
+  planeGradient.addColorStop(0.28, "rgba(230, 241, 255, 0.42)");
+  planeGradient.addColorStop(0.72, "rgba(204, 228, 255, 0.78)");
+  planeGradient.addColorStop(1, "rgba(183, 215, 255, 0.96)");
+
+  context.fillStyle = planeGradient;
+  traceProjectedShape(context, planeCorners, true);
+  context.fill();
+
+  const planeSheen = context.createLinearGradient(
+    planeCorners[0].x,
+    planeCorners[0].y,
+    planeCorners[3].x,
+    planeCorners[3].y
+  );
+  planeSheen.addColorStop(0, "rgba(255, 255, 255, 0.34)");
+  planeSheen.addColorStop(0.45, "rgba(255, 255, 255, 0.1)");
+  planeSheen.addColorStop(1, "rgba(147, 197, 253, 0.08)");
+
+  context.fillStyle = planeSheen;
+  traceProjectedShape(context, planeCorners, true);
+  context.fill();
+
+  context.strokeStyle = "rgba(96, 165, 250, 0.18)";
+  context.lineWidth = 1;
+  traceProjectedShape(context, planeCorners, true);
+  context.stroke();
+
+  for (let index = -minorHalfLines; index <= minorHalfLines; index += 1) {
+    if (index % 2 === 0) {
+      continue;
+    }
+
+    const lineValue = index * minorStep;
+    const start = projectGridPoint(lineValue, -grid.extent);
+    const end = projectGridPoint(lineValue, grid.extent);
+    const crossStart = projectGridPoint(-grid.extent, lineValue);
+    const crossEnd = projectGridPoint(grid.extent, lineValue);
+
+    context.strokeStyle = "rgba(59, 130, 246, 0.12)";
+    context.lineWidth = 0.7;
+
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+    context.lineTo(end.x, end.y);
+    context.stroke();
+
+    context.beginPath();
+    context.moveTo(crossStart.x, crossStart.y);
+    context.lineTo(crossEnd.x, crossEnd.y);
+    context.stroke();
+  }
+
   for (let index = -grid.halfLines; index <= grid.halfLines; index += 1) {
     const lineValue = index * grid.step;
-    const start = projectPoint(
-      rotatePoint({ x: lineValue, y: floorY, z: -grid.extent }, rotationX, rotationY),
-      canvasWidth,
-      canvasHeight,
-      sizeReference,
-      zoom
-    );
-    const end = projectPoint(
-      rotatePoint({ x: lineValue, y: floorY, z: grid.extent }, rotationX, rotationY),
-      canvasWidth,
-      canvasHeight,
-      sizeReference,
-      zoom
-    );
-    const crossStart = projectPoint(
-      rotatePoint({ x: -grid.extent, y: floorY, z: lineValue }, rotationX, rotationY),
-      canvasWidth,
-      canvasHeight,
-      sizeReference,
-      zoom
-    );
-    const crossEnd = projectPoint(
-      rotatePoint({ x: grid.extent, y: floorY, z: lineValue }, rotationX, rotationY),
-      canvasWidth,
-      canvasHeight,
-      sizeReference,
-      zoom
-    );
+    const start = projectGridPoint(lineValue, -grid.extent);
+    const end = projectGridPoint(lineValue, grid.extent);
+    const crossStart = projectGridPoint(-grid.extent, lineValue);
+    const crossEnd = projectGridPoint(grid.extent, lineValue);
     const isMajor = index % grid.majorEvery === 0;
 
-    context.strokeStyle = isMajor ? "rgba(148, 163, 184, 0.34)" : "rgba(148, 163, 184, 0.14)";
-    context.lineWidth = isMajor ? 1.15 : 0.75;
+    context.strokeStyle = isMajor
+      ? "rgba(29, 78, 216, 0.3)"
+      : "rgba(37, 99, 235, 0.18)";
+    context.lineWidth = isMajor ? 1.15 : 0.8;
 
     context.beginPath();
     context.moveTo(start.x, start.y);
@@ -720,7 +801,8 @@ function drawFloorCompass(
   roomDimensions: RoomDimensions,
   rotationX: number,
   rotationY: number,
-  zoom: number
+  zoom: number,
+  solarState: SolarState
 ) {
   const grid = getFloorGridSettings(roomDimensions);
   const sizeReference = Math.max(
@@ -730,128 +812,176 @@ function drawFloorCompass(
     6
   );
   const floorY = -roomDimensions.height / 2;
-  const radius = Math.max(Math.min(grid.step * 1.25, 1.9), 1);
-  const padding = Math.min(grid.step * 1.9, grid.extent * 0.2);
+  const radius = Math.max(Math.min(grid.step * 1.02, 1.42), 0.82);
+  const padding = Math.min(grid.step * 2.1, grid.extent * 0.23);
   const centerWorld = {
-    x: -grid.extent + padding + radius,
+    x: -grid.extent + padding + radius * 1.4,
     y: floorY,
-    z: -grid.extent + padding + radius,
+    z: -grid.extent + padding + radius * 1.4,
   };
-  const labelOffset = radius * 0.45;
-  const compassColor = "rgba(15, 23, 42, 0.34)";
-  const ringPoints = Array.from({ length: 28 }, (_, index) => {
-    const angle = (index / 27) * Math.PI * 2;
-
-    return projectPoint(
-      rotatePoint(
-        {
-          x: centerWorld.x + Math.cos(angle) * radius,
-          y: floorY,
-          z: centerWorld.z + Math.sin(angle) * radius,
-        },
-        rotationX,
-        rotationY
-      ),
+  const projectCompassPoint = (x: number, z: number) =>
+    projectFloorPlanePoint(
+      centerWorld,
+      { x, z },
       canvasWidth,
       canvasHeight,
       sizeReference,
+      rotationX,
+      rotationY,
       zoom
     );
-  });
-  const north = projectPoint(
-    rotatePoint({ x: centerWorld.x, y: floorY, z: centerWorld.z - radius - labelOffset }, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
+  const outerRing = getCirclePlanePoints(radius, 40).map((point) =>
+    projectCompassPoint(point.x, point.z)
   );
-  const east = projectPoint(
-    rotatePoint({ x: centerWorld.x + radius + labelOffset, y: floorY, z: centerWorld.z }, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
+  const core = getCirclePlanePoints(radius * 0.14, 20).map((point) =>
+    projectCompassPoint(point.x, point.z)
   );
-  const south = projectPoint(
-    rotatePoint({ x: centerWorld.x, y: floorY, z: centerWorld.z + radius + labelOffset }, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
+  const northNeedle = [
+    projectCompassPoint(0, -radius * 0.9),
+    projectCompassPoint(-radius * 0.2, -radius * 0.23),
+    projectCompassPoint(0, -radius * 0.36),
+    projectCompassPoint(radius * 0.2, -radius * 0.23),
+  ];
+  const southNeedle = [
+    projectCompassPoint(0, radius * 0.9),
+    projectCompassPoint(-radius * 0.2, radius * 0.23),
+    projectCompassPoint(0, radius * 0.36),
+    projectCompassPoint(radius * 0.2, radius * 0.23),
+  ];
+  const eastNeedle = [
+    projectCompassPoint(radius * 0.9, 0),
+    projectCompassPoint(radius * 0.23, -radius * 0.2),
+    projectCompassPoint(radius * 0.36, 0),
+    projectCompassPoint(radius * 0.23, radius * 0.2),
+  ];
+  const westNeedle = [
+    projectCompassPoint(-radius * 0.9, 0),
+    projectCompassPoint(-radius * 0.23, -radius * 0.2),
+    projectCompassPoint(-radius * 0.36, 0),
+    projectCompassPoint(-radius * 0.23, radius * 0.2),
+  ];
+  const center = projectCompassPoint(0, 0);
+  const northEdge = projectCompassPoint(0, -radius);
+  const southEdge = projectCompassPoint(0, radius);
+  const projectedRadius = Math.max(
+    Math.hypot(northEdge.x - southEdge.x, northEdge.y - southEdge.y) / 2,
+    1
   );
-  const west = projectPoint(
-    rotatePoint({ x: centerWorld.x - radius - labelOffset, y: floorY, z: centerWorld.z }, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
-  );
-  const ringStartX = projectPoint(
-    rotatePoint({ x: centerWorld.x - radius, y: floorY, z: centerWorld.z }, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
-  );
-  const ringEndX = projectPoint(
-    rotatePoint({ x: centerWorld.x + radius, y: floorY, z: centerWorld.z }, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
-  );
-  const ringStartZ = projectPoint(
-    rotatePoint({ x: centerWorld.x, y: floorY, z: centerWorld.z - radius }, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
-  );
-  const ringEndZ = projectPoint(
-    rotatePoint({ x: centerWorld.x, y: floorY, z: centerWorld.z + radius }, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
-  );
-  const center = projectPoint(
-    rotatePoint(centerWorld, rotationX, rotationY),
-    canvasWidth,
-    canvasHeight,
-    sizeReference,
-    zoom
-  );
+  const labelFontSize = clamp(projectedRadius * 0.38, 8, 11);
+  const northLabel = projectCompassPoint(0, -radius * 1.42);
+  const eastLabel = projectCompassPoint(radius * 1.42, 0);
+  const southLabel = projectCompassPoint(0, radius * 1.42);
+  const westLabel = projectCompassPoint(-radius * 1.42, 0);
+  const liveMarker =
+    solarState.status === "ready" && solarState.snapshot.altitude > 0
+      ? projectCompassPoint(
+          Math.sin((solarState.snapshot.azimuth * Math.PI) / 180) * radius,
+          -Math.cos((solarState.snapshot.azimuth * Math.PI) / 180) * radius
+        )
+      : null;
+  const markerHaloRadius = clamp(projectedRadius * 0.28, 4.5, 8.5);
+  const markerCoreRadius = clamp(projectedRadius * 0.17, 2.8, 5);
+  const markerInnerTick = markerCoreRadius + 1.8;
+  const markerOuterTick = markerHaloRadius + 2.4;
+  const markerDiagonalOuterTick = markerHaloRadius + 1.2;
 
   context.save();
-  context.strokeStyle = compassColor;
-  context.fillStyle = compassColor;
-  context.lineWidth = 1.1;
-
-  context.beginPath();
-  context.moveTo(ringPoints[0].x, ringPoints[0].y);
-  for (let index = 1; index < ringPoints.length; index += 1) {
-    context.lineTo(ringPoints[index].x, ringPoints[index].y);
-  }
+  context.fillStyle = "rgba(255, 255, 255, 0.88)";
+  context.strokeStyle = "rgba(244, 63, 94, 0.56)";
+  context.lineWidth = 1.5;
+  traceProjectedShape(context, outerRing, true);
+  context.fill();
   context.stroke();
 
-  context.beginPath();
-  context.moveTo(ringStartX.x, ringStartX.y);
-  context.lineTo(ringEndX.x, ringEndX.y);
-  context.moveTo(ringStartZ.x, ringStartZ.y);
-  context.lineTo(ringEndZ.x, ringEndZ.y);
-  context.stroke();
-
-  context.beginPath();
-  context.arc(center.x, center.y, 2.2, 0, Math.PI * 2);
+  context.fillStyle = "#be123c";
+  traceProjectedShape(context, northNeedle, true);
   context.fill();
 
-  context.font = "600 11px sans-serif";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText("N", north.x, north.y);
-  context.fillText("E", east.x, east.y);
-  context.fillText("S", south.x, south.y);
-  context.fillText("W", west.x, west.y);
+  context.fillStyle = "#94a3b8";
+  traceProjectedShape(context, southNeedle, true);
+  context.fill();
+
+  context.fillStyle = "#94a3b8";
+  traceProjectedShape(context, eastNeedle, true);
+  context.fill();
+  traceProjectedShape(context, westNeedle, true);
+  context.fill();
+
+  context.fillStyle = "#0f172a";
+  traceProjectedShape(context, core, true);
+  context.fill();
+
+  if (liveMarker) {
+    context.strokeStyle = "#f59e0b";
+    context.lineWidth = Math.max(projectedRadius * 0.08, 1.8);
+    context.lineCap = "round";
+    context.beginPath();
+    context.moveTo(center.x, center.y);
+    context.lineTo(liveMarker.x, liveMarker.y);
+    context.stroke();
+
+    context.fillStyle = "rgba(251, 191, 36, 0.2)";
+    context.beginPath();
+    context.arc(liveMarker.x, liveMarker.y, markerHaloRadius, 0, Math.PI * 2);
+    context.fill();
+
+    context.fillStyle = "#f59e0b";
+    context.strokeStyle = "#ffffff";
+    context.lineWidth = 1.1;
+    context.beginPath();
+    context.arc(liveMarker.x, liveMarker.y, markerCoreRadius, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+
+    context.strokeStyle = "#f59e0b";
+    context.lineWidth = Math.max(projectedRadius * 0.05, 1.4);
+
+    const cardinalTicks: Array<[number, number, number]> = [
+      [0, -1, markerOuterTick],
+      [1, 0, markerOuterTick],
+      [0, 1, markerOuterTick],
+      [-1, 0, markerOuterTick],
+    ];
+
+    cardinalTicks.forEach(([dx, dy, outer]) => {
+      context.beginPath();
+      context.moveTo(
+        liveMarker.x + dx * markerInnerTick,
+        liveMarker.y + dy * markerInnerTick
+      );
+      context.lineTo(
+        liveMarker.x + dx * outer,
+        liveMarker.y + dy * outer
+      );
+      context.stroke();
+    });
+
+    const diagonalTicks: Array<[number, number]> = [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ];
+
+    diagonalTicks.forEach(([dx, dy]) => {
+      const normalized = Math.SQRT1_2;
+      context.beginPath();
+      context.moveTo(
+        liveMarker.x + dx * markerInnerTick * normalized,
+        liveMarker.y + dy * markerInnerTick * normalized
+      );
+      context.lineTo(
+        liveMarker.x + dx * markerDiagonalOuterTick * normalized,
+        liveMarker.y + dy * markerDiagonalOuterTick * normalized
+      );
+      context.stroke();
+    });
+  }
+
+  drawCompassLabel(context, "N", northLabel, "#be123c", labelFontSize);
+  drawCompassLabel(context, "E", eastLabel, "#475569", labelFontSize);
+  drawCompassLabel(context, "S", southLabel, "#475569", labelFontSize);
+  drawCompassLabel(context, "W", westLabel, "#475569", labelFontSize);
 
   context.restore();
 }
@@ -954,6 +1084,21 @@ function getFloorGridSettings(roomDimensions: RoomDimensions) {
   };
 }
 
+function getCirclePlanePoints(
+  radius: number,
+  segments: number,
+  startAngle = -Math.PI / 2
+): PlanePoint[] {
+  return Array.from({ length: segments }, (_, index) => {
+    const angle = startAngle + (index / segments) * Math.PI * 2;
+
+    return {
+      x: Math.cos(angle) * radius,
+      z: Math.sin(angle) * radius,
+    };
+  });
+}
+
 function getRoundedStep(value: number) {
   if (!Number.isFinite(value) || value <= 0) {
     return 1;
@@ -1037,6 +1182,70 @@ function getProjectedLabelPoint(start: { x: number; y: number }, end: { x: numbe
     x: end.x + (dx / length) * offset,
     y: end.y + (dy / length) * offset,
   };
+}
+
+function projectFloorPlanePoint(
+  centerWorld: Point3D,
+  offset: PlanePoint,
+  canvasWidth: number,
+  canvasHeight: number,
+  sizeReference: number,
+  rotationX: number,
+  rotationY: number,
+  zoom: number
+): ProjectedPoint {
+  return projectPoint(
+    rotatePoint(
+      {
+        x: centerWorld.x + offset.x,
+        y: centerWorld.y,
+        z: centerWorld.z + offset.z,
+      },
+      rotationX,
+      rotationY
+    ),
+    canvasWidth,
+    canvasHeight,
+    sizeReference,
+    zoom
+  );
+}
+
+function traceProjectedShape(
+  context: CanvasRenderingContext2D,
+  points: ProjectedPoint[],
+  closePath = false
+) {
+  if (points.length === 0) {
+    return;
+  }
+
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+
+  for (let index = 1; index < points.length; index += 1) {
+    context.lineTo(points[index].x, points[index].y);
+  }
+
+  if (closePath) {
+    context.closePath();
+  }
+}
+
+function drawCompassLabel(
+  context: CanvasRenderingContext2D,
+  label: string,
+  point: ProjectedPoint,
+  color: string,
+  fontSize: number
+) {
+  context.save();
+  context.fillStyle = color;
+  context.font = `700 ${fontSize}px sans-serif`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, point.x, point.y);
+  context.restore();
 }
 
 function projectPoint(
@@ -1209,12 +1418,12 @@ function getSunSummary(solarState: SolarState) {
     const { snapshot } = solarState;
 
     if (snapshot.altitude <= 0) {
-      return `Sun: Below horizon | Az ${formatDegree(snapshot.azimuth)}°`;
+      return `Sun: Below horizon | Az ${formatDegree(snapshot.azimuth)}° | Zen ${formatDegree(snapshot.zenith)}°`;
     }
 
-    return `Sun: ${toCardinalDirection(snapshot.azimuth)} ${formatDegree(snapshot.azimuth)}° | Alt ${formatDegree(
-      snapshot.altitude
-    )}°`;
+    return `Sun: ${toCardinalDirection(snapshot.azimuth)} | Az ${formatDegree(snapshot.azimuth)}° | Zen ${formatDegree(
+      snapshot.zenith
+    )}° | Alt ${formatDegree(snapshot.altitude)}°`;
   }
 
   if (solarState.status === "loading") {
