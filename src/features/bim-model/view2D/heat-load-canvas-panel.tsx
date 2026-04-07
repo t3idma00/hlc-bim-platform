@@ -31,6 +31,23 @@ type RawWallInput = {
   thickness: number;
 };
 
+type DoorInput = {
+  direction: WallDirection;
+  width: number;
+  height: number;
+};
+
+type WindowInput = {
+  direction: WallDirection;
+  width: number;
+  height: number;
+};
+
+type WallFeatureSpan = {
+  startMeters: number;
+  widthMeters: number;
+};
+
 type OffsetLine = {
   start: Point;
   end: Point;
@@ -428,6 +445,18 @@ export function HeatLoadCanvasPanel({
       const drawHeight = height - RULER_SIZE;
       const wallChainResult = buildWallChains(formValues);
       const visibleSegments = wallChainResult.chains.flatMap((chain) => chain.segments);
+      const pendingDoors = new Map<WallDirection, DoorInput>();
+      const pendingWindows = new Map<WallDirection, WindowInput>();
+      getRawDoorInputs(formValues).forEach((door) => {
+        if (door.width > 0) {
+          pendingDoors.set(door.direction, door);
+        }
+      });
+      getRawWindowInputs(formValues).forEach((window) => {
+        if (window.width > 0) {
+          pendingWindows.set(window.direction, window);
+        }
+      });
       const laidOutChains = layoutChains(
         wallChainResult.chains
           .map((chain) => {
@@ -506,6 +535,26 @@ export function HeatLoadCanvasPanel({
         item.chain.segments.forEach((segment) => {
           const start = translatePoint(addPoints(segment.start, item.offset), originX, originY, pixelsPerMeter);
           const end = translatePoint(addPoints(segment.end, item.offset), originX, originY, pixelsPerMeter);
+          const door = pendingDoors.get(segment.direction);
+          const window = pendingWindows.get(segment.direction);
+
+          if (door || window) {
+            drawCenteredWallFeatures(
+              context,
+              segment,
+              start,
+              end,
+              pixelsPerMeter,
+              door?.width ?? 0,
+              window?.width ?? 0
+            );
+            if (door) {
+              pendingDoors.delete(segment.direction);
+            }
+            if (window) {
+              pendingWindows.delete(segment.direction);
+            }
+          }
 
           drawSegmentDimension(
             context,
@@ -817,6 +866,56 @@ function getRawWallInputs(formValues: CanvasFormValues): RawWallInput[] {
       direction: "West",
       length: parsePositiveNumber(formValues.wallWestLength),
       thickness: parsePositiveNumber(formValues.wallWestWidth, DEFAULT_WALL_THICKNESS),
+    },
+  ];
+}
+
+function getRawDoorInputs(formValues: CanvasFormValues): DoorInput[] {
+  return [
+    {
+      direction: "North",
+      width: parsePositiveNumber(formValues.doorNorthWidth),
+      height: parsePositiveNumber(formValues.doorNorthHeight),
+    },
+    {
+      direction: "East",
+      width: parsePositiveNumber(formValues.doorEastWidth),
+      height: parsePositiveNumber(formValues.doorEastHeight),
+    },
+    {
+      direction: "South",
+      width: parsePositiveNumber(formValues.doorSouthWidth),
+      height: parsePositiveNumber(formValues.doorSouthHeight),
+    },
+    {
+      direction: "West",
+      width: parsePositiveNumber(formValues.doorWestWidth),
+      height: parsePositiveNumber(formValues.doorWestHeight),
+    },
+  ];
+}
+
+function getRawWindowInputs(formValues: CanvasFormValues): WindowInput[] {
+  return [
+    {
+      direction: "North",
+      width: parsePositiveNumber(formValues.windowNorthWidth),
+      height: parsePositiveNumber(formValues.windowNorthHeight),
+    },
+    {
+      direction: "East",
+      width: parsePositiveNumber(formValues.windowEastWidth),
+      height: parsePositiveNumber(formValues.windowEastHeight),
+    },
+    {
+      direction: "South",
+      width: parsePositiveNumber(formValues.windowSouthWidth),
+      height: parsePositiveNumber(formValues.windowSouthHeight),
+    },
+    {
+      direction: "West",
+      width: parsePositiveNumber(formValues.windowWestWidth),
+      height: parsePositiveNumber(formValues.windowWestHeight),
     },
   ];
 }
@@ -1219,6 +1318,197 @@ function drawSegmentDimension(
   context.restore();
 
   context.restore();
+}
+
+function drawCenteredWallFeatures(
+  context: CanvasRenderingContext2D,
+  segment: WallSegment,
+  start: Point,
+  end: Point,
+  pixelsPerMeter: number,
+  doorWidthMeters: number,
+  windowWidthMeters: number
+) {
+  const segmentLengthPx = getDistance(start, end);
+  if (segmentLengthPx <= 0.01) {
+    return;
+  }
+
+  const alongWall = normalizeVector({
+    x: end.x - start.x,
+    y: end.y - start.y,
+  });
+  const exteriorNormal = normalizeVector(getExteriorNormal(segment.direction));
+  const interiorNormal = normalizeVector(getInteriorNormal(segment.direction));
+  const wallThicknessPx = Math.max(segment.thickness * pixelsPerMeter, 1);
+  const featureSpans = resolveWallFeatureSpans(
+    segment.length,
+    doorWidthMeters,
+    windowWidthMeters
+  );
+
+  context.save();
+
+  if (featureSpans.door) {
+    const openingWidthPx = featureSpans.door.widthMeters * pixelsPerMeter;
+    const openingStart = addPoints(
+      start,
+      scalePoint(alongWall, featureSpans.door.startMeters * pixelsPerMeter)
+    );
+    const openingEnd = addPoints(openingStart, scalePoint(alongWall, openingWidthPx));
+    const openingOuterEnd = addPoints(openingEnd, scalePoint(exteriorNormal, wallThicknessPx));
+    const openingOuterStart = addPoints(openingStart, scalePoint(exteriorNormal, wallThicknessPx));
+    const hingePoint = openingStart;
+    const leafEnd = addPoints(hingePoint, scalePoint(interiorNormal, openingWidthPx));
+
+    context.fillStyle = "#dbeafe";
+    context.beginPath();
+    addClosedPath(context, [openingStart, openingEnd, openingOuterEnd, openingOuterStart]);
+    context.fill();
+
+    context.strokeStyle = "rgba(51, 65, 85, 0.7)";
+    context.lineWidth = 1.4;
+    context.beginPath();
+    context.moveTo(hingePoint.x, hingePoint.y);
+    context.lineTo(leafEnd.x, leafEnd.y);
+    context.stroke();
+
+    drawDoorSwingArc(context, hingePoint, openingEnd, leafEnd);
+  }
+
+  if (featureSpans.window) {
+    const windowStart = addPoints(
+      start,
+      scalePoint(alongWall, featureSpans.window.startMeters * pixelsPerMeter)
+    );
+    const windowEnd = addPoints(
+      windowStart,
+      scalePoint(alongWall, featureSpans.window.widthMeters * pixelsPerMeter)
+    );
+    const windowCenterOffset = wallThicknessPx * 0.52;
+    const lineStart = addPoints(windowStart, scalePoint(exteriorNormal, windowCenterOffset));
+    const lineEnd = addPoints(windowEnd, scalePoint(exteriorNormal, windowCenterOffset));
+
+    context.strokeStyle = "#38bdf8";
+    context.lineWidth = clampNumber(wallThicknessPx * 0.42, 3, 7);
+    context.lineCap = "round";
+    context.beginPath();
+    context.moveTo(lineStart.x, lineStart.y);
+    context.lineTo(lineEnd.x, lineEnd.y);
+    context.stroke();
+
+    context.strokeStyle = "rgba(255, 255, 255, 0.85)";
+    context.lineWidth = Math.max(clampNumber(wallThicknessPx * 0.16, 1.2, 3), 1.2);
+    context.beginPath();
+    context.moveTo(lineStart.x, lineStart.y);
+    context.lineTo(lineEnd.x, lineEnd.y);
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function resolveWallFeatureSpans(
+  segmentLengthMeters: number,
+  doorWidthMeters: number,
+  windowWidthMeters: number
+): {
+  door: WallFeatureSpan | null;
+  window: WallFeatureSpan | null;
+} {
+  const sideInsetMeters = Math.min(segmentLengthMeters * 0.15, 0.12);
+  const usableStart = sideInsetMeters;
+  const usableEnd = Math.max(segmentLengthMeters - sideInsetMeters, usableStart);
+  const usableWidth = Math.max(usableEnd - usableStart, 0);
+  const clampToCenteredSpan = (desiredWidthMeters: number): WallFeatureSpan | null => {
+    const widthMeters = Math.min(desiredWidthMeters, usableWidth);
+
+    if (widthMeters <= 0.05) {
+      return null;
+    }
+
+    return {
+      startMeters: usableStart + (usableWidth - widthMeters) / 2,
+      widthMeters,
+    };
+  };
+
+  const result = {
+    door: null as WallFeatureSpan | null,
+    window: null as WallFeatureSpan | null,
+  };
+
+  if (doorWidthMeters > 0) {
+    result.door = clampToCenteredSpan(doorWidthMeters);
+  }
+
+  if (windowWidthMeters <= 0) {
+    return result;
+  }
+
+  if (!result.door) {
+    result.window = clampToCenteredSpan(windowWidthMeters);
+    return result;
+  }
+
+  const gapMeters = Math.min(Math.max(segmentLengthMeters * 0.04, 0.08), 0.2);
+  const doorStart = result.door.startMeters;
+  const doorEnd = doorStart + result.door.widthMeters;
+  const leftWidth = Math.max(doorStart - gapMeters - usableStart, 0);
+  const rightStart = doorEnd + gapMeters;
+  const rightWidth = Math.max(usableEnd - rightStart, 0);
+  const placeOnRight = rightWidth > leftWidth;
+
+  const trySpan = (spanStart: number, spanWidth: number): WallFeatureSpan | null => {
+    const widthMeters = Math.min(windowWidthMeters, spanWidth);
+
+    if (widthMeters <= 0.05) {
+      return null;
+    }
+
+    return {
+      startMeters: spanStart + (spanWidth - widthMeters) / 2,
+      widthMeters,
+    };
+  };
+
+  result.window = placeOnRight
+    ? trySpan(rightStart, rightWidth) ?? trySpan(usableStart, leftWidth)
+    : trySpan(usableStart, leftWidth) ?? trySpan(rightStart, rightWidth);
+
+  return result;
+}
+
+function drawDoorSwingArc(
+  context: CanvasRenderingContext2D,
+  hingePoint: Point,
+  closedPoint: Point,
+  openPoint: Point
+) {
+  const radius = getDistance(hingePoint, closedPoint);
+  if (radius <= 0.5) {
+    return;
+  }
+
+  let startAngle = Math.atan2(closedPoint.y - hingePoint.y, closedPoint.x - hingePoint.x);
+  let endAngle = Math.atan2(openPoint.y - hingePoint.y, openPoint.x - hingePoint.x);
+
+  if (endAngle < startAngle && startAngle - endAngle > Math.PI) {
+    endAngle += Math.PI * 2;
+  } else if (startAngle < endAngle && endAngle - startAngle > Math.PI) {
+    startAngle += Math.PI * 2;
+  }
+
+  context.beginPath();
+  context.arc(
+    hingePoint.x,
+    hingePoint.y,
+    radius,
+    startAngle,
+    endAngle,
+    endAngle < startAngle
+  );
+  context.stroke();
 }
 
 function getInteriorNormal(direction: WallDirection): Point {
