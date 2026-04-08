@@ -2,9 +2,14 @@ import type {
   AmbientConditions,
   ResolvedSolarLocation,
   SolarIntensity,
+  SolarLocationCandidate,
   SolarLocationInput,
   SolarMode,
 } from "./solar-types";
+
+function toRadians(value: number): number {
+  return (value * Math.PI) / 180;
+}
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -70,6 +75,129 @@ function findNearestHourlyIndex(times: string[], targetDateTime: Date): number {
   }
 
   return nearestIndex;
+}
+
+function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(bLat - aLat);
+  const dLon = toRadians(bLon - aLon);
+
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const aa =
+    sinLat * sinLat +
+    Math.cos(toRadians(aLat)) * Math.cos(toRadians(bLat)) * sinLon * sinLon;
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+}
+
+export async function searchSolarLocations(input: {
+  name: string;
+  country?: string;
+  countryCode?: string;
+  count?: number;
+  onlyCities?: boolean;
+}): Promise<SolarLocationCandidate[]> {
+  const params = new URLSearchParams({
+    name: input.name,
+    count: String(input.count ?? 10),
+    language: "en",
+    format: "json",
+  });
+
+  if (input.country) {
+    params.set("country", input.country);
+  }
+  if (input.countryCode) {
+    params.set("country_code", input.countryCode);
+  }
+
+  const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Failed to resolve geocoding location (${response.status}).`);
+  }
+
+  const payload = (await response.json()) as {
+    results?: Array<{
+      id?: number;
+      name?: string;
+      country?: string;
+      country_code?: string;
+      latitude?: number;
+      longitude?: number;
+      timezone?: string;
+      population?: number;
+      feature_code?: string;
+      admin1?: string;
+    }>;
+  };
+
+  const onlyCities = input.onlyCities ?? false;
+  const candidates = payload.results ?? [];
+
+  return candidates
+    .filter((item) => {
+      if (!onlyCities) {
+        return true;
+      }
+      const code = item.feature_code ?? "";
+      return code.startsWith("PPL") || code === "PPLA" || code === "PPLC";
+    })
+    .map((item) => {
+      const missingFields: string[] = [];
+      if (!isFiniteNumber(item.latitude)) {
+        missingFields.push("latitude");
+      }
+      if (!isFiniteNumber(item.longitude)) {
+        missingFields.push("longitude");
+      }
+      if (!item.timezone) {
+        missingFields.push("timezone");
+      }
+
+      return {
+        id: String(item.id ?? `${item.name ?? "unknown"}-${item.latitude ?? 0}-${item.longitude ?? 0}`),
+        name: item.name ?? input.name,
+        country: item.country,
+        countryCode: item.country_code,
+        latitude: isFiniteNumber(item.latitude) ? item.latitude : 0,
+        longitude: isFiniteNumber(item.longitude) ? item.longitude : 0,
+        timezone: item.timezone,
+        population: item.population ?? null,
+        featureCode: item.feature_code,
+        admin1: item.admin1,
+        missingFields,
+        hasRequiredData: missingFields.length === 0,
+      };
+    });
+}
+
+export async function validateCityCoordinateMatch(input: {
+  city: string;
+  country?: string;
+  latitude: number;
+  longitude: number;
+  thresholdKm?: number;
+}): Promise<{ matched: boolean; distanceKm: number | null; reference: SolarLocationCandidate | null }> {
+  const thresholdKm = input.thresholdKm ?? 50;
+  const candidates = await searchSolarLocations({
+    name: input.city,
+    country: input.country,
+    count: 10,
+    onlyCities: true,
+  });
+
+  const reference = candidates.find((item) => item.hasRequiredData) ?? candidates[0] ?? null;
+  if (!reference) {
+    return { matched: false, distanceKm: null, reference: null };
+  }
+
+  const deltaKm = distanceKm(input.latitude, input.longitude, reference.latitude, reference.longitude);
+  return {
+    matched: deltaKm <= thresholdKm,
+    distanceKm: Number(deltaKm.toFixed(2)),
+    reference,
+  };
 }
 
 // Decide which data source mode to use from the selected date.

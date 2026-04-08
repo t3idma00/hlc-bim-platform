@@ -9,6 +9,7 @@ import {
   fetchOpenMeteoArchiveSolarIntensity,
   fetchOpenMeteoSolarIntensity,
   resolveSolarLocation,
+  validateCityCoordinateMatch,
   type SolarMode,
 } from "@/lib/calculations/solar";
 
@@ -84,6 +85,38 @@ export async function GET(request: NextRequest) {
 
     const alerts: string[] = [];
 
+    let cityCoordinateMatch: {
+      matched: boolean;
+      distanceKm: number | null;
+      referenceCity?: string;
+      referenceCountry?: string;
+    } | null = null;
+
+    if (city && latitude !== undefined && longitude !== undefined) {
+      try {
+        const match = await validateCityCoordinateMatch({
+          city,
+          country,
+          latitude,
+          longitude,
+          thresholdKm: 50,
+        });
+
+        cityCoordinateMatch = {
+          matched: match.matched,
+          distanceKm: match.distanceKm,
+          referenceCity: match.reference?.name,
+          referenceCountry: match.reference?.country,
+        };
+
+        if (!match.matched) {
+          alerts.push("Solar data is not available for your selected city with the current coordinates.");
+        }
+      } catch {
+        alerts.push("Unable to verify selected city against coordinates.");
+      }
+    }
+
   // 3) Fallback to archive when NASA returns fully missing values.
     if (mode === "historical" && intensity.missingVariables.length === 3) {
       try {
@@ -135,6 +168,11 @@ export async function GET(request: NextRequest) {
       alerts.push(`Missing solar variables: ${intensity.missingVariables.join(", ")}.`);
     }
 
+    const noSolarData = !intensity.availability.ghi && !intensity.availability.dni && !intensity.availability.dhi;
+    if (noSolarData) {
+      alerts.push("Solar data is not available for your selected city.");
+    }
+
     // 6) Return normalized response shape for frontend use.
     return NextResponse.json({
       mode,
@@ -143,6 +181,7 @@ export async function GET(request: NextRequest) {
       solarPosition,
       solarIntensity: intensity,
       ambient,
+      cityCoordinateMatch,
       shgf,
       alerts,
     });

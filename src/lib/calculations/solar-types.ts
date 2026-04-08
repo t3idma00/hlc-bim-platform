@@ -16,6 +16,21 @@ export type ResolvedSolarLocation = {
   timezone?: string;
 };
 
+export type SolarLocationCandidate = {
+  id: string;
+  name: string;
+  country?: string;
+  countryCode?: string;
+  latitude: number;
+  longitude: number;
+  timezone?: string;
+  population?: number | null;
+  featureCode?: string;
+  admin1?: string;
+  missingFields: string[];
+  hasRequiredData: boolean;
+};
+
 export type SolarIntensity = {
   ghi: number;
   dni: number;
