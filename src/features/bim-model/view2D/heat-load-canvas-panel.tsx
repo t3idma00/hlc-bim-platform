@@ -12,6 +12,11 @@ const BASE_GRID_SIZE = 40;
 const DEFAULT_WALL_THICKNESS = 0.2;
 const DIMENSION_GAP = 12;
 const GRID_TARGET_SIZE = 44;
+const EDITOR_SNAP_DIVISIONS = 4;
+const EDITOR_MIN_WALL_LENGTH = 0.4;
+const EDITOR_DEFAULT_WINDOW_WIDTH = 1.2;
+const EDITOR_DEFAULT_DOOR_WIDTH = 0.9;
+const EDITOR_OPENING_EDGE_INSET = 0.2;
 
 type CanvasFormValues = Record<string, string>;
 type Point = { x: number; y: number };
@@ -130,6 +135,83 @@ type SolarApiResponse = {
   error?: string;
 };
 
+type EditorTool = "select" | "pan" | "delete" | "wall" | "window" | "door";
+
+type EditableWall = {
+  id: string;
+  start: Point;
+  end: Point;
+  thickness: number;
+};
+
+type OpeningKind = "window" | "door";
+
+type EditableOpening = {
+  id: string;
+  wallId: string;
+  kind: OpeningKind;
+  offsetMeters: number;
+  widthMeters: number;
+};
+
+type SelectedEditorElement =
+  | {
+      kind: "wall" | "opening";
+      id: string;
+    }
+  | null;
+
+type EditorDragState =
+  | {
+      kind: "idle";
+    }
+  | {
+      kind: "pan";
+      lastScreen: Point;
+    }
+  | {
+      kind: "wall";
+      wallId: string;
+      lastWorld: Point;
+    }
+  | {
+      kind: "opening";
+      openingId: string;
+    };
+
+type EditorViewport = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  centerX: number;
+  centerY: number;
+  pixelsPerMeter: number;
+};
+
+type ToolOption = {
+  key: EditorTool;
+  label: string;
+};
+
+type EditorWallHit = {
+  wall: EditableWall;
+  distance: number;
+};
+
+type EditorOpeningHit = {
+  opening: EditableOpening;
+  wall: EditableWall;
+};
+
+type ActiveEditorTool = EditorTool | null;
+
+const TOOL_OPTIONS: ToolOption[] = [
+  { key: "select", label: "Select" },
+  { key: "pan", label: "Pan" },
+  { key: "delete", label: "Delete" },
+];
+
 export function HeatLoadCanvasPanel({
   formValues,
   activeView,
@@ -140,16 +222,116 @@ export function HeatLoadCanvasPanel({
   onViewChange: (view: WorkspaceView) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const workspaceRef = useRef<HTMLElement | null>(null);
   const [scale, setScale] = useState(1);
   const [solarState, setSolarState] = useState<SolarState>({
     status: "loading",
     snapshot: null,
     message: "Locating live sun...",
   });
+  const [editorTool, setEditorTool] = useState<ActiveEditorTool>(null);
+  const [editorRevision, setEditorRevision] = useState(0);
 
   const offsetRef = useRef({ x: 0, y: 0 });
-  const isDragging = useRef(false);
-  const lastMouse = useRef({ x: 0, y: 0 });
+  const editorToolRef = useRef<ActiveEditorTool>(null);
+  const editorWallsRef = useRef<EditableWall[]>([]);
+  const editorOpeningsRef = useRef<EditableOpening[]>([]);
+  const selectedEditorElementRef = useRef<SelectedEditorElement>(null);
+  const draftWallStartRef = useRef<Point | null>(null);
+  const draftWallEndRef = useRef<Point | null>(null);
+  const dragStateRef = useRef<EditorDragState>({ kind: "idle" });
+  const idCounterRef = useRef(0);
+
+  const refreshEditorUi = () => {
+    setEditorRevision((previousValue) => previousValue + 1);
+  };
+
+  const clearEditorDraft = () => {
+    draftWallStartRef.current = null;
+    draftWallEndRef.current = null;
+  };
+
+  const deleteSelectedEditorElement = () => {
+    const selected = selectedEditorElementRef.current;
+
+    if (!selected) {
+      return;
+    }
+
+    if (selected.kind === "wall") {
+      editorWallsRef.current = editorWallsRef.current.filter((wall) => wall.id !== selected.id);
+      editorOpeningsRef.current = editorOpeningsRef.current.filter((opening) => opening.wallId !== selected.id);
+    } else {
+      editorOpeningsRef.current = editorOpeningsRef.current.filter((opening) => opening.id !== selected.id);
+    }
+
+    selectedEditorElementRef.current = null;
+    refreshEditorUi();
+  };
+
+  const handleToolbarToolClick = (tool: EditorTool) => {
+    if (tool === "delete" && selectedEditorElementRef.current !== null) {
+      deleteSelectedEditorElement();
+      setEditorTool(null);
+      return;
+    }
+
+    setEditorTool((previousTool) => (previousTool === tool ? null : tool));
+  };
+
+  useEffect(() => {
+    editorToolRef.current = editorTool;
+
+    if (
+      editorTool !== "wall" &&
+      (draftWallStartRef.current !== null || draftWallEndRef.current !== null)
+    ) {
+      clearEditorDraft();
+      refreshEditorUi();
+    }
+  }, [editorTool]);
+
+  useEffect(() => {
+    const seededSketch = buildEditorSketchFromFormValues(formValues);
+
+    editorWallsRef.current = seededSketch.walls;
+    editorOpeningsRef.current = seededSketch.openings;
+    idCounterRef.current = seededSketch.lastId;
+    selectedEditorElementRef.current = null;
+    dragStateRef.current = { kind: "idle" };
+    clearEditorDraft();
+    refreshEditorUi();
+  }, [formValues]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+      const workspaceElement = workspaceRef.current;
+
+      if (!workspaceElement) {
+        return;
+      }
+
+      if (event.target instanceof Node && workspaceElement.contains(event.target)) {
+        return;
+      }
+
+      selectedEditorElementRef.current = null;
+      dragStateRef.current = { kind: "idle" };
+      clearEditorDraft();
+      refreshEditorUi();
+      setEditorTool(null);
+    };
+
+    document.addEventListener("pointerdown", handleDocumentPointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handleDocumentPointerDown);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -479,6 +661,32 @@ export function HeatLoadCanvasPanel({
       context.rect(drawX, drawY, drawWidth, drawHeight);
       context.clip();
 
+      const editorViewport = getEditorViewport(
+        width,
+        height,
+        pixelsPerMeter,
+        offsetX,
+        offsetY
+      );
+      const hasEditorContent =
+        editorWallsRef.current.length > 0 ||
+        editorOpeningsRef.current.length > 0 ||
+        draftWallStartRef.current !== null;
+
+      if (hasEditorContent) {
+        drawEditorPlan(
+          context,
+          editorViewport,
+          editorWallsRef.current,
+          editorOpeningsRef.current,
+          selectedEditorElementRef.current,
+          draftWallStartRef.current,
+          draftWallEndRef.current
+        );
+        context.restore();
+        return;
+      }
+
       if (visibleSegments.length === 0) {
         context.fillStyle = "#64748b";
         context.font = "14px sans-serif";
@@ -662,31 +870,339 @@ export function HeatLoadCanvasPanel({
       setScale((previousScale) => Math.max(0.4, Math.min(previousScale * zoomFactor, 4)));
     };
 
+    const redrawCanvas = () => {
+      draw(canvas, ctx);
+    };
+
+    const getCanvasPoint = (event: MouseEvent): Point => {
+      const bounds = canvas.getBoundingClientRect();
+      const scaleX = bounds.width > 0 ? canvas.width / bounds.width : 1;
+      const scaleY = bounds.height > 0 ? canvas.height / bounds.height : 1;
+
+      return {
+        x: (event.clientX - bounds.left) * scaleX,
+        y: (event.clientY - bounds.top) * scaleY,
+      };
+    };
+
+    const getEditorInteractionContext = (event: MouseEvent) => {
+      const point = getCanvasPoint(event);
+      const gridMetrics = getGridMetrics(scale);
+      const viewport = getEditorViewport(
+        canvas.width,
+        canvas.height,
+        gridMetrics.pixelsPerMeter,
+        offsetRef.current.x,
+        offsetRef.current.y
+      );
+      const insideViewport = isPointInsideViewport(point, viewport);
+      const rawWorldPoint = insideViewport
+        ? screenToEditorWorld(point, viewport)
+        : null;
+      const worldPoint = rawWorldPoint
+        ? snapEditorPoint(rawWorldPoint, getEditorSnapStep(gridMetrics))
+        : null;
+
+      return {
+        point,
+        gridMetrics,
+        viewport,
+        insideViewport,
+        worldPoint,
+      };
+    };
+
     const handleMouseDown = (event: MouseEvent) => {
-      isDragging.current = true;
-      lastMouse.current = { x: event.clientX, y: event.clientY };
+      const interaction = getEditorInteractionContext(event);
+      const tool = editorToolRef.current;
+
+      if (tool === null) {
+        dragStateRef.current = { kind: "idle" };
+        return;
+      }
+
+      if (!interaction.insideViewport) {
+        dragStateRef.current = { kind: "idle" };
+        return;
+      }
+
+      const openingHit = findEditorOpeningHit(
+        interaction.point,
+        interaction.viewport,
+        editorWallsRef.current,
+        editorOpeningsRef.current
+      );
+      const wallHit: EditorWallHit | null =
+        openingHit === null
+          ? findEditorWallHit(
+              interaction.point,
+              interaction.viewport,
+              editorWallsRef.current
+            )
+          : null;
+
+      if (tool === "wall") {
+        if (!interaction.worldPoint) {
+          return;
+        }
+
+        if (!draftWallStartRef.current) {
+          selectedEditorElementRef.current = null;
+          draftWallStartRef.current = interaction.worldPoint;
+          draftWallEndRef.current = interaction.worldPoint;
+          refreshEditorUi();
+          redrawCanvas();
+          return;
+        }
+
+        const endPoint = lockEditorWallPoint(
+          draftWallStartRef.current,
+          interaction.worldPoint
+        );
+
+        if (
+          getDistance(draftWallStartRef.current, endPoint) >=
+          EDITOR_MIN_WALL_LENGTH
+        ) {
+          idCounterRef.current += 1;
+
+          const wall: EditableWall = {
+            id: `wall-${idCounterRef.current}`,
+            start: draftWallStartRef.current,
+            end: endPoint,
+            thickness: DEFAULT_WALL_THICKNESS,
+          };
+
+          editorWallsRef.current = [...editorWallsRef.current, wall];
+          selectedEditorElementRef.current = {
+            kind: "wall",
+            id: wall.id,
+          };
+        }
+
+        clearEditorDraft();
+        refreshEditorUi();
+        redrawCanvas();
+        return;
+      }
+
+      if (tool === "window" || tool === "door") {
+        const worldPoint = interaction.worldPoint;
+
+        if (!wallHit || !worldPoint) {
+          return;
+        }
+
+        const nextOpening = createEditorOpening(
+          tool,
+          wallHit.wall,
+          worldPoint
+        );
+
+        if (!nextOpening) {
+          return;
+        }
+
+        idCounterRef.current += 1;
+        const opening: EditableOpening = {
+          ...nextOpening,
+          id: `opening-${idCounterRef.current}`,
+        };
+
+        editorOpeningsRef.current = [...editorOpeningsRef.current, opening];
+        selectedEditorElementRef.current = {
+          kind: "opening",
+          id: opening.id,
+        };
+        refreshEditorUi();
+        redrawCanvas();
+        return;
+      }
+
+      if (tool === "delete") {
+        if (openingHit) {
+          editorOpeningsRef.current = editorOpeningsRef.current.filter(
+            (opening) => opening.id !== openingHit.opening.id
+          );
+          if (selectedEditorElementRef.current?.id === openingHit.opening.id) {
+            selectedEditorElementRef.current = null;
+          }
+          refreshEditorUi();
+          redrawCanvas();
+          return;
+        }
+
+        if (wallHit) {
+          editorWallsRef.current = editorWallsRef.current.filter(
+            (wall) => wall.id !== wallHit.wall.id
+          );
+          editorOpeningsRef.current = editorOpeningsRef.current.filter(
+            (opening) => opening.wallId !== wallHit.wall.id
+          );
+          if (selectedEditorElementRef.current?.id === wallHit.wall.id) {
+            selectedEditorElementRef.current = null;
+          }
+          refreshEditorUi();
+          redrawCanvas();
+        }
+
+        return;
+      }
+
+      if (tool === "pan") {
+        dragStateRef.current = {
+          kind: "pan",
+          lastScreen: interaction.point,
+        };
+        redrawCanvas();
+        return;
+      }
+
+      if (openingHit && interaction.worldPoint) {
+        selectedEditorElementRef.current = {
+          kind: "opening",
+          id: openingHit.opening.id,
+        };
+        dragStateRef.current = {
+          kind: "opening",
+          openingId: openingHit.opening.id,
+        };
+        refreshEditorUi();
+        redrawCanvas();
+        return;
+      }
+
+      if (wallHit && interaction.worldPoint) {
+        const worldPoint = interaction.worldPoint;
+
+        selectedEditorElementRef.current = {
+          kind: "wall",
+          id: wallHit.wall.id,
+        };
+        dragStateRef.current = {
+          kind: "wall",
+          wallId: wallHit.wall.id,
+          lastWorld: worldPoint,
+        };
+        refreshEditorUi();
+        redrawCanvas();
+        return;
+      }
+
+      selectedEditorElementRef.current = null;
+      dragStateRef.current = { kind: "idle" };
+      refreshEditorUi();
+      redrawCanvas();
     };
 
     const handleMouseUp = () => {
-      isDragging.current = false;
+      dragStateRef.current = { kind: "idle" };
     };
 
     const handleMouseMove = (event: MouseEvent) => {
-      if (!isDragging.current) return;
+      const interaction = getEditorInteractionContext(event);
+      const dragState = dragStateRef.current;
 
-      const dx = event.clientX - lastMouse.current.x;
-      const dy = event.clientY - lastMouse.current.y;
+      if (
+        editorToolRef.current === "wall" &&
+        draftWallStartRef.current &&
+        interaction.worldPoint
+      ) {
+        draftWallEndRef.current = lockEditorWallPoint(
+          draftWallStartRef.current,
+          interaction.worldPoint
+        );
+        redrawCanvas();
+      }
 
-      offsetRef.current.x += dx;
-      offsetRef.current.y += dy;
+      if (dragState.kind === "pan") {
+        const dx = interaction.point.x - dragState.lastScreen.x;
+        const dy = interaction.point.y - dragState.lastScreen.y;
 
-      lastMouse.current = { x: event.clientX, y: event.clientY };
+        offsetRef.current.x += dx;
+        offsetRef.current.y += dy;
+        dragStateRef.current = {
+          kind: "pan",
+          lastScreen: interaction.point,
+        };
+        redrawCanvas();
+        return;
+      }
 
-      draw(canvas, ctx);
+      if (dragState.kind === "wall" && interaction.worldPoint) {
+        const delta = {
+          x: interaction.worldPoint.x - dragState.lastWorld.x,
+          y: interaction.worldPoint.y - dragState.lastWorld.y,
+        };
+
+        if (Math.abs(delta.x) <= 0.0001 && Math.abs(delta.y) <= 0.0001) {
+          return;
+        }
+
+        editorWallsRef.current = editorWallsRef.current.map((wall) =>
+          wall.id === dragState.wallId ? moveEditorWall(wall, delta) : wall
+        );
+        dragStateRef.current = {
+          kind: "wall",
+          wallId: dragState.wallId,
+          lastWorld: interaction.worldPoint,
+        };
+        redrawCanvas();
+        return;
+      }
+
+      if (dragState.kind === "opening" && interaction.worldPoint) {
+        const worldPoint = interaction.worldPoint;
+        const targetOpening = editorOpeningsRef.current.find(
+          (opening) => opening.id === dragState.openingId
+        );
+
+        if (!targetOpening) {
+          dragStateRef.current = { kind: "idle" };
+          return;
+        }
+
+        const ownerWall = editorWallsRef.current.find(
+          (wall) => wall.id === targetOpening.wallId
+        );
+
+        if (!ownerWall) {
+          dragStateRef.current = { kind: "idle" };
+          return;
+        }
+
+        editorOpeningsRef.current = editorOpeningsRef.current.map((opening) =>
+          opening.id === dragState.openingId
+            ? moveEditorOpeningAlongWall(opening, ownerWall, worldPoint)
+            : opening
+        );
+        redrawCanvas();
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (draftWallStartRef.current || draftWallEndRef.current) {
+          clearEditorDraft();
+          refreshEditorUi();
+          redrawCanvas();
+        }
+        dragStateRef.current = { kind: "idle" };
+      }
+
+      if (
+        (event.key === "Delete" || event.key === "Backspace") &&
+        selectedEditorElementRef.current
+      ) {
+        event.preventDefault();
+        deleteSelectedEditorElement();
+        redrawCanvas();
+      }
     };
 
     resize();
     window.addEventListener("resize", resize);
+    window.addEventListener("keydown", handleKeyDown);
     canvas.addEventListener("wheel", handleWheel, { passive: false });
     canvas.addEventListener("mousedown", handleMouseDown);
     canvas.addEventListener("mouseup", handleMouseUp);
@@ -695,23 +1211,37 @@ export function HeatLoadCanvasPanel({
 
     return () => {
       window.removeEventListener("resize", resize);
+      window.removeEventListener("keydown", handleKeyDown);
       canvas.removeEventListener("wheel", handleWheel);
       canvas.removeEventListener("mousedown", handleMouseDown);
       canvas.removeEventListener("mouseup", handleMouseUp);
       canvas.removeEventListener("mouseleave", handleMouseUp);
       canvas.removeEventListener("mousemove", handleMouseMove);
     };
-  }, [formValues, scale, solarState]);
+  }, [deleteSelectedEditorElement, editorRevision, editorTool, formValues, scale, solarState]);
 
-  const wallSummary = getWallSummary(formValues);
+  const editorWalls = editorWallsRef.current;
+  const editorOpenings = editorOpeningsRef.current;
+  const wallSummary = getCanvasSummary(
+    formValues,
+    editorWalls,
+    editorOpenings,
+    draftWallStartRef.current
+  );
   const sunSummary = getSunSummary(solarState);
   const compassMarker =
     solarState.status === "ready" && solarState.snapshot.altitude > 0
       ? getCompassMarkerPosition(solarState.snapshot.azimuth)
       : null;
+  const canvasCursorClass =
+    editorTool === "pan"
+      ? "cursor-grab active:cursor-grabbing"
+      : editorTool === "delete"
+        ? "cursor-not-allowed"
+        : "cursor-default";
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-white">
+    <section ref={workspaceRef} className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-white">
       <div className="border-b border-rose-100 bg-white px-4 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -730,51 +1260,78 @@ export function HeatLoadCanvasPanel({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
-        <div className="relative flex h-full w-full flex-1 overflow-hidden border border-sky-100 bg-[#dbeafe]">
-          <canvas
-            ref={canvasRef}
-            className="h-full w-full cursor-grab active:cursor-grabbing"
-          />
-          <div className="pointer-events-none absolute right-4 top-6">
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 72 72"
-              className="h-24 w-24"
-            >
-              <circle cx="36" cy="36" r="22" fill="white" fillOpacity="0.9" stroke="#fda4af" strokeWidth="1.5" />
-              <path d="M36 16 L31 31 L36 28 L41 31 Z" fill="#be123c" />
-              <path d="M36 56 L31 41 L36 44 L41 41 Z" fill="#94a3b8" />
-              <path d="M56 36 L41 31 L44 36 L41 41 Z" fill="#94a3b8" />
-              <path d="M16 36 L31 31 L28 36 L31 41 Z" fill="#94a3b8" />
-              <circle cx="36" cy="36" r="3.2" fill="#0f172b" />
-              {compassMarker ? (
-                <>
-                  <path
-                    d={`M36 36 L${compassMarker.x} ${compassMarker.y}`}
-                    fill="none"
-                    stroke="#f59e0b"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                  />
-                  <g transform={`translate(${compassMarker.x} ${compassMarker.y})`}>
-                    <circle r="7.2" fill="rgba(251, 191, 36, 0.2)" />
-                    <circle r="4.2" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.1" />
-                    <path d="M0 -9.6 V-6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
-                    <path d="M0 9.6 V6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
-                    <path d="M-9.6 0 H-6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
-                    <path d="M9.6 0 H6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
-                    <path d="M-6.8 -6.8 L-4.8 -4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M6.8 -6.8 L4.8 -4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M-6.8 6.8 L-4.8 4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-                    <path d="M6.8 6.8 L4.8 4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-                  </g>
-                </>
-              ) : null}
-              <text x="36" y="8" textAnchor="middle" fontSize="9" fontWeight="700" fill="#be123c">N</text>
-              <text x="65" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">E</text>
-              <text x="36" y="70" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">S</text>
-              <text x="7" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">W</text>
-            </svg>
+        <div className="flex h-full w-full flex-1 overflow-hidden border border-sky-100 bg-[#dbeafe]">
+          <div className="w-14 border-r border-[#44536a] bg-[#5d6b7d]/97 shadow-lg shadow-slate-900/18 backdrop-blur">
+            <div className="flex h-full w-full flex-col items-center gap-1 pt-2">
+              {TOOL_OPTIONS.map((tool) => {
+                const isActive = editorTool === tool.key;
+
+                return (
+                  <button
+                    key={tool.key}
+                    type="button"
+                    aria-label={tool.label}
+                    title={tool.label}
+                    onClick={() => handleToolbarToolClick(tool.key)}
+                    className={`flex h-10 w-10 items-center justify-center border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 ${
+                      isActive
+                        ? "border-[#a9c8ff] bg-[#2f6fe4] text-white shadow-sm"
+                        : "border-transparent bg-transparent text-[#f8fbff] hover:border-[#8ea2bf]/55 hover:bg-[#7686a0]/28"
+                    }`}
+                  >
+                    <ToolboxIcon tool={tool.key} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="relative min-w-0 flex-1">
+            <canvas
+              ref={canvasRef}
+              className={`h-full w-full ${canvasCursorClass}`}
+            />
+            <div className="pointer-events-none absolute right-4 top-6">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 72 72"
+                className="h-24 w-24"
+              >
+                <circle cx="36" cy="36" r="22" fill="white" fillOpacity="0.9" stroke="#fda4af" strokeWidth="1.5" />
+                <path d="M36 16 L31 31 L36 28 L41 31 Z" fill="#be123c" />
+                <path d="M36 56 L31 41 L36 44 L41 41 Z" fill="#94a3b8" />
+                <path d="M56 36 L41 31 L44 36 L41 41 Z" fill="#94a3b8" />
+                <path d="M16 36 L31 31 L28 36 L31 41 Z" fill="#94a3b8" />
+                <circle cx="36" cy="36" r="3.2" fill="#0f172b" />
+                {compassMarker ? (
+                  <>
+                    <path
+                      d={`M36 36 L${compassMarker.x} ${compassMarker.y}`}
+                      fill="none"
+                      stroke="#f59e0b"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                    />
+                    <g transform={`translate(${compassMarker.x} ${compassMarker.y})`}>
+                      <circle r="7.2" fill="rgba(251, 191, 36, 0.2)" />
+                      <circle r="4.2" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.1" />
+                      <path d="M0 -9.6 V-6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+                      <path d="M0 9.6 V6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+                      <path d="M-9.6 0 H-6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+                      <path d="M9.6 0 H6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
+                      <path d="M-6.8 -6.8 L-4.8 -4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                      <path d="M6.8 -6.8 L4.8 -4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                      <path d="M-6.8 6.8 L-4.8 4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                      <path d="M6.8 6.8 L4.8 4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
+                    </g>
+                  </>
+                ) : null}
+                <text x="36" y="8" textAnchor="middle" fontSize="9" fontWeight="700" fill="#be123c">N</text>
+                <text x="65" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">E</text>
+                <text x="36" y="70" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">S</text>
+                <text x="7" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">W</text>
+              </svg>
+            </div>
           </div>
         </div>
       </div>
@@ -789,6 +1346,809 @@ export function HeatLoadCanvasPanel({
       </div>
     </section>
   );
+}
+
+function ToolboxIcon({ tool }: { tool: EditorTool }) {
+  if (tool === "select") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path
+          d="M5 3.5v13l3.9-4 3.1 7 2.2-.9-3.1-7L19 10 5 3.5z"
+        />
+        <path d="M15.5 4.5h3" />
+        <path d="M17 3v3" />
+      </svg>
+    );
+  }
+
+  if (tool === "pan") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path
+          d="M8.5 10.8V7.2a1.4 1.4 0 012.8 0v2.3"
+        />
+        <path d="M11.3 9.5V5.8a1.4 1.4 0 112.8 0v3.7" />
+        <path d="M14.1 9.5V6.9a1.4 1.4 0 112.8 0v4.7" />
+        <path d="M8.5 11.1a1.7 1.7 0 00-2.8 1.9l2.2 3.7A4.4 4.4 0 0011.7 19H17a3 3 0 003-3v-2.2c0-.9-.3-1.8-1-2.4l-2.1-2" />
+        <path d="M16.9 11.8V9.2a1.4 1.4 0 112.8 0v4.3" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4.5 6.5h15" />
+      <path d="M9 6.5V4.7h6v1.8" />
+      <path d="M7.2 6.5l.8 12h8l.8-12" />
+      <path d="M10 10.2v4.6" />
+      <path d="M14 10.2v4.6" />
+    </svg>
+  );
+}
+
+function buildEditorSketchFromFormValues(formValues: CanvasFormValues) {
+  let nextId = 0;
+  const visibleWalls = getRawWallInputs(formValues).filter((wall) => wall.length > 0);
+  const seededWalls = createChainSegments(visibleWalls).map((segment) => {
+    nextId += 1;
+
+    return {
+      id: `wall-${nextId}`,
+      start: segment.start,
+      end: segment.end,
+      thickness: segment.thickness,
+    };
+  });
+
+  const seededOpenings: EditableOpening[] = [];
+  const doorsByDirection = new Map(
+    getRawDoorInputs(formValues).map((item) => [item.direction, item.width])
+  );
+  const windowsByDirection = new Map(
+    getRawWindowInputs(formValues).map((item) => [item.direction, item.width])
+  );
+
+  seededWalls.forEach((ownerWall) => {
+    const direction = getEditorWallDirection(ownerWall);
+    const wallLength = getEditorWallLength(ownerWall);
+    const desiredDoorWidth = doorsByDirection.get(direction) ?? 0;
+    const desiredWindowWidth = windowsByDirection.get(direction) ?? 0;
+    const featureSpans = resolveWallFeatureSpans(
+      wallLength,
+      desiredDoorWidth,
+      desiredWindowWidth
+    );
+
+    if (featureSpans.door) {
+      nextId += 1;
+      seededOpenings.push({
+        id: `opening-${nextId}`,
+        wallId: ownerWall.id,
+        kind: "door",
+        widthMeters: featureSpans.door.widthMeters,
+        offsetMeters: featureSpans.door.startMeters,
+      });
+    }
+
+    if (featureSpans.window) {
+      nextId += 1;
+      seededOpenings.push({
+        id: `opening-${nextId}`,
+        wallId: ownerWall.id,
+        kind: "window",
+        widthMeters: featureSpans.window.widthMeters,
+        offsetMeters: featureSpans.window.startMeters,
+      });
+    }
+  });
+
+  return {
+    walls: seededWalls,
+    openings: seededOpenings,
+    lastId: nextId,
+  };
+}
+
+function getEditorViewport(
+  width: number,
+  height: number,
+  pixelsPerMeter: number,
+  offsetX: number,
+  offsetY: number
+): EditorViewport {
+  const drawWidth = Math.max(width - LEFT_RULER_SIZE, 1);
+  const drawHeight = Math.max(height - RULER_SIZE, 1);
+
+  return {
+    x: LEFT_RULER_SIZE,
+    y: RULER_SIZE,
+    width: drawWidth,
+    height: drawHeight,
+    centerX: LEFT_RULER_SIZE + drawWidth / 2 + offsetX,
+    centerY: RULER_SIZE + drawHeight / 2 + offsetY,
+    pixelsPerMeter,
+  };
+}
+
+function isPointInsideViewport(point: Point, viewport: EditorViewport) {
+  return (
+    point.x >= viewport.x &&
+    point.x <= viewport.x + viewport.width &&
+    point.y >= viewport.y &&
+    point.y <= viewport.y + viewport.height
+  );
+}
+
+function worldToEditorScreen(point: Point, viewport: EditorViewport): Point {
+  return {
+    x: viewport.centerX + point.x * viewport.pixelsPerMeter,
+    y: viewport.centerY + point.y * viewport.pixelsPerMeter,
+  };
+}
+
+function screenToEditorWorld(point: Point, viewport: EditorViewport): Point {
+  return {
+    x: (point.x - viewport.centerX) / viewport.pixelsPerMeter,
+    y: (point.y - viewport.centerY) / viewport.pixelsPerMeter,
+  };
+}
+
+function getEditorSnapStep(gridMetrics: GridMetrics) {
+  return gridMetrics.gridStepMeters / EDITOR_SNAP_DIVISIONS;
+}
+
+function snapEditorPoint(point: Point, step: number): Point {
+  return {
+    x: Math.round(point.x / step) * step,
+    y: Math.round(point.y / step) * step,
+  };
+}
+
+function lockEditorWallPoint(start: Point, end: Point): Point {
+  if (Math.abs(end.x - start.x) >= Math.abs(end.y - start.y)) {
+    return { x: end.x, y: start.y };
+  }
+
+  return { x: start.x, y: end.y };
+}
+
+function moveEditorWall(wall: EditableWall, delta: Point): EditableWall {
+  return {
+    ...wall,
+    start: addPoints(wall.start, delta),
+    end: addPoints(wall.end, delta),
+  };
+}
+
+function getEditorWallLength(wall: EditableWall) {
+  return getDistance(wall.start, wall.end);
+}
+
+function getEditorWallDirection(wall: EditableWall): WallDirection {
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? "North" : "South";
+  }
+
+  return dy >= 0 ? "East" : "West";
+}
+
+function getEditorOpeningOffsetBounds(
+  wallLength: number,
+  openingWidth: number
+) {
+  const centeredStart = Math.max((wallLength - openingWidth) / 2, 0);
+  const maxStart = wallLength - openingWidth - EDITOR_OPENING_EDGE_INSET;
+
+  if (maxStart <= EDITOR_OPENING_EDGE_INSET) {
+    return {
+      min: centeredStart,
+      max: centeredStart,
+    };
+  }
+
+  return {
+    min: EDITOR_OPENING_EDGE_INSET,
+    max: maxStart,
+  };
+}
+
+function getProjectedDistanceOnWall(point: Point, wall: EditableWall) {
+  const vector = {
+    x: wall.end.x - wall.start.x,
+    y: wall.end.y - wall.start.y,
+  };
+  const wallLength = getDistance(wall.start, wall.end);
+
+  if (wallLength <= 0.0001) {
+    return 0;
+  }
+
+  return clampNumber(
+    ((point.x - wall.start.x) * vector.x + (point.y - wall.start.y) * vector.y) /
+      wallLength,
+    0,
+    wallLength
+  );
+}
+
+function createEditorOpening(
+  tool: Extract<EditorTool, "window" | "door">,
+  wall: EditableWall,
+  worldPoint: Point
+): Omit<EditableOpening, "id"> | null {
+  const wallLength = getEditorWallLength(wall);
+  const defaultWidth =
+    tool === "window" ? EDITOR_DEFAULT_WINDOW_WIDTH : EDITOR_DEFAULT_DOOR_WIDTH;
+  const maxWidth = Math.max(wallLength - EDITOR_OPENING_EDGE_INSET * 2, 0);
+  const widthMeters = Math.min(defaultWidth, maxWidth);
+
+  if (wallLength <= 0.25 || widthMeters <= 0.2) {
+    return null;
+  }
+
+  const projectedDistance = getProjectedDistanceOnWall(worldPoint, wall);
+  const bounds = getEditorOpeningOffsetBounds(wallLength, widthMeters);
+
+  return {
+    wallId: wall.id,
+    kind: tool,
+    offsetMeters: clampNumber(
+      projectedDistance - widthMeters / 2,
+      bounds.min,
+      bounds.max
+    ),
+    widthMeters,
+  };
+}
+
+function moveEditorOpeningAlongWall(
+  opening: EditableOpening,
+  wall: EditableWall,
+  worldPoint: Point
+): EditableOpening {
+  const wallLength = getEditorWallLength(wall);
+  const bounds = getEditorOpeningOffsetBounds(wallLength, opening.widthMeters);
+  const projectedDistance = getProjectedDistanceOnWall(worldPoint, wall);
+
+  return {
+    ...opening,
+    offsetMeters: clampNumber(
+      projectedDistance - opening.widthMeters / 2,
+      bounds.min,
+      bounds.max
+    ),
+  };
+}
+
+function getEditorOpeningGeometry(
+  wall: EditableWall,
+  opening: EditableOpening,
+  viewport: EditorViewport
+) {
+  const wallStart = worldToEditorScreen(wall.start, viewport);
+  const wallEnd = worldToEditorScreen(wall.end, viewport);
+  const alongWall = normalizeVector({
+    x: wallEnd.x - wallStart.x,
+    y: wallEnd.y - wallStart.y,
+  });
+  const wallThicknessPx = Math.max(wall.thickness * viewport.pixelsPerMeter, 8);
+  const halfThickness = wallThicknessPx / 2;
+  const normal = {
+    x: -alongWall.y,
+    y: alongWall.x,
+  };
+  const openingStart = addPoints(
+    wallStart,
+    scalePoint(alongWall, opening.offsetMeters * viewport.pixelsPerMeter)
+  );
+  const openingEnd = addPoints(
+    openingStart,
+    scalePoint(alongWall, opening.widthMeters * viewport.pixelsPerMeter)
+  );
+  const polygon = [
+    addPoints(openingStart, scalePoint(normal, halfThickness)),
+    addPoints(openingEnd, scalePoint(normal, halfThickness)),
+    addPoints(openingEnd, scalePoint(normal, -halfThickness)),
+    addPoints(openingStart, scalePoint(normal, -halfThickness)),
+  ];
+
+  return {
+    alongWall,
+    normal,
+    wallThicknessPx,
+    halfThickness,
+    openingStart,
+    openingEnd,
+    polygon,
+  };
+}
+
+function drawEditorPlan(
+  context: CanvasRenderingContext2D,
+  viewport: EditorViewport,
+  walls: EditableWall[],
+  openings: EditableOpening[],
+  selectedElement: SelectedEditorElement,
+  draftWallStart: Point | null,
+  draftWallEnd: Point | null
+) {
+  const origin = worldToEditorScreen({ x: 0, y: 0 }, viewport);
+
+  context.save();
+
+  context.strokeStyle = "rgba(59, 130, 246, 0.18)";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(origin.x - 10, origin.y);
+  context.lineTo(origin.x + 10, origin.y);
+  context.moveTo(origin.x, origin.y - 10);
+  context.lineTo(origin.x, origin.y + 10);
+  context.stroke();
+
+  const openingsByWall = new Map<string, EditableOpening[]>();
+  openings.forEach((opening) => {
+    const items = openingsByWall.get(opening.wallId) ?? [];
+    items.push(opening);
+    openingsByWall.set(opening.wallId, items);
+  });
+
+  walls.forEach((wall) => {
+    drawEditorWall(
+      context,
+      wall,
+      viewport,
+      openingsByWall.get(wall.id) ?? [],
+      selectedElement
+    );
+  });
+
+  if (draftWallStart && draftWallEnd) {
+    const start = worldToEditorScreen(draftWallStart, viewport);
+    const end = worldToEditorScreen(draftWallEnd, viewport);
+
+    context.strokeStyle = "#0ea5e9";
+    context.lineWidth = 3;
+    context.setLineDash([8, 6]);
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+    context.lineTo(end.x, end.y);
+    context.stroke();
+    context.setLineDash([]);
+
+    context.fillStyle = "#0ea5e9";
+    context.beginPath();
+    context.arc(start.x, start.y, 5, 0, Math.PI * 2);
+    context.fill();
+
+    if (getDistance(draftWallStart, draftWallEnd) >= EDITOR_MIN_WALL_LENGTH) {
+      const previewWall: EditableWall = {
+        id: "draft",
+        start: draftWallStart,
+        end: draftWallEnd,
+        thickness: DEFAULT_WALL_THICKNESS,
+      };
+
+      drawSegmentDimension(
+        context,
+        getEditorWallDirection(previewWall),
+        start,
+        end,
+        getEditorWallLength(previewWall),
+        Math.max(DEFAULT_WALL_THICKNESS * viewport.pixelsPerMeter, 8)
+      );
+    }
+  }
+
+  if (walls.length === 0 && !draftWallStart) {
+    context.fillStyle = "#475569";
+    context.font = "14px sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(
+      "Choose Wall and click two points on the grid to start sketching.",
+      viewport.x + viewport.width / 2,
+      viewport.y + viewport.height / 2
+    );
+  }
+
+  context.restore();
+}
+
+function drawEditorWall(
+  context: CanvasRenderingContext2D,
+  wall: EditableWall,
+  viewport: EditorViewport,
+  openings: EditableOpening[],
+  selectedElement: SelectedEditorElement
+) {
+  const start = worldToEditorScreen(wall.start, viewport);
+  const end = worldToEditorScreen(wall.end, viewport);
+  const alongWall = normalizeVector({
+    x: end.x - start.x,
+    y: end.y - start.y,
+  });
+  const normal = {
+    x: -alongWall.y,
+    y: alongWall.x,
+  };
+  const wallThicknessPx = Math.max(wall.thickness * viewport.pixelsPerMeter, 8);
+  const halfThickness = wallThicknessPx / 2;
+  const corners = [
+    addPoints(start, scalePoint(normal, halfThickness)),
+    addPoints(end, scalePoint(normal, halfThickness)),
+    addPoints(end, scalePoint(normal, -halfThickness)),
+    addPoints(start, scalePoint(normal, -halfThickness)),
+  ];
+  const isSelected =
+    selectedElement?.kind === "wall" && selectedElement.id === wall.id;
+
+  context.save();
+  context.lineJoin = "round";
+
+  if (isSelected) {
+    context.beginPath();
+    addClosedPath(context, corners);
+    context.strokeStyle = "rgba(14, 165, 233, 0.85)";
+    context.lineWidth = wallThicknessPx + 2.5;
+    context.stroke();
+  }
+
+  context.beginPath();
+  addClosedPath(context, corners);
+  context.fillStyle = "#0f172b";
+  context.fill();
+  context.strokeStyle = "rgba(255, 255, 255, 0.14)";
+  context.lineWidth = 1;
+  context.stroke();
+
+  openings.forEach((opening) => {
+    drawEditorOpening(
+      context,
+      wall,
+      opening,
+      viewport,
+      selectedElement?.kind === "opening" && selectedElement.id === opening.id
+    );
+  });
+
+  drawSegmentDimension(
+    context,
+    getEditorWallDirection(wall),
+    start,
+    end,
+    getEditorWallLength(wall),
+    wallThicknessPx
+  );
+
+  if (isSelected) {
+    [start, end].forEach((point) => {
+      context.fillStyle = "#ffffff";
+      context.strokeStyle = "#0ea5e9";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(point.x, point.y, 5, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+    });
+  }
+
+  context.restore();
+}
+
+function drawEditorOpening(
+  context: CanvasRenderingContext2D,
+  wall: EditableWall,
+  opening: EditableOpening,
+  viewport: EditorViewport,
+  isSelected: boolean
+) {
+  const geometry = getEditorOpeningGeometry(wall, opening, viewport);
+  const { polygon, openingStart, openingEnd, normal, halfThickness, alongWall } =
+    geometry;
+
+  context.save();
+  context.beginPath();
+  addClosedPath(context, polygon);
+  context.fillStyle = "#dbeafe";
+  context.fill();
+
+  if (opening.kind === "window") {
+    const windowLineStart = addPoints(openingStart, scalePoint(normal, 0));
+    const windowLineEnd = addPoints(openingEnd, scalePoint(normal, 0));
+
+    context.strokeStyle = "#38bdf8";
+    context.lineWidth = 5;
+    context.lineCap = "round";
+    context.beginPath();
+    context.moveTo(windowLineStart.x, windowLineStart.y);
+    context.lineTo(windowLineEnd.x, windowLineEnd.y);
+    context.stroke();
+
+    context.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.moveTo(windowLineStart.x, windowLineStart.y);
+    context.lineTo(windowLineEnd.x, windowLineEnd.y);
+    context.stroke();
+  } else {
+    const interiorNormal = normalizeVector(
+      getInteriorNormal(getEditorWallDirection(wall))
+    );
+    const hingePoint = addPoints(
+      openingStart,
+      scalePoint(interiorNormal, halfThickness)
+    );
+    const closedPoint = addPoints(
+      openingEnd,
+      scalePoint(interiorNormal, halfThickness)
+    );
+    const leafEnd = addPoints(
+      hingePoint,
+      scalePoint(
+        interiorNormal,
+        opening.widthMeters * viewport.pixelsPerMeter
+      )
+    );
+
+    context.strokeStyle = "rgba(51, 65, 85, 0.8)";
+    context.lineWidth = 1.4;
+    context.beginPath();
+    context.moveTo(hingePoint.x, hingePoint.y);
+    context.lineTo(leafEnd.x, leafEnd.y);
+    context.stroke();
+    drawDoorSwingArc(context, hingePoint, closedPoint, leafEnd);
+
+    context.strokeStyle = "rgba(15, 23, 42, 0.22)";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(openingStart.x, openingStart.y);
+    context.lineTo(openingEnd.x, openingEnd.y);
+    context.stroke();
+  }
+
+  if (isSelected) {
+    context.strokeStyle = "#0ea5e9";
+    context.lineWidth = 2.5;
+    context.beginPath();
+    addClosedPath(context, polygon);
+    context.stroke();
+
+    const center = addPoints(
+      openingStart,
+      scalePoint(alongWall, (opening.widthMeters * viewport.pixelsPerMeter) / 2)
+    );
+    context.fillStyle = "#ffffff";
+    context.beginPath();
+    context.arc(center.x, center.y, 4.5, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function findEditorWallHit(
+  point: Point,
+  viewport: EditorViewport,
+  walls: EditableWall[]
+): EditorWallHit | null {
+  let closestHit: EditorWallHit | null = null;
+
+  walls.forEach((wall) => {
+    const start = worldToEditorScreen(wall.start, viewport);
+    const end = worldToEditorScreen(wall.end, viewport);
+    const wallThicknessPx = Math.max(wall.thickness * viewport.pixelsPerMeter, 8);
+    const distance = getDistanceToSegment(point, start, end);
+    const threshold = Math.max(wallThicknessPx * 0.75, 10);
+
+    if (distance > threshold) {
+      return;
+    }
+
+    if (!closestHit || distance < closestHit.distance) {
+      closestHit = {
+        wall,
+        distance,
+      };
+    }
+  });
+
+  return closestHit;
+}
+
+function findEditorOpeningHit(
+  point: Point,
+  viewport: EditorViewport,
+  walls: EditableWall[],
+  openings: EditableOpening[]
+): EditorOpeningHit | null {
+  for (let index = openings.length - 1; index >= 0; index -= 1) {
+    const opening = openings[index];
+    const ownerWall = walls.find((wall) => wall.id === opening.wallId);
+
+    if (!ownerWall) {
+      continue;
+    }
+
+    const geometry = getEditorOpeningGeometry(ownerWall, opening, viewport);
+
+    if (
+      isPointInsidePolygon(point, geometry.polygon) ||
+      getPolygonEdgeDistance(point, geometry.polygon) <= 8
+    ) {
+      return {
+        opening,
+        wall: ownerWall,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getDistanceToSegment(point: Point, start: Point, end: Point) {
+  const lengthSquared =
+    (end.x - start.x) * (end.x - start.x) +
+    (end.y - start.y) * (end.y - start.y);
+
+  if (lengthSquared <= 0.0001) {
+    return getDistance(point, start);
+  }
+
+  const ratio = clampNumber(
+    ((point.x - start.x) * (end.x - start.x) +
+      (point.y - start.y) * (end.y - start.y)) /
+      lengthSquared,
+    0,
+    1
+  );
+  const projectedPoint = {
+    x: start.x + (end.x - start.x) * ratio,
+    y: start.y + (end.y - start.y) * ratio,
+  };
+
+  return getDistance(point, projectedPoint);
+}
+
+function isPointInsidePolygon(point: Point, polygon: Point[]) {
+  let isInside = false;
+
+  for (
+    let currentIndex = 0, previousIndex = polygon.length - 1;
+    currentIndex < polygon.length;
+    previousIndex = currentIndex++
+  ) {
+    const current = polygon[currentIndex];
+    const previous = polygon[previousIndex];
+    const intersects =
+      current.y > point.y !== previous.y > point.y &&
+      point.x <
+        ((previous.x - current.x) * (point.y - current.y)) /
+          ((previous.y - current.y) || 0.000001) +
+          current.x;
+
+    if (intersects) {
+      isInside = !isInside;
+    }
+  }
+
+  return isInside;
+}
+
+function getPolygonEdgeDistance(point: Point, polygon: Point[]) {
+  let shortestDistance = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    shortestDistance = Math.min(
+      shortestDistance,
+      getDistanceToSegment(point, start, end)
+    );
+  }
+
+  return shortestDistance;
+}
+
+function getCanvasSummary(
+  formValues: CanvasFormValues,
+  editorWalls: EditableWall[],
+  editorOpenings: EditableOpening[],
+  draftWallStart: Point | null
+) {
+  if (editorWalls.length === 0 && editorOpenings.length === 0 && !draftWallStart) {
+    return getWallSummary(formValues);
+  }
+
+  const wallLabel = editorWalls.length === 1 ? "wall" : "walls";
+  const openingLabel = editorOpenings.length === 1 ? "opening" : "openings";
+
+  if (draftWallStart) {
+    return `Sketching wall | ${editorWalls.length} ${wallLabel} | ${editorOpenings.length} ${openingLabel}`;
+  }
+
+  return `Sketch: ${editorWalls.length} ${wallLabel} | ${editorOpenings.length} ${openingLabel}`;
+}
+
+function getEditorToolHelp(
+  tool: EditorTool,
+  hasDraftWall: boolean
+) {
+  if (tool === "wall") {
+    return hasDraftWall
+      ? "Click again to finish the wall. Press Esc to cancel the draft."
+      : "Click two points on the grid to draw an orthogonal wall.";
+  }
+
+  if (tool === "window") {
+    return "Click a sketched wall to place a window.";
+  }
+
+  if (tool === "door") {
+    return "Click a sketched wall to place a door.";
+  }
+
+  if (tool === "delete") {
+    return "Click any wall, window, or door to remove it.";
+  }
+
+  return "Click to select. Drag a selected item to move it, or drag empty space to pan.";
+}
+
+function getSelectedEditorElementLabel(
+  selectedElement: SelectedEditorElement,
+  walls: EditableWall[],
+  openings: EditableOpening[]
+) {
+  if (!selectedElement) {
+    return "Nothing selected";
+  }
+
+  if (selectedElement.kind === "wall") {
+    const wallIndex = walls.findIndex((wall) => wall.id === selectedElement.id);
+
+    return wallIndex >= 0 ? `Wall ${wallIndex + 1}` : "Wall";
+  }
+
+  const opening = openings.find(
+    (item) => item.id === selectedElement.id
+  );
+
+  if (!opening) {
+    return "Opening";
+  }
+
+  return opening.kind === "door" ? "Door" : "Window";
 }
 
 function buildWallChains(formValues: CanvasFormValues): WallChainBuildResult {
