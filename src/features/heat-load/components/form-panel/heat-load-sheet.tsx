@@ -1,3 +1,7 @@
+"use client";
+
+import type { SheetValues } from "@/types";
+
 type Align = "left" | "right" | "center";
 
 type Column = {
@@ -156,18 +160,39 @@ const summaryRows: SummaryRow[] = [
   { label: "Total Heat load (RT)", note: "", value: "" },
 ];
 
-export function HeatLoadSheet() {
+type Props = {
+  sheetValues: SheetValues;
+  onSheetChange: (key: string, value: string) => void;
+};
+
+export function HeatLoadSheet({ sheetValues, onSheetChange }: Props) {
   return (
     <div className="space-y-3">
       {sections.map((section) => (
-        <SectionTable key={section.number} {...section} />
+        <SectionTable 
+          key={section.number} 
+          {...section} 
+          sheetValues={sheetValues} 
+          onSheetChange={onSheetChange} 
+        />
       ))}
-      <SummaryTable rows={summaryRows} />
+      <SummaryTable 
+        rows={summaryRows} 
+        sheetValues={sheetValues} 
+        onSheetChange={onSheetChange} 
+      />
     </div>
   );
 }
 
-function SectionTable({ number, title, columns, rows }: Section) {
+function SectionTable({ 
+  number, 
+  title, 
+  columns, 
+  rows, 
+  sheetValues, 
+  onSheetChange 
+}: Section & Props) {
   return (
     <table className={tableClass}>
       <colgroup>
@@ -179,20 +204,14 @@ function SectionTable({ number, title, columns, rows }: Section) {
       <thead>
         <tr>
           <th className={`${cellClass} bg-[#ffe7ee] text-center text-[11px] font-semibold whitespace-nowrap text-slate-900`}>{number}</th>
-          <th
-            className={`${cellClass} bg-[#ffe7ee] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`}
-            colSpan={columns.length}
-          >
+          <th className={`${cellClass} bg-[#ffe7ee] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`} colSpan={columns.length}>
             {title}
           </th>
         </tr>
         <tr>
           <th className={`${cellClass} bg-white text-center text-[10px] font-semibold whitespace-nowrap text-slate-900`} />
           {columns.map((column) => (
-            <th
-              key={column.key}
-              className={`${cellClass} bg-white text-center text-[10px] font-semibold leading-tight whitespace-normal break-words text-slate-900`}
-            >
+            <th key={column.key} className={`${cellClass} bg-white text-center text-[10px] font-semibold leading-tight whitespace-normal break-words text-slate-900`}>
               {column.label}
             </th>
           ))}
@@ -203,25 +222,18 @@ function SectionTable({ number, title, columns, rows }: Section) {
           <tr key={row.id}>
             <td className={`${cellClass} bg-white text-center font-medium text-slate-900`}>{row.id}</td>
             {columns.map((column) => {
-              const cellValue = row[column.key] ?? "";
-              const hasValue = cellValue.trim().length > 0;
-              const fillClass = hasValue ? "bg-[#fff4f7]" : "bg-white";
+              const fieldKey = `${row.id}_${column.key}`;
+              const value = sheetValues[fieldKey] ?? row[column.key] ?? "";
 
               return (
-                <td key={column.key} className={`${cellClass} ${fillClass} p-0`}>
-                  {hasValue ? (
-                    <SheetCell
-                      ariaLabel={`${row.id} ${column.label || column.key}`}
-                      defaultValue={cellValue}
-                      align={column.align ?? "left"}
-                      wrap={column.wrap}
-                    />
-                  ) : (
-                    <SheetInputCell
-                      ariaLabel={`${row.id} ${column.label || column.key}`}
-                      align={column.align ?? "left"}
-                    />
-                  )}
+                <td key={column.key} className={`${cellClass} bg-white p-0`}>
+                  <input
+                    type="text"
+                    value={value}
+                    onChange={(e) => onSheetChange(fieldKey, e.target.value)}
+                    className={`min-h-[28px] w-full bg-transparent px-2 py-1 text-[10px] outline-none text-slate-900 ${column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"}`}
+                    placeholder={row[column.key] || ""}
+                  />
                 </td>
               );
             })}
@@ -232,7 +244,15 @@ function SectionTable({ number, title, columns, rows }: Section) {
   );
 }
 
-function SummaryTable({ rows }: { rows: SummaryRow[] }) {
+function SummaryTable({ 
+  rows, 
+  sheetValues, 
+  onSheetChange 
+}: { 
+  rows: SummaryRow[]; 
+  sheetValues: SheetValues; 
+  onSheetChange: (key: string, value: string) => void;
+}) {
   return (
     <table className={tableClass}>
       <colgroup>
@@ -241,60 +261,33 @@ function SummaryTable({ rows }: { rows: SummaryRow[] }) {
         <col style={{ width: summaryValueWidth }} />
       </colgroup>
       <tbody>
-        {rows.map((row) => (
-          <tr key={row.label}>
-            <th className={`${cellClass} bg-[#fff4f7] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`}>{row.label}</th>
-            <td className={`${cellClass} bg-white p-0`}>
-              <SheetCell ariaLabel={`${row.label} note`} defaultValue={row.note} align="right" />
-            </td>
-            <td className={`${cellClass} bg-white p-0`}>
-              <SheetCell ariaLabel={row.label} defaultValue={row.value} align="right" />
-            </td>
-          </tr>
-        ))}
+        {rows.map((row, index) => {
+          const fieldKey = `summary_${index}`;
+          const value = sheetValues[fieldKey] ?? row.value ?? "";
+
+          return (
+            <tr key={row.label}>
+              <th className={`${cellClass} bg-[#fff4f7] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`}>{row.label}</th>
+              <td className={`${cellClass} bg-white p-0`}>
+                <input
+                  type="text"
+                  value={sheetValues[`${fieldKey}_note`] ?? row.note ?? ""}
+                  onChange={(e) => onSheetChange(`${fieldKey}_note`, e.target.value)}
+                  className="min-h-[28px] w-full bg-transparent px-2 py-1 text-[10px] outline-none text-slate-900 text-right"
+                />
+              </td>
+              <td className={`${cellClass} bg-white p-0`}>
+                <input
+                  type="text"
+                  value={value}
+                  onChange={(e) => onSheetChange(fieldKey, e.target.value)}
+                  className="min-h-[28px] w-full bg-transparent px-2 py-1 text-[10px] outline-none text-slate-900 text-right"
+                />
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
-  );
-}
-
-function SheetCell({
-  ariaLabel,
-  defaultValue = "",
-  align = "left",
-  wrap = true,
-}: {
-  ariaLabel: string;
-  defaultValue?: string;
-  align?: Align;
-  wrap?: boolean;
-}) {
-  const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-  const wrapClass = wrap ? "whitespace-normal break-words" : "whitespace-nowrap";
-
-  return (
-    <div
-      aria-label={ariaLabel}
-      className={`min-h-[10px] h-full w-full px-1 py-1 text-[10px] leading-snug text-slate-900 ${alignClass} ${wrapClass}`}
-    >
-      {defaultValue || "\u00A0"}
-    </div>
-  );
-}
-
-function SheetInputCell({
-  ariaLabel,
-  align = "left",
-}: {
-  ariaLabel: string;
-  align?: Align;
-}) {
-  const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-
-  return (
-    <input
-      aria-label={ariaLabel}
-      type="text"
-      className={`min-h-[24px] h-full w-full bg-transparent px-1 py-1 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
-    />
   );
 }

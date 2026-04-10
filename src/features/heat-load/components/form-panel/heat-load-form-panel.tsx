@@ -7,6 +7,7 @@ import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
 
 type SurfaceType = "walls" | "windows";
 type UnitSystem = "si" | "imperial";
+
 export type FormValues = Record<string, string>;
 
 const topSectionRows = [0, 1, 2, 3];
@@ -51,13 +52,19 @@ export const initialFormValues: FormValues = {
   conditionValue: "",
 };
 
+type Props = {
+  formValues: FormValues;
+  sheetValues: Record<string, string>;
+  onFieldChange: (name: string, value: string) => void;
+  onSheetChange: (name: string, value: string) => void;
+};
+
 export function HeatLoadFormPanel({
   formValues,
+  sheetValues,
   onFieldChange,
-}: {
-  formValues: FormValues;
-  onFieldChange: (name: string, value: string) => void;
-}) {
+  onSheetChange,
+}: Props) {
   const [surfaceType, setSurfaceType] = useState<SurfaceType>("walls");
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("si");
 
@@ -93,6 +100,7 @@ export function HeatLoadFormPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
           <div className="space-y-3">
+            {/* Room Details + Design Conditions Table */}
             <table className="w-full table-fixed border-collapse text-[10px] leading-none text-slate-900">
               <colgroup>
                 <col style={{ width: "22%" }} />
@@ -113,12 +121,21 @@ export function HeatLoadFormPanel({
                       values={formValues}
                       onFieldChange={onFieldChange}
                     />
-                    <DesignConditionsRow rowIndex={rowIndex} values={formValues} onFieldChange={onFieldChange} />
+                    <DesignConditionsRow 
+                      rowIndex={rowIndex} 
+                      values={formValues} 
+                      onFieldChange={onFieldChange} 
+                    />
                   </tr>
                 ))}
               </tbody>
             </table>
-            <HeatLoadSheet />
+
+            {/* Heat Load Sheet - Now fully connected and savable */}
+            <HeatLoadSheet 
+              sheetValues={sheetValues} 
+              onSheetChange={onSheetChange} 
+            />
           </div>
         </div>
 
