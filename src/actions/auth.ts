@@ -2,7 +2,22 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+
+async function getBaseUrl() {
+  const headerStore = await headers();
+  const forwardedHost = headerStore.get("x-forwarded-host");
+  const host = forwardedHost ?? headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "https";
+
+  if (host) {
+    return `${proto}://${host}`;
+  }
+
+  const envSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+  return envSiteUrl || "http://localhost:3000";
+}
 
 export async function signUp(formData: FormData) {
   const email = formData.get("email") as string;
@@ -58,9 +73,10 @@ export async function resetPassword(formData: FormData) {
   if (!email) return { error: "Email is required" };
 
   const supabase = await createClient();
+  const baseUrl = await getBaseUrl();
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/reset-password`,
+    redirectTo: `${baseUrl}/reset-password`,
   });
 
   if (error) return { error: error.message };
@@ -73,11 +89,12 @@ export async function resetPassword(formData: FormData) {
 
 export async function signInWithGoogle() {
   const supabase = await createClient();
+  const baseUrl = await getBaseUrl();
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+      redirectTo: `${baseUrl}/auth/callback`,
       queryParams: {
         access_type: "offline",
         prompt: "consent",
