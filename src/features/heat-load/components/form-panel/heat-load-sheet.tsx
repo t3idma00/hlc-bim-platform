@@ -1,3 +1,8 @@
+"use client";
+
+import { useState } from "react";
+import { heatLoadLookupOptions } from "./heat-load-options";
+
 type Align = "left" | "right" | "center";
 
 type Column = {
@@ -6,10 +11,17 @@ type Column = {
   align?: Align;
   wrap?: boolean;
   width?: string;
-  selectOptions?: string[];
+  editable?: boolean;
+  selectOptions?: readonly string[];
 };
 
-type Row = Record<string, string>;
+type SelectOptionsByKey = Partial<Record<string, readonly string[]>>;
+
+type Row = {
+  id: string;
+  values: Record<string, string>;
+  selectOptions?: SelectOptionsByKey;
+};
 
 type Section = {
   number: string;
@@ -30,124 +42,398 @@ const summaryValueWidth = "9%";
 const tableClass = "w-full table-fixed border-collapse text-[10px] leading-none text-slate-900";
 const cellClass = "border border-slate-300 px-1 py-1 align-middle";
 
-const sections: Section[] = [
-  {
-    number: "1",
-    title: "Solar & Trans. Heat gain through the Glass-Wall & Roof",
-    columns: [
-      { key: "item", label: "Item", width: "8%" },
-      { key: "direction", label: "Direction", wrap: true, width: "10%" },
-      { key: "type", label: "Type", wrap: true, width: "24%" },
-      { key: "thickness", label: "Thickness (mm)", wrap: true, align: "center", width: "16%" },
-      { key: "uFactor", label: "U Factor", align: "right", width: "9%" },
-      { key: "cltd", label: "CLTD/TD", align: "right", width: "10%" },
-      { key: "calcValue", label: "Area in m2 / Qty", align: "right", width: "10%" },
-      { key: "heatLoad", label: "Total Heat load", align: "right", width: "9%" },
-    ],
-    rows: [
-      { id: "1.1", item: "Wall", direction: "North", type: "Brick Wall", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-      { id: "1.2", item: "Wall", direction: "East", type: "Cement block Wall", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-      { id: "1.3", item: "Wall", direction: "South", type: "Cement block Wall", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-      { id: "1.4", item: "Wall", direction: "West", type: "Cement block Wall", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-      { id: "1.5", item: "Glass", direction: "Single glass", type: "Glass only (Centre of Glass)", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-      { id: "1.6", item: "Roof", direction: "Intermediate floor", type: "Concrete", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-    ],
-  },
-  {
-    number: "2",
-    title: "Solar Heat gain through the Glass",
-    columns: [
-      { key: "item", label: "Item", width: "7%" },
-      { key: "direction", label: "Direction", width: "8%" },
-      { key: "type", label: "Type", wrap: true, width: "20%" },
-      { key: "shading", label: "Interior Shading type", wrap: true, width: "10%" },
-      { key: "thickness", label: "Thick.", align: "center", width: "7%" },
-      { key: "sc", label: "SC", align: "right", width: "8%" },
-      { key: "shg", label: "SHG", align: "right", width: "8%" },
-      { key: "clf", label: "CLF", align: "right", width: "8%" },
-      { key: "areaQty", label: "Area in m2 / Qty", align: "right", width: "10%" },
-      { key: "result", label: "Total Heat load", align: "right", width: "9%" },
-    ],
-    rows: [
-      { id: "2.1", item: "Glass", direction: "East", type: "Single Glass Clear", shading: "", thickness: "", sc: "", shg: "", clf: "", areaQty: "", result: "" },
-      { id: "2.2", item: "Glass", direction: "East", type: "Single Glass Clear", shading: "", thickness: "", sc: "", shg: "", clf: "", areaQty: "", result: "" },
-      { id: "2.3", item: "Glass", direction: "South", type: "Single Glass Clear", shading: "", thickness: "", sc: "", shg: "", clf: "", areaQty: "", result: "" },
-      { id: "2.4", item: "Glass", direction: "West", type: "Single Glass Clear", shading: "", thickness: "", sc: "", shg: "", clf: "", areaQty: "", result: "" },
-      { id: "2.5", item: "Sky light", direction: "West", type: "Single Glass Clear", shading: "", thickness: "", sc: "", shg: "", clf: "", areaQty: "", result: "" },
-    ],
-  },
-  {
-    number: "3",
-    title: "Transmission heat gain Except outside wall and roof",
-    columns: [
-      { key: "item", label: "Item", width: "14%" },
-      { key: "typeA", label: "Type", wrap: true, width: "14%" },
-      { key: "typeB", label: "Detail", wrap: true, width: "16%" },
-      { key: "thickness", label: "Thick.", wrap: true, align: "center", width: "16%" },
-      { key: "uFactor", label: "U Factor", align: "right", width: "10%" },
-      { key: "cltd", label: "CLTD/TD", align: "right", width: "11%" },
-      { key: "calcValue", label: "Area in m2 / Qty", align: "right", width: "10%" },
-      { key: "heatLoad", label: "Total Heat load", align: "right", width: "9%" },
-    ],
-    rows: [
-      { id: "3.1", item: "All Glasses", typeA: "Single glass", typeB: "Glass only (Centre of Glass)", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-      { id: "3.2", item: "Wall Partition", typeA: "Concrete Wall", typeB: "Not applicable", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-      { id: "3.3", item: "Floor", typeA: "Intermediate Floor", typeB: "Concrete Wall", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
-    ],
-  },
-  {
-    number: "4",
-    title: "Infiltration",
-    columns: [
-      { key: "componentA", label: "Component", width: "10%" },
-      { key: "qty", label: "Qty", align: "center", width: "6%" },
-      { key: "crackLength", label: "Crack length", align: "right", width: "10%" },
-      { key: "componentB", label: "Component", wrap: true, width: "26%", selectOptions: ["Residential", "Non residential"] },
-      { key: "sensible", label: "Sensible Heat", align: "right", width: "12%" },
-      { key: "latent", label: "Latent heat", align: "right", width: "12%" },
-      { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%" },
-    ],
-    rows: [
-      { id: "4.1", componentA: "Window", qty: "", crackLength: "", componentB: "Residential", sensible: "", latent: "", heatLoad: "" },
-    ],
-  },
-  {
-    number: "5",
-    title: "Internal Heat",
-    columns: [
-      { key: "item", label: "Item", wrap: true, width: "12%" },
-      { key: "application", label: "Application", wrap: true, width: "31%" },
-      { key: "heatGain", label: "Heat gain", align: "right", width: "14%" },
-      { key: "qty", label: "QTY", align: "right", width: "19%" },
-      { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%" },
-    ],
-    rows: [
-      { id: "5.1", item: "People", application: "Standing, light work or walking", heatGain: "", qty: "", heatLoad: "" },
-      { id: "5.2", item: "Motor power (Name plate)", application: "(0.04)", heatGain: "", qty: "", heatLoad: "" },
-      { id: "5.3", item: "compact fluorescent lamp", application: "Office", heatGain: "", qty: "", heatLoad: "" },
-      { id: "5.4", item: "Appliance etc.", application: "Medium, desktop type", heatGain: "", qty: "", heatLoad: "" },
-      { id: "5.5", item: "Additional heat gain", application: "Miscellaneous equipment", heatGain: "", qty: "", heatLoad: "" },
-    ],
-  },
-  {
-    number: "6",
-    title: "Ventilation",
-    columns: [
-      { key: "application", label: "Application", width: "13%" },
-      { key: "item", label: "Item", width: "10%" },
-      { key: "quantity", label: "Quantity", align: "right", width: "8%" },
-      { key: "area", label: "Area", width: "8%" },
-      { key: "areaQty", label: "Area quantity", align: "right", width: "9%" },
-      { key: "totalFlowRate", label: "Total flowrate", align: "right", width: "11%" },
-      { key: "sensible", label: "Sensible heat", align: "right", width: "8%" },
-      { key: "latent", label: "Latent heat", align: "right", width: "9%" },
-      { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%" },
-    ],
-    rows: [
-      { id: "6.1", application: "Pharmacy", item: "People", quantity: "", area: "Area", areaQty: "", totalFlowRate: "", sensible: "", latent: "", heatLoad: "" },
-    ],
-  },
-];
+const wallCellSelects: SelectOptionsByKey = {
+  direction: heatLoadLookupOptions.directions,
+  type: heatLoadLookupOptions.wallTypes,
+  thickness: heatLoadLookupOptions.wallThicknesses,
+};
+
+const solarGlassCellSelects: SelectOptionsByKey = {
+  direction: heatLoadLookupOptions.directions,
+  type: heatLoadLookupOptions.glassSolarTypes,
+  shading: heatLoadLookupOptions.glassShadingTypes,
+  thickness: heatLoadLookupOptions.glassThicknesses,
+};
+
+const allGlassesCellSelects: SelectOptionsByKey = {
+  typeA: heatLoadLookupOptions.transmissionGlassTypes,
+  typeB: heatLoadLookupOptions.glassFrameTypes,
+  thickness: heatLoadLookupOptions.glassThicknesses,
+};
+
+const wallPartitionCellSelects: SelectOptionsByKey = {
+  typeA: heatLoadLookupOptions.wallTypes,
+  thickness: heatLoadLookupOptions.wallThicknesses,
+};
+
+const floorCellSelects: SelectOptionsByKey = {
+  typeB: heatLoadLookupOptions.wallTypes,
+  thickness: heatLoadLookupOptions.wallThicknesses,
+};
+
+function buildInitialSections(): Section[] {
+  return [
+    {
+      number: "1",
+      title: "Solar & Trans. Heat gain through the Glass-Wall & Roof",
+      columns: [
+        { key: "item", label: "Item", width: "8%" },
+        { key: "direction", label: "Direction", wrap: true, width: "10%" },
+        { key: "type", label: "Type", wrap: true, width: "24%" },
+        { key: "thickness", label: "Thickness (mm)", wrap: true, align: "center", width: "16%", editable: true },
+        { key: "uFactor", label: "U Factor", align: "right", width: "9%", editable: true },
+        { key: "cltd", label: "CLTD/TD", align: "right", width: "10%", editable: true },
+        { key: "calcValue", label: "Area in m2 / Qty", align: "right", width: "10%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "9%", editable: true },
+      ],
+      rows: [
+        {
+          id: "1.1",
+          values: {
+            item: "Wall",
+            direction: "North",
+            type: "Brick Wall",
+            thickness: "215",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+          selectOptions: wallCellSelects,
+        },
+        {
+          id: "1.2",
+          values: {
+            item: "Wall",
+            direction: "East",
+            type: "Cement block Wall",
+            thickness: "100",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+          selectOptions: wallCellSelects,
+        },
+        {
+          id: "1.3",
+          values: {
+            item: "Wall",
+            direction: "South",
+            type: "Cement block Wall",
+            thickness: "100",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+          selectOptions: wallCellSelects,
+        },
+        {
+          id: "1.4",
+          values: {
+            item: "Wall",
+            direction: "West",
+            type: "Cement block Wall",
+            thickness: "100",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+          selectOptions: wallCellSelects,
+        },
+        {
+          id: "1.5",
+          values: {
+            item: "Glass",
+            direction: "Single glass",
+            type: "Glass only (Centre of Glass)",
+            thickness: "6",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+          selectOptions: {
+            direction: heatLoadLookupOptions.transmissionGlassTypes,
+            type: heatLoadLookupOptions.glassFrameTypes,
+            thickness: heatLoadLookupOptions.glassThicknesses,
+          },
+        },
+        {
+          id: "1.6",
+          values: {
+            item: "Roof",
+            direction: "Intermediate floor",
+            type: "Concrete",
+            thickness: "",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+        },
+      ],
+    },
+    {
+      number: "2",
+      title: "Solar Heat gain through the Glass",
+      columns: [
+        { key: "item", label: "Item", width: "7%" },
+        { key: "direction", label: "Direction", width: "8%" },
+        { key: "type", label: "Type", wrap: true, width: "20%" },
+        { key: "shading", label: "Interior Shading type", wrap: true, width: "10%" },
+        { key: "thickness", label: "Thick.", align: "center", width: "7%" },
+        { key: "sc", label: "SC", align: "right", width: "8%", editable: true },
+        { key: "shg", label: "SHG", align: "right", width: "8%", editable: true },
+        { key: "clf", label: "CLF", align: "right", width: "8%", editable: true },
+        { key: "areaQty", label: "Area in m2 / Qty", align: "right", width: "10%", editable: true },
+        { key: "result", label: "Total Heat load", align: "right", width: "9%", editable: true },
+      ],
+      rows: [
+        {
+          id: "2.1",
+          values: {
+            item: "Glass",
+            direction: "East",
+            type: "Single Glass Clear",
+            shading: "No shading",
+            thickness: "6",
+            sc: "",
+            shg: "",
+            clf: "",
+            areaQty: "",
+            result: "",
+          },
+          selectOptions: solarGlassCellSelects,
+        },
+        {
+          id: "2.2",
+          values: {
+            item: "Glass",
+            direction: "East",
+            type: "Single Glass Clear",
+            shading: "No shading",
+            thickness: "6",
+            sc: "",
+            shg: "",
+            clf: "",
+            areaQty: "",
+            result: "",
+          },
+          selectOptions: solarGlassCellSelects,
+        },
+        {
+          id: "2.3",
+          values: {
+            item: "Glass",
+            direction: "South",
+            type: "Single Glass Clear",
+            shading: "No shading",
+            thickness: "6",
+            sc: "",
+            shg: "",
+            clf: "",
+            areaQty: "",
+            result: "",
+          },
+          selectOptions: solarGlassCellSelects,
+        },
+        {
+          id: "2.4",
+          values: {
+            item: "Glass",
+            direction: "West",
+            type: "Single Glass Clear",
+            shading: "No shading",
+            thickness: "6",
+            sc: "",
+            shg: "",
+            clf: "",
+            areaQty: "",
+            result: "",
+          },
+          selectOptions: solarGlassCellSelects,
+        },
+        {
+          id: "2.5",
+          values: {
+            item: "Sky light",
+            direction: "HOR",
+            type: "Single Glass Clear",
+            shading: "No shading",
+            thickness: "6",
+            sc: "",
+            shg: "",
+            clf: "",
+            areaQty: "",
+            result: "",
+          },
+          selectOptions: solarGlassCellSelects,
+        },
+      ],
+    },
+    {
+      number: "3",
+      title: "Transmission heat gain Except outside wall and roof",
+      columns: [
+        { key: "item", label: "Item", width: "14%" },
+        { key: "typeA", label: "Type", wrap: true, width: "14%" },
+        { key: "typeB", label: "Detail", wrap: true, width: "16%" },
+        { key: "thickness", label: "Thick.", wrap: true, align: "center", width: "16%", editable: true },
+        { key: "uFactor", label: "U Factor", align: "right", width: "10%", editable: true },
+        { key: "cltd", label: "CLTD/TD", align: "right", width: "11%", editable: true },
+        { key: "calcValue", label: "Area in m2 / Qty", align: "right", width: "10%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "9%", editable: true },
+      ],
+      rows: [
+        {
+          id: "3.1",
+          values: {
+            item: "All Glasses",
+            typeA: "Single glass",
+            typeB: "Glass only (Centre of Glass)",
+            thickness: "6",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+          selectOptions: allGlassesCellSelects,
+        },
+        {
+          id: "3.2",
+          values: {
+            item: "Wall Partition",
+            typeA: "Concrete Wall",
+            typeB: "Not applicable",
+            thickness: "215",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+          selectOptions: wallPartitionCellSelects,
+        },
+        {
+          id: "3.3",
+          values: {
+            item: "Floor",
+            typeA: "Intermediate Floor",
+            typeB: "Concrete Wall",
+            thickness: "100",
+            uFactor: "",
+            cltd: "",
+            calcValue: "",
+            heatLoad: "",
+          },
+          selectOptions: floorCellSelects,
+        },
+      ],
+    },
+    {
+      number: "4",
+      title: "Infiltration",
+      columns: [
+        { key: "componentA", label: "Component", width: "10%" },
+        { key: "qty", label: "Qty", align: "center", width: "6%", editable: true },
+        { key: "crackLength", label: "Crack length", align: "right", width: "10%", editable: true },
+        { key: "componentB", label: "Component", wrap: true, width: "26%" },
+        { key: "sensible", label: "Sensible Heat", align: "right", width: "12%", editable: true },
+        { key: "latent", label: "Latent heat", align: "right", width: "12%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%", editable: true },
+      ],
+      rows: [
+        {
+          id: "4.1",
+          values: {
+            componentA: "Window",
+            qty: "",
+            crackLength: "",
+            componentB: "Residential",
+            sensible: "",
+            latent: "",
+            heatLoad: "",
+          },
+          selectOptions: {
+            componentA: heatLoadLookupOptions.infiltrationComponents,
+            componentB: heatLoadLookupOptions.infiltrationOccupancies,
+          },
+        },
+      ],
+    },
+    {
+      number: "5",
+      title: "Internal Heat",
+      columns: [
+        { key: "item", label: "Item", wrap: true, width: "12%" },
+        { key: "application", label: "Application", wrap: true, width: "31%" },
+        { key: "heatGain", label: "Heat gain", align: "right", width: "14%", editable: true },
+        { key: "qty", label: "QTY", align: "right", width: "19%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%", editable: true },
+      ],
+      rows: [
+        {
+          id: "5.1",
+          values: { item: "People", application: "Standing, light work or walking", heatGain: "", qty: "", heatLoad: "" },
+          selectOptions: { application: heatLoadLookupOptions.peopleApplications },
+        },
+        {
+          id: "5.2",
+          values: { item: "Motor power (Name plate)", application: "(0.04)", heatGain: "", qty: "", heatLoad: "" },
+          selectOptions: { application: heatLoadLookupOptions.motorPowerFactors },
+        },
+        {
+          id: "5.3",
+          values: { item: "compact fluorescent lamp", application: "Office", heatGain: "", qty: "", heatLoad: "" },
+          selectOptions: { application: heatLoadLookupOptions.lampApplications },
+        },
+        {
+          id: "5.4",
+          values: { item: "Appliance etc.", application: "Medium, desktop type", heatGain: "", qty: "", heatLoad: "" },
+          selectOptions: { application: heatLoadLookupOptions.applianceApplications },
+        },
+        {
+          id: "5.5",
+          values: { item: "Additional heat gain", application: "Miscellaneous equipment", heatGain: "", qty: "", heatLoad: "" },
+        },
+      ],
+    },
+    {
+      number: "6",
+      title: "Ventilation",
+      columns: [
+        { key: "application", label: "Application", width: "13%" },
+        { key: "item", label: "Item", width: "10%" },
+        { key: "quantity", label: "Quantity", align: "right", width: "8%", editable: true },
+        { key: "area", label: "Area", width: "8%" },
+        { key: "areaQty", label: "Area quantity", align: "right", width: "9%", editable: true },
+        { key: "totalFlowRate", label: "Total flowrate", align: "right", width: "11%", editable: true },
+        { key: "sensible", label: "Sensible heat", align: "right", width: "8%", editable: true },
+        { key: "latent", label: "Latent heat", align: "right", width: "9%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%", editable: true },
+      ],
+      rows: [
+        {
+          id: "6.1",
+          values: {
+            application: "Pharmacy",
+            item: "People",
+            quantity: "",
+            area: "Area",
+            areaQty: "",
+            totalFlowRate: "",
+            sensible: "",
+            latent: "",
+            heatLoad: "",
+          },
+          selectOptions: { application: heatLoadLookupOptions.ventilationApplications },
+        },
+      ],
+    },
+  ];
+}
 
 const summaryRows: SummaryRow[] = [
   { label: "Heat Load", note: "", value: "" },
@@ -158,17 +444,50 @@ const summaryRows: SummaryRow[] = [
 ];
 
 export function HeatLoadSheet() {
+  const [sections, setSections] = useState<Section[]>(buildInitialSections);
+
+  function handleCellChange(sectionNumber: string, rowId: string, key: string, value: string) {
+    setSections((currentSections) =>
+      currentSections.map((section) =>
+        section.number !== sectionNumber
+          ? section
+          : {
+              ...section,
+              rows: section.rows.map((row) =>
+                row.id !== rowId
+                  ? row
+                  : {
+                      ...row,
+                      values: {
+                        ...row.values,
+                        [key]: value,
+                      },
+                    },
+              ),
+            },
+      ),
+    );
+  }
+
   return (
     <div className="space-y-3">
       {sections.map((section) => (
-        <SectionTable key={section.number} {...section} />
+        <SectionTable key={section.number} {...section} onCellChange={handleCellChange} />
       ))}
       <SummaryTable rows={summaryRows} />
     </div>
   );
 }
 
-function SectionTable({ number, title, columns, rows }: Section) {
+function SectionTable({
+  number,
+  title,
+  columns,
+  rows,
+  onCellChange,
+}: Section & {
+  onCellChange: (sectionNumber: string, rowId: string, key: string, value: string) => void;
+}) {
   return (
     <table className={tableClass}>
       <colgroup>
@@ -204,31 +523,34 @@ function SectionTable({ number, title, columns, rows }: Section) {
           <tr key={row.id}>
             <td className={`${cellClass} bg-white text-center font-medium text-slate-900`}>{row.id}</td>
             {columns.map((column) => {
-              const cellValue = row[column.key] ?? "";
-              const hasValue = cellValue.trim().length > 0;
-              const fillClass = hasValue ? "bg-[#fff4f7]" : "bg-white";
-              const hasSelect = Boolean(column.selectOptions?.length);
+              const cellValue = row.values[column.key] ?? "";
+              const cellOptions = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
+              const hasSelect = cellOptions.length > 0;
+              const fillClass = hasSelect || !column.editable ? "bg-[#fff4f7]" : "bg-white";
 
               return (
                 <td key={column.key} className={`${cellClass} ${fillClass} p-0`}>
                   {hasSelect ? (
                     <SheetSelectCell
                       ariaLabel={`${row.id} ${column.label || column.key}`}
-                      defaultValue={cellValue || column.selectOptions?.[0] || ""}
+                      value={cellValue}
                       align={column.align ?? "left"}
-                      options={column.selectOptions ?? []}
+                      options={cellOptions}
+                      onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
                     />
-                  ) : hasValue ? (
-                    <SheetCell
-                      ariaLabel={`${row.id} ${column.label || column.key}`}
-                      defaultValue={cellValue}
-                      align={column.align ?? "left"}
-                      wrap={column.wrap}
-                    />
-                  ) : (
+                  ) : column.editable ? (
                     <SheetInputCell
                       ariaLabel={`${row.id} ${column.label || column.key}`}
+                      value={cellValue}
                       align={column.align ?? "left"}
+                      onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
+                    />
+                  ) : (
+                    <SheetCell
+                      ariaLabel={`${row.id} ${column.label || column.key}`}
+                      value={cellValue}
+                      align={column.align ?? "left"}
+                      wrap={column.wrap}
                     />
                   )}
                 </td>
@@ -254,10 +576,10 @@ function SummaryTable({ rows }: { rows: SummaryRow[] }) {
           <tr key={row.label}>
             <th className={`${cellClass} bg-[#fff4f7] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`}>{row.label}</th>
             <td className={`${cellClass} bg-white p-0`}>
-              <SheetCell ariaLabel={`${row.label} note`} defaultValue={row.note} align="right" />
+              <SheetCell ariaLabel={`${row.label} note`} value={row.note} align="right" />
             </td>
             <td className={`${cellClass} bg-white p-0`}>
-              <SheetCell ariaLabel={row.label} defaultValue={row.value} align="right" />
+              <SheetCell ariaLabel={row.label} value={row.value} align="right" />
             </td>
           </tr>
         ))}
@@ -268,12 +590,12 @@ function SummaryTable({ rows }: { rows: SummaryRow[] }) {
 
 function SheetCell({
   ariaLabel,
-  defaultValue = "",
+  value = "",
   align = "left",
   wrap = true,
 }: {
   ariaLabel: string;
-  defaultValue?: string;
+  value?: string;
   align?: Align;
   wrap?: boolean;
 }) {
@@ -283,19 +605,24 @@ function SheetCell({
   return (
     <div
       aria-label={ariaLabel}
+      title={value}
       className={`min-h-[10px] h-full w-full px-1 py-1 text-[10px] leading-snug text-slate-900 ${alignClass} ${wrapClass}`}
     >
-      {defaultValue || "\u00A0"}
+      {value || "\u00A0"}
     </div>
   );
 }
 
 function SheetInputCell({
   ariaLabel,
+  value,
   align = "left",
+  onValueChange,
 }: {
   ariaLabel: string;
+  value: string;
   align?: Align;
+  onValueChange: (value: string) => void;
 }) {
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
 
@@ -303,6 +630,8 @@ function SheetInputCell({
     <input
       aria-label={ariaLabel}
       type="text"
+      value={value}
+      onChange={(event) => onValueChange(event.target.value)}
       className={`min-h-[24px] h-full w-full bg-transparent px-1 py-1 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
     />
   );
@@ -310,14 +639,16 @@ function SheetInputCell({
 
 function SheetSelectCell({
   ariaLabel,
-  defaultValue,
+  value,
   align = "left",
   options,
+  onValueChange,
 }: {
   ariaLabel: string;
-  defaultValue: string;
+  value: string;
   align?: Align;
-  options: string[];
+  options: readonly string[];
+  onValueChange: (value: string) => void;
 }) {
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
 
@@ -325,7 +656,9 @@ function SheetSelectCell({
     <div className="relative min-h-[24px] h-full w-full">
       <select
         aria-label={ariaLabel}
-        defaultValue={defaultValue}
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+        title={value}
         className={`min-h-[24px] h-full w-full appearance-none cursor-pointer bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
       >
         {options.map((option) => (

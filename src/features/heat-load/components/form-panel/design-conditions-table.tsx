@@ -1,31 +1,61 @@
-import { TopInputCell, TopSelectField } from "./top-form-fields";
-
 type FormValues = Record<string, string>;
 
 type ConditionRow =
   | {
-      kind: "input";
+      kind: "outdoorDryBulb";
       label: string;
-      name: string;
+      dryBulbName: string;
+      percentageName: string;
+      yearName: string;
+      percentageOptions: string[];
+      yearOptions: string[];
     }
   | {
-      kind: "select";
+      kind: "typeValue";
       label: string;
-      name: string;
+      typeName: string;
+      valueName: string;
       options: string[];
-      defaultValue: string;
+      defaultType: string;
+    }
+  | {
+      kind: "indoorDryBulb";
+      label: string;
+      indoorDryBulbName: string;
+      differenceName: string;
     };
 
 const conditionRows: ConditionRow[] = [
-  { kind: "input", label: "Outside temp.", name: "outsideCondition" },
-  { kind: "input", label: "Inside temp.", name: "insideCondition" },
-  { kind: "input", label: "Temp. difference", name: "conditionDifference" },
   {
-    kind: "select",
-    label: "Condition type",
-    name: "conditionType",
+    kind: "outdoorDryBulb",
+    label: "Outdoor condition",
+    dryBulbName: "dryBulbTemp",
+    percentageName: "dryBulbPercentile",
+    yearName: "designYear",
+    percentageOptions: ["0.4", "1", "2", "5", "10"],
+    yearOptions: Array.from({ length: 8 }, (_, index) => String(new Date().getUTCFullYear() - 1 - index)),
+  },
+  {
+    kind: "typeValue",
+    label: "Outdoor WB / RH",
+    typeName: "conditionType",
+    valueName: "conditionValue",
     options: ["Relative Humidity", "Wet bulb temperature"],
-    defaultValue: "Relative Humidity",
+    defaultType: "Relative Humidity",
+  },
+  {
+    kind: "indoorDryBulb",
+    label: "Indoor dry bulb",
+    indoorDryBulbName: "insideCondition",
+    differenceName: "conditionDifference",
+  },
+  {
+    kind: "typeValue",
+    label: "Indoor WB / RH",
+    typeName: "indoorConditionType",
+    valueName: "indoorConditionValue",
+    options: ["Relative Humidity", "Wet bulb temperature"],
+    defaultType: "Relative Humidity",
   },
 ];
 
@@ -51,45 +81,127 @@ export function DesignConditionsRow({
 }) {
   const conditionRow = conditionRows[rowIndex];
 
-  if (conditionRow.kind === "select") {
+  if (conditionRow.kind === "outdoorDryBulb") {
+    const selectValue = values[conditionRow.percentageName] ?? conditionRow.percentageOptions[0];
+    const yearValue = values[conditionRow.yearName] ?? conditionRow.yearOptions[0];
+
     return (
       <>
-        <td className="border border-slate-300 bg-[#fff4f7] p-0">
-          <TopSelectField
-            ariaLabel={conditionRow.label}
-            name={conditionRow.name}
-            options={conditionRow.options}
-            value={values[conditionRow.name] ?? conditionRow.defaultValue}
-            onValueChange={onFieldChange}
-          />
-        </td>
+        <th className="border border-slate-300 bg-[#fff4f7] px-1 py-2 text-left text-[10px] font-semibold text-slate-900">
+          {conditionRow.label}
+        </th>
         <td className="border border-slate-300 bg-white p-0">
-          <TopInputCell
-            ariaLabel="Condition value"
-            name="conditionValue"
-            align="right"
-            value={values.conditionValue ?? ""}
-            onValueChange={onFieldChange}
-          />
+          <div className="grid min-h-[30px] grid-cols-[minmax(0,1fr)_46px_58px] items-stretch">
+            <input
+              aria-label="Outdoor dry bulb temperature"
+              name={conditionRow.dryBulbName}
+              type="text"
+              value={values[conditionRow.dryBulbName] ?? ""}
+              onChange={(event) => onFieldChange(conditionRow.dryBulbName, event.target.value)}
+              className="h-full min-h-[30px] min-w-0 w-full bg-transparent px-1 text-right text-[10px] leading-snug text-slate-900 outline-none"
+            />
+            <div className="border-l border-slate-200">
+              <select
+                aria-label="Dry bulb percentile"
+                name={conditionRow.percentageName}
+                value={selectValue}
+                onChange={(event) => onFieldChange(conditionRow.percentageName, event.target.value)}
+                className="h-full min-h-[30px] w-full bg-transparent px-0 text-[9px] font-semibold text-slate-900 outline-none"
+              >
+                {conditionRow.percentageOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}%
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="border-l border-slate-200">
+              <select
+                aria-label="Design year"
+                name={conditionRow.yearName}
+                value={yearValue}
+                onChange={(event) => onFieldChange(conditionRow.yearName, event.target.value)}
+                className="h-full min-h-[30px] w-full bg-transparent px-0 text-[9px] font-semibold text-slate-900 outline-none"
+              >
+                {conditionRow.yearOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </td>
       </>
     );
   }
 
-  return (
-    <>
-      <th className="border border-slate-300 bg-[#fff4f7] px-2 py-2 text-left text-[10px] font-semibold text-slate-900">
-        {conditionRow.label}
-      </th>
-      <td className="border border-slate-300 bg-white p-0">
-        <TopInputCell
-          ariaLabel={conditionRow.label}
-          name={conditionRow.name}
-          align="right"
-          value={values[conditionRow.name] ?? ""}
-          onValueChange={onFieldChange}
-        />
-      </td>
-    </>
-  );
+  if (conditionRow.kind === "typeValue") {
+    return (
+      <>
+        <th className="border border-slate-300 bg-[#fff4f7] px-1 py-2 text-left text-[10px] font-semibold text-slate-900">
+          {conditionRow.label}
+        </th>
+        <td className="border border-slate-300 bg-white p-0">
+          <div className="grid min-h-[30px] grid-cols-[120px_minmax(0,1fr)] items-stretch">
+            <div className="border-r border-slate-200 px-1">
+              <select
+                aria-label={conditionRow.label}
+                name={conditionRow.typeName}
+                value={values[conditionRow.typeName] ?? conditionRow.defaultType}
+                onChange={(event) => onFieldChange(conditionRow.typeName, event.target.value)}
+                className="h-full min-h-[30px] w-full bg-transparent px-0 text-[9px] font-semibold text-slate-900 outline-none"
+              >
+                {conditionRow.options.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <input
+              aria-label={`${conditionRow.label} value`}
+              name={conditionRow.valueName}
+              type="text"
+              value={values[conditionRow.valueName] ?? ""}
+              onChange={(event) => onFieldChange(conditionRow.valueName, event.target.value)}
+              className="h-full min-h-[30px] min-w-0 w-full bg-transparent px-1 text-right text-[10px] leading-snug text-slate-900 outline-none"
+            />
+          </div>
+        </td>
+      </>
+    );
+  }
+
+  if (conditionRow.kind === "indoorDryBulb") {
+    return (
+      <>
+        <th className="border border-slate-300 bg-[#fff4f7] px-1 py-2 text-left text-[10px] font-semibold text-slate-900">
+          {conditionRow.label}
+        </th>
+        <td className="border border-slate-300 bg-white p-0">
+          <div className="grid min-h-[30px] grid-cols-[minmax(0,1fr)_96px] items-stretch">
+            <input
+              aria-label="Indoor dry bulb"
+              name={conditionRow.indoorDryBulbName}
+              type="text"
+              value={values[conditionRow.indoorDryBulbName] ?? ""}
+              onChange={(event) => onFieldChange(conditionRow.indoorDryBulbName, event.target.value)}
+              className="h-full min-h-[30px] min-w-0 w-full bg-transparent px-1 text-right text-[10px] leading-snug text-slate-900 outline-none"
+            />
+            <div className="border-l border-slate-200 bg-slate-50 px-1">
+              <div className="flex h-full min-h-[30px] items-center justify-between text-[8px] font-semibold text-slate-700">
+                <span>ΔT dry bulb</span>
+                <span aria-label="Dry bulb temperature difference" className="text-[9px] text-slate-800">
+                  {values[conditionRow.differenceName] ?? ""}
+                </span>
+              </div>
+            </div>
+          </div>
+        </td>
+      </>
+    );
+  }
+
+  return null;
 }

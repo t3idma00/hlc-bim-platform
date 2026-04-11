@@ -14,6 +14,19 @@ type CountryOption = {
   iso2?: string;
 };
 
+type SolarLocationOption = {
+  latitude: number;
+  longitude: number;
+  timezone?: string;
+};
+
+type TemperatureHistoryResponse = {
+  hourlyDryBulb?: Array<{
+    time: string;
+    dryBulbTemp: number | null;
+  }>;
+};
+
 const topSectionRows = [0, 1, 2, 3];
 
 export const initialFormValues: FormValues = {
@@ -69,11 +82,40 @@ export const initialFormValues: FormValues = {
   doorWestWidth: "",
   doorWestHeight: "",
   outsideCondition: "",
+  dryBulbTemp: "",
+  wetBulbTemp: "",
+  dryBulbPercentile: "1",
+  designYear: String(new Date().getUTCFullYear() - 1),
   insideCondition: "",
   conditionDifference: "",
   conditionType: "Relative Humidity",
   conditionValue: "",
+  indoorConditionType: "Relative Humidity",
+  indoorConditionValue: "",
 };
+
+function computePercentile(values: number[], percentile: number): number {
+  if (!values.length) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const clamped = Math.min(100, Math.max(0, percentile));
+  const rank = (clamped / 100) * (sorted.length - 1);
+  const lowIndex = Math.floor(rank);
+  const highIndex = Math.ceil(rank);
+
+  if (lowIndex === highIndex) {
+    return sorted[lowIndex];
+  }
+
+  const weight = rank - lowIndex;
+  return sorted[lowIndex] * (1 - weight) + sorted[highIndex] * weight;
+}
+
+function formatConditionValue(value: number): string {
+  return value.toFixed(1);
+}
 
 export function HeatLoadFormPanel({
   formValues,
@@ -88,7 +130,9 @@ export function HeatLoadFormPanel({
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [countryLoading, setCountryLoading] = useState(false);
   const [cityLoading, setCityLoading] = useState(false);
+  const [designTempLoading, setDesignTempLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [designTempError, setDesignTempError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadCountries() {
@@ -174,6 +218,120 @@ export function HeatLoadFormPanel({
     onFieldChange("selectedCountryCode", matched?.iso2 ?? "");
   }
 
+  useEffect(() => {
+    async function updateDesignTemperatures() {
+      const country = formValues.selectedCountry?.trim();
+      const city = formValues.selectedCity?.trim();
+      if (!country || !city) {
+        return;
+      }
+
+      setDesignTempLoading(true);
+      setDesignTempError(null);
+
+      try {
+        const locationParams = new URLSearchParams({
+          name: city,
+          country,
+          count: "1",
+          onlyCities: "true",
+        });
+
+        if (formValues.selectedCountryCode) {
+          locationParams.set("countryCode", formValues.selectedCountryCode);
+        }
+
+        const locationResponse = await fetch(`/api/solar-locations?${locationParams.toString()}`);
+        const locationPayload = (await locationResponse.json()) as {
+          results?: SolarLocationOption[];
+          error?: string;
+        };
+
+        if (!locationResponse.ok) {
+          throw new Error(locationPayload.error ?? "Failed to resolve city location.");
+        }
+
+        const resolved = locationPayload.results?.[0];
+        if (!resolved) {
+          throw new Error("No location match found for selected city.");
+        }
+
+        const latestCompleteYear = new Date().getUTCFullYear() - 1;
+        const selectedYear = Number.parseInt(formValues.designYear ?? "", 10);
+        const year = Number.isInteger(selectedYear) ? selectedYear : latestCompleteYear;
+
+        const historyParams = new URLSearchParams({
+          latitude: String(resolved.latitude),
+          longitude: String(resolved.longitude),
+          year: String(year),
+          timezone: resolved.timezone ?? "UTC",
+        });
+
+        const historyResponse = await fetch(`/api/temperature-history?${historyParams.toString()}`);
+        const historyPayload = (await historyResponse.json()) as TemperatureHistoryResponse & { error?: string };
+
+        if (!historyResponse.ok) {
+          throw new Error(historyPayload.error ?? `Failed to fetch yearly dry-bulb history for ${year}.`);
+        }
+
+        const dryBulbSeries = (historyPayload.hourlyDryBulb ?? [])
+          .map((entry) => entry.dryBulbTemp)
+          .filter((value): value is number => typeof value === "number");
+
+        if (!dryBulbSeries.length) {
+          throw new Error("No dry-bulb values were returned for the selected city.");
+        }
+
+        const selectedPercent = Number(formValues.dryBulbPercentile || "1");
+        // Cooling design style: 1% means the top hottest 1% hours, so use (100 - p) percentile.
+        const dryBulb = computePercentile(dryBulbSeries, 100 - selectedPercent);
+        const wetBulb = dryBulb - 2;
+
+        onFieldChange("dryBulbTemp", formatConditionValue(dryBulb));
+        onFieldChange("wetBulbTemp", formatConditionValue(wetBulb));
+        onFieldChange("outsideCondition", formatConditionValue(dryBulb));
+        if ((formValues.conditionType ?? "") === "Wet bulb temperature") {
+          onFieldChange("conditionValue", formatConditionValue(wetBulb));
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to auto-fill design temperatures.";
+        setDesignTempError(message);
+      } finally {
+        setDesignTempLoading(false);
+      }
+    }
+
+    void updateDesignTemperatures();
+  }, [
+    formValues.selectedCountry,
+    formValues.selectedCountryCode,
+    formValues.selectedCity,
+    formValues.dryBulbPercentile,
+    formValues.designYear,
+    formValues.conditionType,
+  ]);
+
+  useEffect(() => {
+    const outside = Number.parseFloat(formValues.dryBulbTemp ?? "");
+    const inside = Number.parseFloat(formValues.insideCondition ?? "");
+
+    if (Number.isFinite(outside)) {
+      const outsideFormatted = formatConditionValue(outside);
+      if ((formValues.outsideCondition ?? "") !== outsideFormatted) {
+        onFieldChange("outsideCondition", outsideFormatted);
+      }
+    }
+
+    if (Number.isFinite(outside) && Number.isFinite(inside)) {
+      const differenceFormatted = formatConditionValue(outside - inside);
+      if ((formValues.conditionDifference ?? "") !== differenceFormatted) {
+        onFieldChange("conditionDifference", differenceFormatted);
+      }
+    } else if ((formValues.conditionDifference ?? "") !== "") {
+      onFieldChange("conditionDifference", "");
+    }
+  }, [formValues.dryBulbTemp, formValues.insideCondition, formValues.outsideCondition, formValues.conditionDifference]);
+
   return (
     <aside className="min-h-0 overflow-hidden border-b border-rose-100 bg-[#fff8fa] xl:border-r xl:border-b-0">
       <div className="flex h-full min-h-0 flex-col">
@@ -243,14 +401,16 @@ export function HeatLoadFormPanel({
               </div>
 
               {locationError ? <p className="mt-2 text-[10px] text-rose-700">{locationError}</p> : null}
+              {designTempLoading ? <p className="mt-2 text-[10px] text-slate-600">Updating design temperatures...</p> : null}
+              {designTempError ? <p className="mt-2 text-[10px] text-rose-700">{designTempError}</p> : null}
             </div>
 
             <table className="w-full table-fixed border-collapse text-[10px] leading-none text-slate-900">
               <colgroup>
                 <col style={{ width: "22%" }} />
                 <col style={{ width: "30%" }} />
-                <col style={{ width: "28%" }} />
-                <col style={{ width: "20%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "30%" }} />
               </colgroup>
               <tbody>
                 <tr>
