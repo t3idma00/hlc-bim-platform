@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getWallAppearanceByType, type WallAppearance, type WallPatternKind } from "@/data/assets";
+import { createBucketedIsoString, fetchCachedJson } from "@/lib/client-fetch-cache";
 import { CompassOverlay, getCompassMarkerPosition } from "../shared/CompassOverlay";
 import {
   WorkspaceViewToggle,
@@ -356,20 +357,16 @@ export function HeatLoadCanvasPanel({
     const fetchSolar = async (latitude: number, longitude: number) => {
       try {
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const datetime = createBucketedIsoString(new Date(), 300000);
         const params = new URLSearchParams({
           latitude: latitude.toString(),
           longitude: longitude.toString(),
           timezone,
-          datetime: new Date().toISOString(),
+          datetime,
           mode: "auto",
         });
 
-        const response = await fetch(`/api/solar-details?${params.toString()}`);
-        const payload = (await response.json()) as SolarApiResponse;
-
-        if (!response.ok || payload.error) {
-          throw new Error(payload.error ?? "Unable to load live sun data.");
-        }
+        const payload = await fetchCachedJson<SolarApiResponse>(`/api/solar-details?${params.toString()}`);
 
         if (cancelled) {
           return;
@@ -2186,22 +2183,22 @@ function getRawWallInputs(formValues: CanvasFormValues): RawWallInput[] {
     {
       direction: "North",
       length: parsePositiveNumber(formValues.wallNorthLength),
-      thickness: parsePositiveNumber(formValues.wallNorthWidth, DEFAULT_WALL_THICKNESS),
+      thickness: parseWallThicknessMeters(formValues.wallNorthWidth, DEFAULT_WALL_THICKNESS),
     },
     {
       direction: "East",
       length: parsePositiveNumber(formValues.wallEastLength),
-      thickness: parsePositiveNumber(formValues.wallEastWidth, DEFAULT_WALL_THICKNESS),
+      thickness: parseWallThicknessMeters(formValues.wallEastWidth, DEFAULT_WALL_THICKNESS),
     },
     {
       direction: "South",
       length: parsePositiveNumber(formValues.wallSouthLength),
-      thickness: parsePositiveNumber(formValues.wallSouthWidth, DEFAULT_WALL_THICKNESS),
+      thickness: parseWallThicknessMeters(formValues.wallSouthWidth, DEFAULT_WALL_THICKNESS),
     },
     {
       direction: "West",
       length: parsePositiveNumber(formValues.wallWestLength),
-      thickness: parsePositiveNumber(formValues.wallWestWidth, DEFAULT_WALL_THICKNESS),
+      thickness: parseWallThicknessMeters(formValues.wallWestWidth, DEFAULT_WALL_THICKNESS),
     },
   ];
 }
@@ -3108,6 +3105,16 @@ function parsePositiveNumber(value: string | undefined, fallback = 0) {
   }
 
   return normalizedValue;
+}
+
+function parseWallThicknessMeters(value: string | undefined, fallback = 0) {
+  const parsed = parsePositiveNumber(value, fallback);
+
+  if (parsed > 20) {
+    return parsed / 1000;
+  }
+
+  return parsed;
 }
 
 function getDistance(a: Point, b: Point) {

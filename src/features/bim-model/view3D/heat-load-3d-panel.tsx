@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getWallAppearanceByType, type WallPatternKind } from "@/data/assets";
+import { createBucketedIsoString, fetchCachedJson } from "@/lib/client-fetch-cache";
 import {
   WorkspaceViewToggle,
   type WorkspaceView,
@@ -303,20 +304,16 @@ export function HeatLoad3DPanel({
     const fetchSolar = async (latitude: number, longitude: number) => {
       try {
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const datetime = createBucketedIsoString(new Date(), 300000);
         const params = new URLSearchParams({
           latitude: latitude.toString(),
           longitude: longitude.toString(),
           timezone,
-          datetime: new Date().toISOString(),
+          datetime,
           mode: "auto",
         });
 
-        const response = await fetch(`/api/solar-details?${params.toString()}`);
-        const payload = (await response.json()) as SolarApiResponse;
-
-        if (!response.ok || payload.error) {
-          throw new Error(payload.error ?? "Unable to load live sun data.");
-        }
+        const payload = await fetchCachedJson<SolarApiResponse>(`/api/solar-details?${params.toString()}`);
 
         if (cancelled) {
           return;
@@ -414,7 +411,7 @@ export function HeatLoad3DPanel({
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
         <div className="relative flex h-full w-full flex-1 overflow-hidden border border-rose-100 bg-[radial-gradient(circle_at_top,_#fff1f2,_#ffffff_55%,_#ffe4e6)]">
-          <ThreeRoomView formValues={formValues} />
+          <ThreeRoomView formValues={formValues} solarState={solarState} />
         </div>
       </div>
 
@@ -470,20 +467,16 @@ export function LegacyHeatLoad3DPanel({
     const fetchSolar = async (latitude: number, longitude: number) => {
       try {
         const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const datetime = createBucketedIsoString(new Date(), 300000);
         const params = new URLSearchParams({
           latitude: latitude.toString(),
           longitude: longitude.toString(),
           timezone,
-          datetime: new Date().toISOString(),
+          datetime,
           mode: "auto",
         });
 
-        const response = await fetch(`/api/solar-details?${params.toString()}`);
-        const payload = (await response.json()) as SolarApiResponse;
-
-        if (!response.ok || payload.error) {
-          throw new Error(payload.error ?? "Unable to load live sun data.");
-        }
+        const payload = await fetchCachedJson<SolarApiResponse>(`/api/solar-details?${params.toString()}`);
 
         if (cancelled) {
           return;
@@ -2321,10 +2314,10 @@ function getRoomDimensions(formValues: CanvasFormValues): RoomDimensions | null 
     parsePositiveNumber(formValues.wallWestHeight, DEFAULT_HEIGHT),
   ];
   const thicknesses = [
-    parsePositiveNumber(formValues.wallNorthWidth, DEFAULT_WALL_THICKNESS),
-    parsePositiveNumber(formValues.wallEastWidth, DEFAULT_WALL_THICKNESS),
-    parsePositiveNumber(formValues.wallSouthWidth, DEFAULT_WALL_THICKNESS),
-    parsePositiveNumber(formValues.wallWestWidth, DEFAULT_WALL_THICKNESS),
+    parseWallThicknessMeters(formValues.wallNorthWidth, DEFAULT_WALL_THICKNESS),
+    parseWallThicknessMeters(formValues.wallEastWidth, DEFAULT_WALL_THICKNESS),
+    parseWallThicknessMeters(formValues.wallSouthWidth, DEFAULT_WALL_THICKNESS),
+    parseWallThicknessMeters(formValues.wallWestWidth, DEFAULT_WALL_THICKNESS),
   ];
 
   return {
@@ -2356,6 +2349,16 @@ function parsePositiveNumber(value: string | undefined, fallback = 0) {
   }
 
   return normalizedValue;
+}
+
+function parseWallThicknessMeters(value: string | undefined, fallback = 0) {
+  const parsed = parsePositiveNumber(value, fallback);
+
+  if (parsed > 20) {
+    return parsed / 1000;
+  }
+
+  return parsed;
 }
 
 function formatValue(value: number) {

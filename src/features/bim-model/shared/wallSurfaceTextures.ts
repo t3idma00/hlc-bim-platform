@@ -10,6 +10,7 @@ type WallTextureParams = {
 };
 
 const PIXELS_PER_METER = 128;
+const MIN_TEXTURE_SIZE = 384;
 
 // Standard brick module dimensions in meters:
 // 215 mm brick length, 65 mm brick height, 10 mm mortar joints.
@@ -29,8 +30,8 @@ export function createWallSurfaceTexture({
 }: WallTextureParams) {
   const appearance = getWallAppearanceByType(wallType);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(Math.round(wallLength * PIXELS_PER_METER), 256);
-  canvas.height = Math.max(Math.round(wallHeight * PIXELS_PER_METER), 256);
+  canvas.width = Math.max(Math.round(wallLength * PIXELS_PER_METER), MIN_TEXTURE_SIZE);
+  canvas.height = Math.max(Math.round(wallHeight * PIXELS_PER_METER), MIN_TEXTURE_SIZE);
   const context = canvas.getContext("2d");
 
   if (!context) {
@@ -55,7 +56,11 @@ export function createWallSurfaceTexture({
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 8;
   texture.needsUpdate = true;
 
   return texture;
@@ -88,13 +93,13 @@ function drawBrickPattern(
 
       context.save();
       context.fillStyle = fillColor;
-      context.globalAlpha = 0.96;
+      context.globalAlpha = 0.94;
       context.fillRect(x, y, brickWidth, brickHeight);
 
       const gradient = context.createLinearGradient(x, y, x + brickWidth, y + brickHeight);
-      gradient.addColorStop(0, "rgba(255, 255, 255, 0.12)");
-      gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.03)");
-      gradient.addColorStop(1, "rgba(0, 0, 0, 0.09)");
+      gradient.addColorStop(0, "rgba(255, 255, 255, 0.15)");
+      gradient.addColorStop(0.45, "rgba(255, 255, 255, 0.04)");
+      gradient.addColorStop(1, "rgba(0, 0, 0, 0.12)");
       context.globalAlpha = 1;
       context.fillStyle = gradient;
       context.fillRect(x, y, brickWidth, brickHeight);
@@ -102,6 +107,13 @@ function drawBrickPattern(
       context.strokeStyle = mortarColor;
       context.lineWidth = mortar;
       context.strokeRect(x, y, brickWidth, brickHeight);
+
+      context.strokeStyle = "rgba(255, 255, 255, 0.05)";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(x + 1, y + 1);
+      context.lineTo(x + brickWidth - 1, y + 1);
+      context.stroke();
 
       drawSubtleSpeckles(context, x, y, brickWidth, brickHeight, row * 17 + column * 13);
       context.restore();
@@ -136,13 +148,13 @@ function drawBlockPattern(
 
       context.save();
       context.fillStyle = fillColor;
-      context.globalAlpha = 0.98;
+      context.globalAlpha = 0.96;
       context.fillRect(x, y, blockWidth, blockHeight);
 
       const gradient = context.createLinearGradient(x, y, x + blockWidth, y + blockHeight);
-      gradient.addColorStop(0, "rgba(255, 255, 255, 0.10)");
+      gradient.addColorStop(0, "rgba(255, 255, 255, 0.11)");
       gradient.addColorStop(0.48, "rgba(255, 255, 255, 0.03)");
-      gradient.addColorStop(1, "rgba(0, 0, 0, 0.08)");
+      gradient.addColorStop(1, "rgba(0, 0, 0, 0.10)");
       context.globalAlpha = 1;
       context.fillStyle = gradient;
       context.fillRect(x, y, blockWidth, blockHeight);
@@ -154,7 +166,7 @@ function drawBlockPattern(
       context.beginPath();
       context.moveTo(x, y + blockHeight / 2);
       context.lineTo(x + blockWidth, y + blockHeight / 2);
-      context.strokeStyle = "rgba(255, 255, 255, 0.06)";
+      context.strokeStyle = "rgba(255, 255, 255, 0.08)";
       context.lineWidth = 2;
       context.stroke();
 
@@ -176,9 +188,9 @@ function drawConcretePattern(
   context.fillRect(0, 0, canvasWidth, canvasHeight);
 
   const gradient = context.createLinearGradient(0, 0, canvasWidth, canvasHeight);
-  gradient.addColorStop(0, "rgba(255, 255, 255, 0.10)");
-  gradient.addColorStop(0.35, "rgba(255, 255, 255, 0.03)");
-  gradient.addColorStop(1, "rgba(0, 0, 0, 0.07)");
+  gradient.addColorStop(0, "rgba(255, 255, 255, 0.08)");
+  gradient.addColorStop(0.35, "rgba(255, 255, 255, 0.025)");
+  gradient.addColorStop(1, "rgba(0, 0, 0, 0.06)");
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvasWidth, canvasHeight);
 
@@ -192,10 +204,10 @@ function drawConcretePattern(
       const y = row * cellSize;
       const seed = row * 37 + column * 19;
 
-      context.fillStyle = `rgba(255, 255, 255, ${0.02 + pseudoRandom(seed) * 0.03})`;
+      context.fillStyle = `rgba(255, 255, 255, ${0.016 + pseudoRandom(seed) * 0.02})`;
       context.fillRect(x, y, cellSize, cellSize);
 
-      context.fillStyle = `rgba(0, 0, 0, ${0.015 + pseudoRandom(seed + 9) * 0.03})`;
+      context.fillStyle = `rgba(0, 0, 0, ${0.012 + pseudoRandom(seed + 9) * 0.022})`;
       context.fillRect(x + 3, y + 3, cellSize - 6, cellSize - 6);
 
       drawSubtleSpeckles(context, x, y, cellSize, cellSize, seed);
@@ -203,7 +215,7 @@ function drawConcretePattern(
   }
 
   context.strokeStyle = mortarColor;
-  context.globalAlpha = 0.14;
+  context.globalAlpha = 0.1;
   context.lineWidth = 1;
 
   for (let row = 1; row < rows; row += 1) {

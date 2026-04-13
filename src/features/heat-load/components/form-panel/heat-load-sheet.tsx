@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { heatLoadLookupOptions } from "./heat-load-options";
 
 type Align = "left" | "right" | "center";
@@ -450,12 +450,52 @@ const wallTypeFieldByRowId: Record<string, string> = {
   "1.4": "wallWestType",
 };
 
+const wallThicknessFieldByRowId: Record<string, string> = {
+  "1.1": "wallNorthWidth",
+  "1.2": "wallEastWidth",
+  "1.3": "wallSouthWidth",
+  "1.4": "wallWestWidth",
+};
+
 export function HeatLoadSheet({
   onFieldChange,
 }: {
   onFieldChange?: (name: string, value: string) => void;
 }) {
   const [sections, setSections] = useState<Section[]>(buildInitialSections);
+  const onFieldChangeRef = useRef(onFieldChange);
+
+  useEffect(() => {
+    onFieldChangeRef.current = onFieldChange;
+  }, [onFieldChange]);
+
+  useEffect(() => {
+    const syncField = onFieldChangeRef.current;
+
+    if (!syncField) {
+      return;
+    }
+
+    const wallSection = sections.find((section) => section.number === "1");
+
+    if (!wallSection) {
+      return;
+    }
+
+    wallSection.rows.forEach((row) => {
+      const wallTypeFieldName = wallTypeFieldByRowId[row.id];
+      if (wallTypeFieldName) {
+        syncField(wallTypeFieldName, row.values.type ?? "");
+      }
+
+      const wallFieldName = wallThicknessFieldByRowId[row.id];
+      if (wallFieldName) {
+        syncField(wallFieldName, row.values.thickness ?? "");
+      }
+    });
+    // Run only once on mount so the shared BIM state starts aligned with the sheet defaults.
+    // User edits are pushed explicitly in handleCellChange below.
+  }, []);
 
   function handleCellChange(sectionNumber: string, rowId: string, key: string, value: string) {
     setSections((currentSections) =>
@@ -481,6 +521,13 @@ export function HeatLoadSheet({
 
     if (sectionNumber === "1" && key === "type") {
       const wallFieldName = wallTypeFieldByRowId[rowId];
+      if (wallFieldName) {
+        onFieldChange?.(wallFieldName, value);
+      }
+    }
+
+    if (sectionNumber === "1" && key === "thickness") {
+      const wallFieldName = wallThicknessFieldByRowId[rowId];
       if (wallFieldName) {
         onFieldChange?.(wallFieldName, value);
       }

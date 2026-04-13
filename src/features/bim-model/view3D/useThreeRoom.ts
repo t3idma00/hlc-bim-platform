@@ -10,13 +10,29 @@ type UseThreeRoomResult = {
   containerRef: RefObject<HTMLDivElement | null>;
 };
 
-export function useThreeRoom(roomModel: ThreeRoomModel | null): UseThreeRoomResult {
+export type SolarSnapshotLike = {
+  azimuth: number;
+  zenith: number;
+  altitude: number;
+};
+
+export type SolarStateLike = {
+  status: "loading" | "ready" | "unsupported" | "denied" | "error";
+  snapshot: SolarSnapshotLike | null;
+  message: string;
+};
+
+export function useThreeRoom(
+  roomModel: ThreeRoomModel | null,
+  solarState?: SolarStateLike
+): UseThreeRoomResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const roomGroupRef = useRef<THREE.Group | null>(null);
   const axesHelperRef = useRef<THREE.Group | null>(null);
+  const sunHelperRef = useRef<THREE.Group | null>(null);
   const frameRequestRef = useRef<number | null>(null);
   const framedOnceRef = useRef(false);
 
@@ -108,8 +124,10 @@ export function useThreeRoom(roomModel: ThreeRoomModel | null): UseThreeRoomResu
       controls.dispose();
       disposeObject3D(roomGroupRef.current);
       disposeObject3D(axesHelperRef.current);
+      disposeObject3D(sunHelperRef.current);
       roomGroupRef.current = null;
       axesHelperRef.current = null;
+      sunHelperRef.current = null;
       disposeObject3D(gridHelper);
       scene.clear();
       renderer.dispose();
@@ -142,6 +160,12 @@ export function useThreeRoom(roomModel: ThreeRoomModel | null): UseThreeRoomResu
       scene.remove(axesHelperRef.current);
       disposeObject3D(axesHelperRef.current);
       axesHelperRef.current = null;
+    }
+
+    if (sunHelperRef.current) {
+      scene.remove(sunHelperRef.current);
+      disposeObject3D(sunHelperRef.current);
+      sunHelperRef.current = null;
     }
 
     const fallbackDimensions = roomModel?.dimensions ?? {
@@ -185,6 +209,35 @@ export function useThreeRoom(roomModel: ThreeRoomModel | null): UseThreeRoomResu
 
     controls.update();
   }, [roomModel]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+
+    if (!scene) {
+      return;
+    }
+
+    if (sunHelperRef.current) {
+      scene.remove(sunHelperRef.current);
+      disposeObject3D(sunHelperRef.current);
+      sunHelperRef.current = null;
+    }
+
+    if (!solarState || solarState.status !== "ready" || !solarState.snapshot || solarState.snapshot.altitude <= 0) {
+      return;
+    }
+
+    const sceneDimensions = roomModel?.dimensions ?? {
+      width: 6,
+      depth: 6,
+      height: 3,
+      wallThickness: 0.2,
+    };
+    const sunHelper = createSunHelper(solarState.snapshot, sceneDimensions);
+
+    scene.add(sunHelper);
+    sunHelperRef.current = sunHelper;
+  }, [roomModel, solarState]);
 
   return { containerRef };
 }
@@ -374,6 +427,121 @@ function createAxisLabelSprite(label: "X" | "Y" | "Z", color: string) {
   sprite.renderOrder = 1001;
 
   return sprite;
+}
+
+function createSunHelper(snapshot: SolarSnapshotLike, roomDimensions: {
+  width: number;
+  depth: number;
+  height: number;
+}) {
+  const group = new THREE.Group();
+  group.name = "live-sun-helper";
+
+  const sceneScale = Math.max(roomDimensions.width, roomDimensions.depth, roomDimensions.height, 6);
+  const sunWorldPosition = getSunWorldPosition(snapshot, sceneScale);
+  const targetWorldPosition = new THREE.Vector3(0, roomDimensions.height * 0.08, 0);
+  group.position.set(sunWorldPosition.x, sunWorldPosition.y, sunWorldPosition.z);
+
+  const sunTexture = createSunTexture();
+  const sunSize = Math.max(sceneScale * 0.42, 0.8);
+
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: sunTexture,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    })
+  );
+  sprite.scale.set(sunSize, sunSize, 1);
+  sprite.renderOrder = 1002;
+  group.add(sprite);
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(sunSize * 0.16, 0.08), 20, 20),
+    new THREE.MeshBasicMaterial({
+      color: 0xfff7c2,
+      depthTest: false,
+      depthWrite: false,
+    })
+  );
+  core.renderOrder = 1003;
+  group.add(core);
+
+  const linePoints = [
+    new THREE.Vector3(0, 0, 0),
+    targetWorldPosition.clone().sub(new THREE.Vector3(sunWorldPosition.x, sunWorldPosition.y, sunWorldPosition.z)),
+  ];
+  const lineGeometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+  const line = new THREE.Line(
+    lineGeometry,
+    new THREE.LineDashedMaterial({
+      color: 0xf59e0b,
+      dashSize: Math.max(sceneScale * 0.12, 0.35),
+      gapSize: Math.max(sceneScale * 0.08, 0.22),
+      transparent: true,
+      opacity: 0.8,
+      depthTest: false,
+      depthWrite: false,
+    })
+  );
+  line.computeLineDistances();
+  line.renderOrder = 1001;
+  group.add(line);
+
+  group.traverse((node) => {
+    node.renderOrder = Math.max(node.renderOrder, 1001);
+  });
+
+  return group;
+}
+
+function createSunTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  const center = canvas.width / 2;
+  const radius = canvas.width / 2;
+  const glow = context.createRadialGradient(center, center, 0, center, center, radius);
+  glow.addColorStop(0, "rgba(255, 255, 255, 1)");
+  glow.addColorStop(0.18, "rgba(255, 241, 145, 0.98)");
+  glow.addColorStop(0.45, "rgba(245, 158, 11, 0.68)");
+  glow.addColorStop(0.75, "rgba(245, 158, 11, 0.18)");
+  glow.addColorStop(1, "rgba(245, 158, 11, 0)");
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = glow;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = "rgba(255, 255, 255, 0.85)";
+  context.lineWidth = 4;
+  context.beginPath();
+  context.arc(center, center, radius * 0.18, 0, Math.PI * 2);
+  context.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+
+  return texture;
+}
+
+function getSunWorldPosition(snapshot: SolarSnapshotLike, sceneScale: number) {
+  const azimuthRad = (snapshot.azimuth * Math.PI) / 180;
+  const altitudeRad = (snapshot.altitude * Math.PI) / 180;
+  const distance = sceneScale * 3.2;
+  const horizontal = Math.cos(altitudeRad) * distance;
+
+  return {
+    x: Math.sin(azimuthRad) * horizontal,
+    y: Math.sin(altitudeRad) * distance,
+    z: -Math.cos(azimuthRad) * horizontal,
+  };
 }
 
 function roundRect(

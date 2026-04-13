@@ -2,15 +2,17 @@
 
 import { useMemo } from "react";
 import { roomToThree, type RoomInputValues } from "../converters/roomToThree";
-import { useThreeRoom } from "./useThreeRoom";
+import { useThreeRoom, type SolarStateLike } from "./useThreeRoom";
 
 type ThreeRoomViewProps = {
   formValues: RoomInputValues;
+  solarState?: SolarStateLike;
 };
 
-export function ThreeRoomView({ formValues }: ThreeRoomViewProps) {
-  const roomModel = useMemo(() => roomToThree(formValues), [formValues]);
-  const { containerRef } = useThreeRoom(roomModel);
+export function ThreeRoomView({ formValues, solarState }: ThreeRoomViewProps) {
+  const roomModelSignature = useMemo(() => createRoomModelSignature(formValues), [formValues]);
+  const roomModel = useMemo(() => roomToThree(formValues), [roomModelSignature]);
+  const { containerRef } = useThreeRoom(roomModel, solarState);
   const isReady = roomModel !== null;
 
   return (
@@ -31,4 +33,43 @@ export function ThreeRoomView({ formValues }: ThreeRoomViewProps) {
       ) : null}
     </div>
   );
+}
+
+function createRoomModelSignature(formValues: RoomInputValues) {
+  const keys = [
+    "wallNorthLength",
+    "wallNorthWidth",
+    "wallNorthHeight",
+    "wallNorthType",
+    "wallEastLength",
+    "wallEastWidth",
+    "wallEastHeight",
+    "wallEastType",
+    "wallSouthLength",
+    "wallSouthWidth",
+    "wallSouthHeight",
+    "wallSouthType",
+    "wallWestLength",
+    "wallWestWidth",
+    "wallWestHeight",
+    "wallWestType",
+    "doorNorthWidth",
+    "doorNorthHeight",
+    "doorEastWidth",
+    "doorEastHeight",
+    "doorSouthWidth",
+    "doorSouthHeight",
+    "doorWestWidth",
+    "doorWestHeight",
+    "windowNorthWidth",
+    "windowNorthHeight",
+    "windowEastWidth",
+    "windowEastHeight",
+    "windowSouthWidth",
+    "windowSouthHeight",
+    "windowWestWidth",
+    "windowWestHeight",
+  ] as const;
+
+  return keys.map((key) => formValues[key] ?? "").join("|");
 }

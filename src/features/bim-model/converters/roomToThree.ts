@@ -25,6 +25,13 @@ export type ThreeRoomModel = {
   dimensions: RoomDimensions;
 };
 
+type WallSpec = {
+  direction: WallDirection;
+  wallType: string;
+  wallThickness: number;
+  wallLength: number;
+};
+
 type WallOpeningKind = "door" | "window";
 
 type WallOpening = {
@@ -47,26 +54,40 @@ export function roomToThree(formValues: RoomInputValues): ThreeRoomModel | null 
     return null;
   }
 
+  const wallSpecs = buildWallSpecs(formValues, dimensions);
   const group = new THREE.Group();
   group.name = "three-room-root";
   group.userData.dimensions = dimensions;
 
-  group.add(createFloorMesh(dimensions, formValues));
+  group.add(createFloorMesh(dimensions, wallSpecs));
 
-  (["North", "East", "South", "West"] as WallDirection[]).forEach((direction) => {
-    group.add(createWallAssembly(direction, dimensions, formValues));
+  wallSpecs.forEach((spec) => {
+    group.add(createWallAssembly(spec, dimensions, formValues));
   });
+
+  group.add(createCornerFillers(wallSpecs, dimensions));
 
   return { group, dimensions };
 }
 
-function createFloorMesh(dimensions: RoomDimensions, formValues: RoomInputValues) {
-  const maxWallThickness = Math.max(
-    parseWallThicknessMeters(formValues.wallNorthWidth, formValues.wallNorthType),
-    parseWallThicknessMeters(formValues.wallEastWidth, formValues.wallEastType),
-    parseWallThicknessMeters(formValues.wallSouthWidth, formValues.wallSouthType),
-    parseWallThicknessMeters(formValues.wallWestWidth, formValues.wallWestType)
-  );
+function buildWallSpecs(formValues: RoomInputValues, dimensions: RoomDimensions): WallSpec[] {
+  return (["North", "East", "South", "West"] as WallDirection[]).map((direction) => {
+    const wallType = formValues[getWallTypeFieldName(direction)] ?? "Brick Wall";
+
+    return {
+      direction,
+      wallType,
+      wallThickness: parseWallThicknessMeters(
+        formValues[getWallWidthFieldName(direction)],
+        wallType
+      ),
+      wallLength: getWallLengthForDirection(direction, dimensions),
+    };
+  });
+}
+
+function createFloorMesh(dimensions: RoomDimensions, wallSpecs: WallSpec[]) {
+  const maxWallThickness = Math.max(...wallSpecs.map((spec) => spec.wallThickness));
 
   const floorWidth = dimensions.width + maxWallThickness * 2;
   const floorDepth = dimensions.depth + maxWallThickness * 2;
@@ -97,16 +118,11 @@ function createFloorMesh(dimensions: RoomDimensions, formValues: RoomInputValues
 }
 
 function createWallAssembly(
-  direction: WallDirection,
+  spec: WallSpec,
   dimensions: RoomDimensions,
   formValues: RoomInputValues
 ) {
-  const wallType = formValues[getWallTypeFieldName(direction)] ?? "Brick Wall";
-  const wallThickness = parseWallThicknessMeters(
-    formValues[getWallWidthFieldName(direction)],
-    wallType
-  );
-  const wallLength = getWallLengthForDirection(direction, dimensions);
+  const { direction, wallType, wallThickness, wallLength } = spec;
   const openings = buildWallOpenings(direction, wallLength, dimensions.height, formValues);
   const wallShape = createWallShape(wallLength, dimensions.height, openings);
   const wallGeometry = new THREE.ExtrudeGeometry(wallShape, {
@@ -152,6 +168,92 @@ function createWallAssembly(
   applyWallTransform(wallGroup, direction, dimensions, wallThickness);
 
   return wallGroup;
+}
+
+function createCornerFillers(wallSpecs: WallSpec[], dimensions: RoomDimensions) {
+  const group = new THREE.Group();
+  group.name = "room-corner-fillers";
+
+  const specByDirection = new Map<WallDirection, WallSpec>(
+    wallSpecs.map((spec) => [spec.direction, spec])
+  );
+  const overlap = 0.01;
+  const halfWidth = dimensions.width / 2;
+  const halfDepth = dimensions.depth / 2;
+  const height = dimensions.height;
+
+  const corners = [
+    {
+      name: "corner-north-east",
+      xDirection: "East" as WallDirection,
+      zDirection: "North" as WallDirection,
+      materialDirection: "East" as WallDirection,
+      xSign: 1,
+      zSign: 1,
+    },
+    {
+      name: "corner-south-east",
+      xDirection: "East" as WallDirection,
+      zDirection: "South" as WallDirection,
+      materialDirection: "South" as WallDirection,
+      xSign: 1,
+      zSign: -1,
+    },
+    {
+      name: "corner-south-west",
+      xDirection: "West" as WallDirection,
+      zDirection: "South" as WallDirection,
+      materialDirection: "West" as WallDirection,
+      xSign: -1,
+      zSign: -1,
+    },
+    {
+      name: "corner-north-west",
+      xDirection: "West" as WallDirection,
+      zDirection: "North" as WallDirection,
+      materialDirection: "North" as WallDirection,
+      xSign: -1,
+      zSign: 1,
+    },
+  ];
+
+  corners.forEach((corner) => {
+    const xSpec = specByDirection.get(corner.xDirection);
+    const zSpec = specByDirection.get(corner.zDirection);
+    const materialSpec = specByDirection.get(corner.materialDirection);
+
+    if (!xSpec || !zSpec || !materialSpec) {
+      return;
+    }
+
+    const sizeX = xSpec.wallThickness + overlap * 2;
+    const sizeZ = zSpec.wallThickness + overlap * 2;
+    const positionX = corner.xSign > 0 ? halfWidth + xSpec.wallThickness / 2 + overlap : -halfWidth - xSpec.wallThickness / 2 - overlap;
+    const positionZ = corner.zSign > 0 ? halfDepth + zSpec.wallThickness / 2 + overlap : -halfDepth - zSpec.wallThickness / 2 - overlap;
+    const cornerGeometry = new THREE.BoxGeometry(sizeX, height, sizeZ);
+    const cornerTexture = createWallSurfaceTexture({
+      wallType: materialSpec.wallType,
+      wallLength: Math.max(sizeX, sizeZ),
+      wallHeight: height,
+    });
+    const cornerMaterial = new THREE.MeshStandardMaterial({
+      color: "#ffffff",
+      map: cornerTexture,
+      roughness: 0.98,
+      metalness: 0.01,
+      side: THREE.DoubleSide,
+    });
+
+    const cornerMesh = new THREE.Mesh(cornerGeometry, cornerMaterial);
+    cornerMesh.name = corner.name;
+    cornerMesh.position.set(positionX, height / 2, positionZ);
+    cornerMesh.castShadow = true;
+    cornerMesh.receiveShadow = true;
+
+    group.add(cornerMesh);
+  });
+
+  return group;
 }
 
 function createOpeningAssembly(
@@ -599,21 +701,14 @@ function getRoomDimensions(formValues: RoomInputValues): RoomDimensions | null {
 }
 
 function parseLengthMeters(value: string | undefined, fallback = 0) {
-  const parsed = parsePositiveNumber(value, fallback);
-
-  // The form stores room spans in meters, but wall thickness values often come in millimeters.
-  if (parsed > 20) {
-    return parsed / 1000;
-  }
-
-  return parsed;
+  return parsePositiveNumber(value, fallback);
 }
 
 function parseWallThicknessMeters(value: string | undefined, wallType?: string) {
-  const parsed = parseLengthMeters(value, 0);
+  const parsed = parsePositiveNumber(value, 0);
 
   if (parsed > 0) {
-    return parsed;
+    return parsed > 20 ? parsed / 1000 : parsed;
   }
 
   const assetThickness = getWallAssetByType(wallType ?? "")?.dimensions?.thicknessMeters;

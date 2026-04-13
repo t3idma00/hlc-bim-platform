@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { DesignConditionsHeader, DesignConditionsRow } from "./design-conditions-table";
 import { HeatLoadSheet } from "./heat-load-sheet";
 import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
+import { fetchCachedJson } from "@/lib/client-fetch-cache";
 
 type SurfaceType = "walls" | "windows" | "doors";
 type UnitSystem = "si" | "imperial";
@@ -143,11 +144,11 @@ export function HeatLoadFormPanel({
       setCountryLoading(true);
       setLocationError(null);
       try {
-        const response = await fetch("/api/solar-countries");
-        const payload = (await response.json()) as { results?: CountryOption[]; error?: string };
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Failed to load countries.");
-        }
+        const payload = await fetchCachedJson<{ results?: CountryOption[]; error?: string }>(
+          "/api/solar-countries",
+          undefined,
+          { cacheKey: "solar-countries", ttlMs: 24 * 60 * 60 * 1000 }
+        );
 
         const countries = payload.results ?? [];
         setCountryOptions(countries);
@@ -186,11 +187,11 @@ export function HeatLoadFormPanel({
       setCityLoading(true);
       setLocationError(null);
       try {
-        const response = await fetch(`/api/solar-country-cities?country=${encodeURIComponent(country)}`);
-        const payload = (await response.json()) as { results?: string[]; error?: string };
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Failed to load cities.");
-        }
+        const payload = await fetchCachedJson<{ results?: string[]; error?: string }>(
+          `/api/solar-country-cities?country=${encodeURIComponent(country)}`,
+          undefined,
+          { cacheKey: `solar-country-cities:${country}`, ttlMs: 24 * 60 * 60 * 1000 }
+        );
 
         const cities = payload.results ?? [];
         setCityOptions(cities);
@@ -245,15 +246,13 @@ export function HeatLoadFormPanel({
           locationParams.set("countryCode", formValues.selectedCountryCode);
         }
 
-        const locationResponse = await fetch(`/api/solar-locations?${locationParams.toString()}`);
-        const locationPayload = (await locationResponse.json()) as {
+        const locationPayload = await fetchCachedJson<{
           results?: SolarLocationOption[];
           error?: string;
-        };
-
-        if (!locationResponse.ok) {
-          throw new Error(locationPayload.error ?? "Failed to resolve city location.");
-        }
+        }>(`/api/solar-locations?${locationParams.toString()}`, undefined, {
+          cacheKey: `solar-locations:${locationParams.toString()}`,
+          ttlMs: 24 * 60 * 60 * 1000,
+        });
 
         const resolved = locationPayload.results?.[0];
         if (!resolved) {
@@ -271,12 +270,14 @@ export function HeatLoadFormPanel({
           timezone: resolved.timezone ?? "UTC",
         });
 
-        const historyResponse = await fetch(`/api/temperature-history?${historyParams.toString()}`);
-        const historyPayload = (await historyResponse.json()) as TemperatureHistoryResponse & { error?: string };
-
-        if (!historyResponse.ok) {
-          throw new Error(historyPayload.error ?? `Failed to fetch yearly dry-bulb history for ${year}.`);
-        }
+        const historyPayload = await fetchCachedJson<TemperatureHistoryResponse & { error?: string }>(
+          `/api/temperature-history?${historyParams.toString()}`,
+          undefined,
+          {
+            cacheKey: `temperature-history:${historyParams.toString()}`,
+            ttlMs: 24 * 60 * 60 * 1000,
+          }
+        );
 
         const dryBulbSeries = (historyPayload.hourlyDryBulb ?? [])
           .map((entry) => entry.dryBulbTemp)
