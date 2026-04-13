@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DesignConditionsHeader, DesignConditionsRow } from "./design-conditions-table";
 import { HeatLoadSheet } from "./heat-load-sheet";
 import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
 import { fetchCachedJson } from "@/lib/client-fetch-cache";
+import { calculateRelativeHumidityFromWetBulb, calculateWetBulbFromRelativeHumidity } from "@/lib/calculations";
 
 type SurfaceType = "walls" | "windows" | "doors";
 type UnitSystem = "si" | "imperial";
@@ -122,6 +123,11 @@ function formatConditionValue(value: number): string {
   return value.toFixed(1);
 }
 
+function parseConditionValue(value: string): number | null {
+  const parsedValue = Number.parseFloat(value ?? "");
+  return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
 export function HeatLoadFormPanel({
   formValues,
   onFieldChange,
@@ -138,6 +144,8 @@ export function HeatLoadFormPanel({
   const [designTempLoading, setDesignTempLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [designTempError, setDesignTempError] = useState<string | null>(null);
+  const previousOutdoorConditionType = useRef(formValues.conditionType);
+  const previousIndoorConditionType = useRef(formValues.indoorConditionType);
 
   useEffect(() => {
     async function loadCountries() {
@@ -290,14 +298,8 @@ export function HeatLoadFormPanel({
         const selectedPercent = Number(formValues.dryBulbPercentile || "1");
         // Cooling design style: 1% means the top hottest 1% hours, so use (100 - p) percentile.
         const dryBulb = computePercentile(dryBulbSeries, 100 - selectedPercent);
-        const wetBulb = dryBulb - 2;
-
         onFieldChange("dryBulbTemp", formatConditionValue(dryBulb));
-        onFieldChange("wetBulbTemp", formatConditionValue(wetBulb));
         onFieldChange("outsideCondition", formatConditionValue(dryBulb));
-        if ((formValues.conditionType ?? "") === "Wet bulb temperature") {
-          onFieldChange("conditionValue", formatConditionValue(wetBulb));
-        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to auto-fill design temperatures.";
         setDesignTempError(message);
@@ -315,6 +317,103 @@ export function HeatLoadFormPanel({
     formValues.designYear,
     formValues.conditionType,
   ]);
+
+  useEffect(() => {
+    const currentType = formValues.conditionType ?? "Relative Humidity";
+    const previousType = previousOutdoorConditionType.current;
+
+    if (currentType === previousType) {
+      return;
+    }
+
+    previousOutdoorConditionType.current = currentType;
+
+    const dryBulb = parseConditionValue(formValues.dryBulbTemp);
+    const currentValue = parseConditionValue(formValues.conditionValue);
+
+    if (dryBulb === null || currentValue === null) {
+      return;
+    }
+
+    const convertedValue =
+      currentType === "Wet bulb temperature"
+        ? calculateWetBulbFromRelativeHumidity(dryBulb, currentValue)
+        : calculateRelativeHumidityFromWetBulb(dryBulb, currentValue);
+
+    if (convertedValue === null) {
+      return;
+    }
+
+    const formattedValue = formatConditionValue(convertedValue);
+
+    if ((formValues.conditionValue ?? "") !== formattedValue) {
+      onFieldChange("conditionValue", formattedValue);
+    }
+  }, [formValues.conditionType, formValues.conditionValue, formValues.dryBulbTemp, onFieldChange]);
+
+  useEffect(() => {
+    const dryBulb = parseConditionValue(formValues.dryBulbTemp);
+    const currentType = formValues.conditionType ?? "Relative Humidity";
+    const currentValue = parseConditionValue(formValues.conditionValue);
+
+    if (dryBulb === null || currentValue === null) {
+      if ((formValues.wetBulbTemp ?? "") !== "") {
+        onFieldChange("wetBulbTemp", "");
+      }
+      return;
+    }
+
+    const wetBulb =
+      currentType === "Relative Humidity"
+        ? calculateWetBulbFromRelativeHumidity(dryBulb, currentValue)
+        : currentValue;
+
+    if (wetBulb === null) {
+      if ((formValues.wetBulbTemp ?? "") !== "") {
+        onFieldChange("wetBulbTemp", "");
+      }
+      return;
+    }
+
+    const formattedWetBulb = formatConditionValue(wetBulb);
+
+    if ((formValues.wetBulbTemp ?? "") !== formattedWetBulb) {
+      onFieldChange("wetBulbTemp", formattedWetBulb);
+    }
+  }, [formValues.conditionType, formValues.conditionValue, formValues.dryBulbTemp, formValues.wetBulbTemp, onFieldChange]);
+
+  useEffect(() => {
+    const currentType = formValues.indoorConditionType ?? "Relative Humidity";
+    const previousType = previousIndoorConditionType.current;
+
+    if (currentType === previousType) {
+      return;
+    }
+
+    previousIndoorConditionType.current = currentType;
+
+    const dryBulb = parseConditionValue(formValues.insideCondition);
+    const currentValue = parseConditionValue(formValues.indoorConditionValue);
+
+    if (dryBulb === null || currentValue === null) {
+      return;
+    }
+
+    const convertedValue =
+      currentType === "Wet bulb temperature"
+        ? calculateWetBulbFromRelativeHumidity(dryBulb, currentValue)
+        : calculateRelativeHumidityFromWetBulb(dryBulb, currentValue);
+
+    if (convertedValue === null) {
+      return;
+    }
+
+    const formattedValue = formatConditionValue(convertedValue);
+
+    if ((formValues.indoorConditionValue ?? "") !== formattedValue) {
+      onFieldChange("indoorConditionValue", formattedValue);
+    }
+  }, [formValues.indoorConditionType, formValues.indoorConditionValue, formValues.insideCondition, onFieldChange]);
 
   useEffect(() => {
     const outside = Number.parseFloat(formValues.dryBulbTemp ?? "");
