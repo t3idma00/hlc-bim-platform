@@ -1,0 +1,461 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import type { RefObject } from "react";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { type ThreeRoomModel } from "../converters/roomToThree";
+
+type UseThreeRoomResult = {
+  containerRef: RefObject<HTMLDivElement | null>;
+};
+
+export function useThreeRoom(roomModel: ThreeRoomModel | null): UseThreeRoomResult {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const roomGroupRef = useRef<THREE.Group | null>(null);
+  const axesHelperRef = useRef<THREE.Group | null>(null);
+  const frameRequestRef = useRef<number | null>(null);
+  const framedOnceRef = useRef(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#f8fafc");
+    sceneRef.current = scene;
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
+    camera.position.set(10, 8, 10);
+    cameraRef.current = camera;
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      powerPreference: "high-performance",
+    });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(Math.max(container.clientWidth, 1), Math.max(container.clientHeight, 1), false);
+    renderer.domElement.style.display = "block";
+    renderer.domElement.style.width = "100%";
+    renderer.domElement.style.height = "100%";
+    renderer.domElement.style.touchAction = "none";
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.enableZoom = true;
+    controls.enablePan = true;
+    controls.screenSpacePanning = true;
+    controls.minPolarAngle = 0.15;
+    controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    controls.target.set(0, 1.5, 0);
+    controls.update();
+    controlsRef.current = controls;
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.45);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2.35);
+    directionalLight.position.set(8, 12, 10);
+    scene.add(ambientLight, directionalLight);
+
+    const gridHelper = new THREE.GridHelper(60, 60, 0xcbd5e1, 0xe2e8f0);
+    gridHelper.position.y = -0.04;
+    scene.add(gridHelper);
+
+    const handleResize = () => {
+      const nextWidth = Math.max(container.clientWidth, 1);
+      const nextHeight = Math.max(container.clientHeight, 1);
+
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(nextWidth, nextHeight, false);
+      camera.aspect = nextWidth / nextHeight;
+      camera.updateProjectionMatrix();
+    };
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleResize);
+
+    resizeObserver?.observe(container);
+    window.addEventListener("resize", handleResize);
+    handleResize();
+
+    const animate = () => {
+      frameRequestRef.current = window.requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+
+    animate();
+
+    return () => {
+      if (frameRequestRef.current !== null) {
+        window.cancelAnimationFrame(frameRequestRef.current);
+        frameRequestRef.current = null;
+      }
+
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", handleResize);
+      controls.dispose();
+      disposeObject3D(roomGroupRef.current);
+      disposeObject3D(axesHelperRef.current);
+      roomGroupRef.current = null;
+      axesHelperRef.current = null;
+      disposeObject3D(gridHelper);
+      scene.clear();
+      renderer.dispose();
+      if (renderer.domElement.parentElement === container) {
+        container.removeChild(renderer.domElement);
+      }
+
+      sceneRef.current = null;
+      cameraRef.current = null;
+      controlsRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+
+    if (!scene || !camera || !controls) {
+      return;
+    }
+
+    if (roomGroupRef.current) {
+      scene.remove(roomGroupRef.current);
+      disposeObject3D(roomGroupRef.current);
+      roomGroupRef.current = null;
+    }
+
+    if (axesHelperRef.current) {
+      scene.remove(axesHelperRef.current);
+      disposeObject3D(axesHelperRef.current);
+      axesHelperRef.current = null;
+    }
+
+    const fallbackDimensions = roomModel?.dimensions ?? {
+      width: 6,
+      depth: 6,
+      height: 3,
+    };
+    const sizeReference = Math.max(
+      fallbackDimensions.width,
+      fallbackDimensions.depth,
+      fallbackDimensions.height
+    );
+    const axesHelper = createFloorAxisHelper(
+      fallbackDimensions,
+      sizeReference,
+      roomModel ? "room" : "origin"
+    );
+    scene.add(axesHelper);
+    axesHelperRef.current = axesHelper;
+
+    if (!roomModel) {
+      controls.target.set(0, 0.6, 0);
+      controls.minDistance = Math.max(sizeReference * 0.45, 1.5);
+      controls.maxDistance = Math.max(sizeReference * 7, 30);
+      controls.update();
+      return;
+    }
+
+    scene.add(roomModel.group);
+    roomGroupRef.current = roomModel.group;
+
+    controls.target.set(0, roomModel.dimensions.height / 2, 0);
+    controls.minDistance = Math.max(sizeReference * 0.45, 1.5);
+    controls.maxDistance = Math.max(sizeReference * 7, 30);
+
+    if (!framedOnceRef.current) {
+      const cameraDistance = Math.max(sizeReference * 1.6, 8);
+      camera.position.set(cameraDistance, cameraDistance * 0.75, cameraDistance);
+      framedOnceRef.current = true;
+    }
+
+    controls.update();
+  }, [roomModel]);
+
+  return { containerRef };
+}
+
+function createFloorAxisHelper(dimensions: {
+  width: number;
+  depth: number;
+  height: number;
+}, sizeReference: number, placement: "room" | "origin") {
+  const group = new THREE.Group();
+  group.name = "floor-axis-helper";
+
+  const length = Math.max(sizeReference * 0.42, 1.5);
+  const lineRadius = Math.max(length * 0.02, 0.02);
+  const coneRadius = Math.max(length * 0.06, 0.05);
+  const coneHeight = Math.max(length * 0.16, 0.16);
+  const anchorOffset = Math.max(sizeReference * 0.48, 1.15);
+
+  const origin =
+    placement === "room"
+      ? new THREE.Vector3(
+          -dimensions.width / 2 - anchorOffset,
+          0.04,
+          dimensions.depth / 2 + anchorOffset
+        )
+      : new THREE.Vector3(0, 0.04, 0);
+  group.position.copy(origin);
+
+  const xAxis = createAxisArrow(
+    new THREE.Vector3(1, 0, 0),
+    0xef4444,
+    length,
+    coneRadius,
+    coneHeight,
+    lineRadius
+  );
+  const yAxis = createAxisArrow(
+    new THREE.Vector3(0, 1, 0),
+    0x22c55e,
+    length,
+    coneRadius,
+    coneHeight,
+    lineRadius
+  );
+  const zAxis = createAxisArrow(
+    new THREE.Vector3(0, 0, 1),
+    0x3b82f6,
+    length,
+    coneRadius,
+    coneHeight,
+    lineRadius
+  );
+  const labelLift = Math.max(length * 0.07, 0.08);
+  const labelOffset = Math.max(length * 0.16, 0.24);
+
+  xAxis.position.set(0, 0, 0);
+  yAxis.position.set(0, 0, 0);
+  zAxis.position.set(0, 0, 0);
+
+  const xLabel = createAxisLabelSprite("X", "#ef4444");
+  xLabel.position.set(length + labelOffset, labelLift, 0);
+
+  const yLabel = createAxisLabelSprite("Y", "#22c55e");
+  yLabel.position.set(0, length + labelOffset, 0);
+
+  const zLabel = createAxisLabelSprite("Z", "#3b82f6");
+  zLabel.position.set(0, labelLift, length + labelOffset);
+
+  group.add(xAxis, yAxis, zAxis, xLabel, yLabel, zLabel);
+
+  group.traverse((node) => {
+    node.renderOrder = 999;
+    const mesh = node as THREE.Mesh;
+    const material = mesh.material;
+
+    if (!material) {
+      return;
+    }
+
+    const materials = Array.isArray(material) ? material : [material];
+    materials.forEach((entry) => {
+      entry.depthTest = false;
+      entry.depthWrite = false;
+    });
+  });
+
+  const hub = new THREE.Mesh(
+    new THREE.SphereGeometry(Math.max(length * 0.06, 0.06), 16, 16),
+    new THREE.MeshBasicMaterial({ color: "#0f172a" })
+  );
+  hub.renderOrder = 1000;
+  hub.position.set(0, 0, 0);
+  group.add(hub);
+
+  return group;
+}
+
+function createAxisArrow(
+  direction: THREE.Vector3,
+  color: number,
+  length: number,
+  coneRadius: number,
+  coneHeight: number,
+  lineRadius: number
+) {
+  const arrow = new THREE.ArrowHelper(
+    direction.clone().normalize(),
+    new THREE.Vector3(0, 0, 0),
+    length,
+    color,
+    coneHeight,
+    coneRadius
+  );
+
+  arrow.traverse((node) => {
+    node.renderOrder = 999;
+    const mesh = node as THREE.Mesh;
+    const material = mesh.material;
+
+    if (!material) {
+      return;
+    }
+
+    const materials = Array.isArray(material) ? material : [material];
+    materials.forEach((entry) => {
+      entry.depthTest = false;
+      entry.depthWrite = false;
+    });
+  });
+
+  const line = arrow.getObjectByName("line") as THREE.Line | undefined;
+  if (line) {
+    const lineMaterial = line.material as THREE.LineBasicMaterial | undefined;
+    if (lineMaterial) {
+      lineMaterial.linewidth = Math.max(lineRadius * 80, 1);
+    }
+  }
+
+  return arrow;
+}
+
+function createAxisLabelSprite(label: "X" | "Y" | "Z", color: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 96;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return new THREE.Sprite(
+      new THREE.SpriteMaterial({ color, depthTest: false, depthWrite: false })
+    );
+  }
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const radius = 20;
+  const padding = 12;
+
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = color;
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 4;
+
+  roundRect(context, padding, padding, width - padding * 2, height - padding * 2, radius);
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = "#ffffff";
+  context.font = "700 54px Arial, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, width / 2, height / 2 + 1);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(0.48, 0.36, 1);
+  sprite.renderOrder = 1001;
+
+  return sprite;
+}
+
+function roundRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number
+) {
+  const cornerRadius = Math.min(radius, width / 2, height / 2);
+
+  context.beginPath();
+  context.moveTo(x + cornerRadius, y);
+  context.lineTo(x + width - cornerRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + cornerRadius);
+  context.lineTo(x + width, y + height - cornerRadius);
+  context.quadraticCurveTo(x + width, y + height, x + width - cornerRadius, y + height);
+  context.lineTo(x + cornerRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - cornerRadius);
+  context.lineTo(x, y + cornerRadius);
+  context.quadraticCurveTo(x, y, x + cornerRadius, y);
+  context.closePath();
+}
+
+function disposeObject3D(object: THREE.Object3D | null) {
+  if (!object) {
+    return;
+  }
+
+  object.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
+    const material = mesh.material;
+
+    if (geometry) {
+      geometry.dispose();
+    }
+
+    if (Array.isArray(material)) {
+      material.forEach(disposeMaterial);
+      return;
+    }
+
+    if (material) {
+      disposeMaterial(material);
+    }
+  });
+}
+
+function disposeMaterial(material: THREE.Material) {
+  const mappedMaterial = material as THREE.Material & {
+    map?: THREE.Texture | null;
+    alphaMap?: THREE.Texture | null;
+    aoMap?: THREE.Texture | null;
+    bumpMap?: THREE.Texture | null;
+    displacementMap?: THREE.Texture | null;
+    emissiveMap?: THREE.Texture | null;
+    envMap?: THREE.Texture | null;
+    lightMap?: THREE.Texture | null;
+    metalnessMap?: THREE.Texture | null;
+    normalMap?: THREE.Texture | null;
+    roughnessMap?: THREE.Texture | null;
+    specularMap?: THREE.Texture | null;
+  };
+
+  [
+    mappedMaterial.map,
+    mappedMaterial.alphaMap,
+    mappedMaterial.aoMap,
+    mappedMaterial.bumpMap,
+    mappedMaterial.displacementMap,
+    mappedMaterial.emissiveMap,
+    mappedMaterial.envMap,
+    mappedMaterial.lightMap,
+    mappedMaterial.metalnessMap,
+    mappedMaterial.normalMap,
+    mappedMaterial.roughnessMap,
+    mappedMaterial.specularMap,
+  ].forEach((texture) => {
+    texture?.dispose();
+  });
+
+  material.dispose();
+}

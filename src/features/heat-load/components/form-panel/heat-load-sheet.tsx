@@ -443,7 +443,18 @@ const summaryRows: SummaryRow[] = [
   { label: "Total Heat load (RT)", note: "", value: "" },
 ];
 
-export function HeatLoadSheet() {
+const wallTypeFieldByRowId: Record<string, string> = {
+  "1.1": "wallNorthType",
+  "1.2": "wallEastType",
+  "1.3": "wallSouthType",
+  "1.4": "wallWestType",
+};
+
+export function HeatLoadSheet({
+  onFieldChange,
+}: {
+  onFieldChange?: (name: string, value: string) => void;
+}) {
   const [sections, setSections] = useState<Section[]>(buildInitialSections);
 
   function handleCellChange(sectionNumber: string, rowId: string, key: string, value: string) {
@@ -467,6 +478,13 @@ export function HeatLoadSheet() {
             },
       ),
     );
+
+    if (sectionNumber === "1" && key === "type") {
+      const wallFieldName = wallTypeFieldByRowId[rowId];
+      if (wallFieldName) {
+        onFieldChange?.(wallFieldName, value);
+      }
+    }
   }
 
   return (

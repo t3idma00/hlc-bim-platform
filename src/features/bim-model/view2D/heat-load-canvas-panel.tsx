@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getWallAppearanceByType, type WallAppearance, type WallPatternKind } from "@/data/assets";
+import { CompassOverlay, getCompassMarkerPosition } from "../shared/CompassOverlay";
 import {
   WorkspaceViewToggle,
   type WorkspaceView,
@@ -17,6 +19,7 @@ const EDITOR_MIN_WALL_LENGTH = 0.4;
 const EDITOR_DEFAULT_WINDOW_WIDTH = 1.2;
 const EDITOR_DEFAULT_DOOR_WIDTH = 0.9;
 const EDITOR_OPENING_EDGE_INSET = 0.2;
+const wallPatternCache: Partial<Record<WallPatternKind, CanvasPattern | null>> = {};
 
 type CanvasFormValues = Record<string, string>;
 type Point = { x: number; y: number };
@@ -743,6 +746,17 @@ export function HeatLoadCanvasPanel({
         item.chain.segments.forEach((segment) => {
           const start = translatePoint(addPoints(segment.start, item.offset), originX, originY, pixelsPerMeter);
           const end = translatePoint(addPoints(segment.end, item.offset), originX, originY, pixelsPerMeter);
+          const appearance = getWallAppearanceForDirection(segment.direction, formValues);
+
+          drawWallTypeSurface(
+            context,
+            segment,
+            start,
+            end,
+            pixelsPerMeter,
+            appearance
+          );
+
           const door = pendingDoors.get(segment.direction);
           const window = pendingWindows.get(segment.direction);
 
@@ -1292,45 +1306,7 @@ export function HeatLoadCanvasPanel({
               className={`h-full w-full ${canvasCursorClass}`}
             />
             <div className="pointer-events-none absolute right-4 top-6">
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 72 72"
-                className="h-24 w-24"
-              >
-                <circle cx="36" cy="36" r="22" fill="white" fillOpacity="0.9" stroke="#fda4af" strokeWidth="1.5" />
-                <path d="M36 16 L31 31 L36 28 L41 31 Z" fill="#be123c" />
-                <path d="M36 56 L31 41 L36 44 L41 41 Z" fill="#94a3b8" />
-                <path d="M56 36 L41 31 L44 36 L41 41 Z" fill="#94a3b8" />
-                <path d="M16 36 L31 31 L28 36 L31 41 Z" fill="#94a3b8" />
-                <circle cx="36" cy="36" r="3.2" fill="#0f172b" />
-                {compassMarker ? (
-                  <>
-                    <path
-                      d={`M36 36 L${compassMarker.x} ${compassMarker.y}`}
-                      fill="none"
-                      stroke="#f59e0b"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                    />
-                    <g transform={`translate(${compassMarker.x} ${compassMarker.y})`}>
-                      <circle r="7.2" fill="rgba(251, 191, 36, 0.2)" />
-                      <circle r="4.2" fill="#f59e0b" stroke="#ffffff" strokeWidth="1.1" />
-                      <path d="M0 -9.6 V-6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
-                      <path d="M0 9.6 V6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
-                      <path d="M-9.6 0 H-6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
-                      <path d="M9.6 0 H6.4" stroke="#f59e0b" strokeWidth="1.7" strokeLinecap="round" />
-                      <path d="M-6.8 -6.8 L-4.8 -4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-                      <path d="M6.8 -6.8 L4.8 -4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-                      <path d="M-6.8 6.8 L-4.8 4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-                      <path d="M6.8 6.8 L4.8 4.8" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
-                    </g>
-                  </>
-                ) : null}
-                <text x="36" y="8" textAnchor="middle" fontSize="9" fontWeight="700" fill="#be123c">N</text>
-                <text x="65" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">E</text>
-                <text x="36" y="70" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">S</text>
-                <text x="7" y="39" textAnchor="middle" fontSize="9" fontWeight="700" fill="#475569">W</text>
-              </svg>
+              <CompassOverlay marker={compassMarker} />
             </div>
           </div>
         </div>
@@ -2680,6 +2656,154 @@ function drawSegmentDimension(
   context.restore();
 }
 
+function getWallTypeFieldName(direction: WallDirection) {
+  return `wall${direction}Type`;
+}
+
+function getWallAppearanceForDirection(direction: WallDirection, formValues: CanvasFormValues) {
+  const wallType = formValues[getWallTypeFieldName(direction)] ?? "Brick Wall";
+  return getWallAppearanceByType(wallType);
+}
+
+function getWallPattern(context: CanvasRenderingContext2D, kind: WallPatternKind) {
+  const cachedPattern = wallPatternCache[kind];
+
+  if (cachedPattern !== undefined) {
+    return cachedPattern;
+  }
+
+  if (typeof document === "undefined") {
+    wallPatternCache[kind] = null;
+    return null;
+  }
+
+  const tileSize = kind === "concrete" ? 28 : 36;
+  const tile = document.createElement("canvas");
+  tile.width = tileSize;
+  tile.height = tileSize;
+  const tileContext = tile.getContext("2d");
+
+  if (!tileContext) {
+    wallPatternCache[kind] = null;
+    return null;
+  }
+
+  tileContext.clearRect(0, 0, tileSize, tileSize);
+
+  if (kind === "brick") {
+    tileContext.fillStyle = "rgb(179, 74, 52)";
+    tileContext.fillRect(0, 0, tileSize, tileSize);
+    tileContext.strokeStyle = "rgb(255, 241, 236)";
+    tileContext.lineWidth = 1;
+    const rowHeight = tileSize / 4;
+    const brickWidth = tileSize / 2;
+
+    for (let row = 0; row < 4; row += 1) {
+      const y = row * rowHeight;
+      tileContext.beginPath();
+      tileContext.moveTo(0, y);
+      tileContext.lineTo(tileSize, y);
+      tileContext.stroke();
+
+      const offset = row % 2 === 0 ? 0 : brickWidth / 2;
+      for (let column = 0; column <= 2; column += 1) {
+        const x = column * brickWidth - offset;
+        if (x > 0 && x < tileSize) {
+          tileContext.beginPath();
+          tileContext.moveTo(x, y);
+          tileContext.lineTo(x, y + rowHeight);
+          tileContext.stroke();
+        }
+      }
+    }
+  } else if (kind === "block") {
+    tileContext.fillStyle = "rgb(204, 209, 215)";
+    tileContext.fillRect(0, 0, tileSize, tileSize);
+    tileContext.strokeStyle = "rgb(110, 119, 128)";
+    tileContext.lineWidth = 1;
+    const blockSize = tileSize / 3;
+
+    for (let row = 0; row < 3; row += 1) {
+      for (let column = 0; column < 3; column += 1) {
+        const x = column * blockSize;
+        const y = row * blockSize;
+        tileContext.strokeRect(x + 0.5, y + 0.5, blockSize - 1, blockSize - 1);
+      }
+    }
+
+    tileContext.strokeStyle = "rgba(255, 255, 255, 0.18)";
+    tileContext.beginPath();
+    tileContext.moveTo(blockSize, 0);
+    tileContext.lineTo(blockSize, tileSize);
+    tileContext.moveTo(0, blockSize);
+    tileContext.lineTo(tileSize, blockSize);
+    tileContext.moveTo(blockSize * 2, 0);
+    tileContext.lineTo(blockSize * 2, tileSize);
+    tileContext.moveTo(0, blockSize * 2);
+    tileContext.lineTo(tileSize, blockSize * 2);
+    tileContext.stroke();
+  } else {
+    tileContext.fillStyle = "rgb(169, 175, 181)";
+    tileContext.fillRect(0, 0, tileSize, tileSize);
+
+    for (let index = 0; index < 20; index += 1) {
+      const dotX = (index * 11 + 7) % tileSize;
+      const dotY = (index * 17 + 11) % tileSize;
+      const dotRadius = 0.55 + (index % 5) * 0.14;
+      tileContext.fillStyle = index % 3 === 0 ? "rgb(96, 104, 112)" : "rgb(255, 255, 255)";
+      tileContext.beginPath();
+      tileContext.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
+      tileContext.fill();
+    }
+
+    tileContext.strokeStyle = "rgb(255, 255, 255)";
+    tileContext.lineWidth = 0.9;
+    tileContext.beginPath();
+    tileContext.moveTo(0, tileSize * 0.18);
+    tileContext.lineTo(tileSize, tileSize * 0.82);
+    tileContext.stroke();
+  }
+
+  const pattern = context.createPattern(tile, "repeat");
+  wallPatternCache[kind] = pattern;
+  return pattern;
+}
+
+function drawWallTypeSurface(
+  context: CanvasRenderingContext2D,
+  segment: WallSegment,
+  start: Point,
+  end: Point,
+  pixelsPerMeter: number,
+  appearance: WallAppearance
+) {
+  const exteriorNormal = normalizeVector(getExteriorNormal(segment.direction));
+  const wallThicknessPx = Math.max(segment.thickness * pixelsPerMeter, 8);
+  const outerStart = addPoints(start, scalePoint(exteriorNormal, wallThicknessPx));
+  const outerEnd = addPoints(end, scalePoint(exteriorNormal, wallThicknessPx));
+  const wallPolygon = [start, end, outerEnd, outerStart];
+
+  context.save();
+  context.beginPath();
+  addClosedPath(context, wallPolygon);
+  context.fillStyle = appearance.fill;
+  context.fill();
+
+  const pattern = getWallPattern(context, appearance.patternKind);
+  if (pattern) {
+    context.save();
+    context.globalAlpha = 1;
+    context.fillStyle = pattern;
+    context.fill();
+    context.restore();
+  }
+
+  context.strokeStyle = appearance.stroke;
+  context.lineWidth = 1.1;
+  context.stroke();
+  context.restore();
+}
+
 function drawCenteredWallFeatures(
   context: CanvasRenderingContext2D,
   segment: WallSegment,
@@ -3011,16 +3135,6 @@ function createSolarSnapshot(payload: SolarApiResponse): SolarSnapshot {
     latitude: payload.location.latitude,
     longitude: payload.location.longitude,
     alerts: payload.alerts ?? [],
-  };
-}
-
-function getCompassMarkerPosition(azimuth: number) {
-  const angle = (azimuth * Math.PI) / 180;
-  const radius = 22;
-
-  return {
-    x: roundToPrecision(36 + Math.sin(angle) * radius),
-    y: roundToPrecision(36 - Math.cos(angle) * radius),
   };
 }
 

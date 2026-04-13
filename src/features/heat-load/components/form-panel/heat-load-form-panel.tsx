@@ -37,18 +37,22 @@ export const initialFormValues: FormValues = {
   wallNorthLength: "",
   wallNorthWidth: "",
   wallNorthHeight: "3",
+  wallNorthType: "Brick Wall",
   wallEastDirection: "East",
   wallEastLength: "",
   wallEastWidth: "",
   wallEastHeight: "3",
+  wallEastType: "Cement block Wall",
   wallSouthDirection: "South",
   wallSouthLength: "",
   wallSouthWidth: "",
   wallSouthHeight: "3",
+  wallSouthType: "Cement block Wall",
   wallWestDirection: "West",
   wallWestLength: "",
   wallWestWidth: "",
   wallWestHeight: "3",
+  wallWestType: "Cement block Wall",
   windowNorthDirection: "North",
   windowNorthLength: "",
   windowNorthWidth: "",
@@ -430,7 +434,7 @@ export function HeatLoadFormPanel({
                 ))}
               </tbody>
             </table>
-            <HeatLoadSheet />
+            <HeatLoadSheet onFieldChange={onFieldChange} />
           </div>
         </div>
 

@@ -1,19 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getWallAppearanceByType, type WallPatternKind } from "@/data/assets";
 import {
   WorkspaceViewToggle,
   type WorkspaceView,
 } from "../workspace-view-toggle";
+import { ThreeRoomView } from "./ThreeRoomView";
 
 const DEFAULT_HEIGHT = 3;
 const DEFAULT_WALL_THICKNESS = 0.2;
+const DEFAULT_DOOR_HEIGHT = 2.1;
+const DEFAULT_WINDOW_HEIGHT = 1.2;
+const DEFAULT_WINDOW_SILL_HEIGHT = 0.9;
+const BASE_PROJECTION_SCALE = 0.68;
 const MIN_ZOOM = 0.65;
 const MAX_ZOOM = 2.2;
 const MIN_ORBIT_TILT = -1.2;
 const MAX_ORBIT_TILT = -0.08;
 
 type CanvasFormValues = Record<string, string>;
+type WallDirection = "North" | "East" | "South" | "West";
 
 type HeatLoad3DPanelProps = {
   formValues: CanvasFormValues;
@@ -43,6 +50,36 @@ type PlanePoint = {
   z: number;
 };
 
+type DoorInput = {
+  direction: WallDirection;
+  width: number;
+  height: number;
+};
+
+type WindowInput = {
+  direction: WallDirection;
+  width: number;
+  height: number;
+};
+
+type OpeningKind = "door" | "window";
+
+type WallFeatureSpan = {
+  startMeters: number;
+  widthMeters: number;
+};
+
+type WallFeaturePlacement = {
+  kind: OpeningKind;
+  direction: WallDirection;
+  startMeters: number;
+  widthMeters: number;
+  bottomMeters: number;
+  heightMeters: number;
+};
+
+type WallSide = "outer" | "inner";
+
 type RoomDimensions = {
   width: number;
   depth: number;
@@ -50,10 +87,34 @@ type RoomDimensions = {
   wallThickness: number;
 };
 
+type WallSurfaceFrame = {
+  origin: Point3D;
+  horizontal: Point3D;
+  vertical: Point3D;
+};
+
 type Face = {
   points: number[];
   fill: string;
   stroke: string;
+  direction?: WallDirection;
+  patternKind?: WallPatternKind;
+  label?: string;
+  openingCount?: number;
+  isRoof?: boolean;
+  wallSide?: WallSide;
+};
+
+type ProjectedFace = {
+  points: ProjectedPoint[];
+  fill: string;
+  stroke: string;
+  direction?: WallDirection;
+  patternKind?: WallPatternKind;
+  openingCount?: number;
+  isRoof?: boolean;
+  wallSide?: WallSide;
+  depth: number;
 };
 
 type SolarSnapshot = {
@@ -105,37 +166,273 @@ const INITIAL_ROTATION: RotationState = {
 const ROOM_FACES: Face[] = [
   {
     points: [0, 1, 5, 4],
-    fill: "rgba(244, 63, 94, 0.18)",
-    stroke: "rgba(159, 18, 57, 0.4)",
+    direction: "North",
+    fill: "rgb(244, 63, 94)",
+    stroke: "rgb(159, 18, 57)",
   },
   {
     points: [1, 2, 6, 5],
-    fill: "rgba(251, 113, 133, 0.28)",
-    stroke: "rgba(190, 24, 93, 0.42)",
+    direction: "East",
+    fill: "rgb(251, 113, 133)",
+    stroke: "rgb(190, 24, 93)",
   },
   {
     points: [2, 3, 7, 6],
-    fill: "rgba(253, 164, 175, 0.24)",
-    stroke: "rgba(190, 24, 93, 0.38)",
+    direction: "South",
+    fill: "rgb(253, 164, 175)",
+    stroke: "rgb(190, 24, 93)",
   },
   {
     points: [3, 0, 4, 7],
-    fill: "rgba(251, 113, 133, 0.16)",
-    stroke: "rgba(159, 18, 57, 0.36)",
+    direction: "West",
+    fill: "rgb(251, 113, 133)",
+    stroke: "rgb(159, 18, 57)",
   },
   {
     points: [4, 5, 6, 7],
-    fill: "rgba(255, 228, 230, 0.72)",
-    stroke: "rgba(159, 18, 57, 0.32)",
+    fill: "rgb(255, 241, 242)",
+    stroke: "rgb(159, 18, 57)",
+    isRoof: true,
   },
   {
     points: [0, 1, 2, 3],
-    fill: "rgba(15, 23, 42, 0.06)",
-    stroke: "rgba(148, 163, 184, 0.4)",
+    fill: "rgb(241, 245, 249)",
+    stroke: "rgb(148, 163, 184)",
   },
 ];
 
+const TOP_VIEW_ROOF_CUTOFF = -0.22;
+
+function getWallTypeFieldName(direction: WallDirection) {
+  return `wall${direction}Type`;
+}
+
+function getWallNormal(direction: WallDirection, wallSide: WallSide = "outer"): Point3D {
+  const normal = (() => {
+    switch (direction) {
+      case "North":
+        return { x: 0, y: 0, z: -1 };
+      case "East":
+        return { x: 1, y: 0, z: 0 };
+      case "South":
+        return { x: 0, y: 0, z: 1 };
+      case "West":
+        return { x: -1, y: 0, z: 0 };
+    }
+  })();
+
+  return wallSide === "inner" ? scalePoint3D(normal, -1) : normal;
+}
+
+function getWallFaceStyle(direction: WallDirection, formValues: CanvasFormValues) {
+  const wallType = formValues[getWallTypeFieldName(direction)] ?? "Brick Wall";
+  return getWallAppearanceByType(wallType);
+}
+
+function isWallFacingCamera(
+  direction: WallDirection,
+  rotationX: number,
+  rotationY: number,
+  wallSide: WallSide = "outer"
+) {
+  const normal = rotatePoint(getWallNormal(direction, wallSide), rotationX, rotationY);
+  return normal.z < 0;
+}
+
+function eraseWallOpening(
+  context: CanvasRenderingContext2D,
+  placement: WallFeaturePlacement,
+  roomDimensions: RoomDimensions,
+  rotationX: number,
+  rotationY: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  sizeReference: number,
+  zoom: number
+) {
+  const surface = getWallSurfaceFrame(placement.direction, roomDimensions);
+  const outerCorners = createWallFeaturePolygon(surface, placement);
+  const projectedOuterCorners = outerCorners.map((point) =>
+    projectPoint(
+      rotatePoint(point, rotationX, rotationY),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    )
+  );
+
+  context.save();
+  context.globalCompositeOperation = "destination-out";
+  context.fillStyle = "rgba(0, 0, 0, 1)";
+  traceProjectedShape(context, projectedOuterCorners, true);
+  context.fill();
+  context.restore();
+}
+
 export function HeatLoad3DPanel({
+  formValues,
+  activeView,
+  onViewChange,
+}: HeatLoad3DPanelProps) {
+  const [solarState, setSolarState] = useState<SolarState>({
+    status: "loading",
+    snapshot: null,
+    message: "Locating live sun...",
+  });
+  const roomDimensions = getRoomDimensions(formValues);
+  const sunSummary = getLiveSunSummary(solarState);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (!("geolocation" in navigator)) {
+      setSolarState({
+        status: "unsupported",
+        snapshot: null,
+        message: "Geolocation is not supported in this browser.",
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: number | undefined;
+
+    const fetchSolar = async (latitude: number, longitude: number) => {
+      try {
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const params = new URLSearchParams({
+          latitude: latitude.toString(),
+          longitude: longitude.toString(),
+          timezone,
+          datetime: new Date().toISOString(),
+          mode: "auto",
+        });
+
+        const response = await fetch(`/api/solar-details?${params.toString()}`);
+        const payload = (await response.json()) as SolarApiResponse;
+
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error ?? "Unable to load live sun data.");
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        const snapshot = createSolarSnapshot(payload);
+
+        setSolarState({
+          status: "ready",
+          snapshot,
+          message:
+            snapshot.altitude > 0
+              ? "Live sun synced to current location."
+              : "Sun is currently below the horizon at this location.",
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const message =
+          error instanceof Error ? error.message : "Unable to load live sun data.";
+
+        setSolarState({
+          status: "error",
+          snapshot: null,
+          message,
+        });
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (cancelled) {
+          return;
+        }
+
+        const { latitude, longitude } = position.coords;
+
+        void fetchSolar(latitude, longitude);
+        intervalId = window.setInterval(() => {
+          void fetchSolar(latitude, longitude);
+        }, 300000);
+      },
+      (error) => {
+        if (cancelled) {
+          return;
+        }
+
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Enable location access to show the live sun in 3D."
+            : "Unable to access your location for live sun tracking.";
+
+        setSolarState({
+          status: "denied",
+          snapshot: null,
+          message,
+        });
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 10000,
+        maximumAge: 300000,
+      }
+    );
+
+    return () => {
+      cancelled = true;
+
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, []);
+
+  return (
+    <section className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-white">
+      <div className="border-b border-rose-100 bg-white px-4 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.26em] text-[#be123c]">
+              Drawing Area
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
+              3D Model Workspace
+            </h2>
+          </div>
+          <WorkspaceViewToggle
+            activeView={activeView}
+            onChange={onViewChange}
+          />
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col p-4">
+        <div className="relative flex h-full w-full flex-1 overflow-hidden border border-rose-100 bg-[radial-gradient(circle_at_top,_#fff1f2,_#ffffff_55%,_#ffe4e6)]">
+          <ThreeRoomView formValues={formValues} />
+        </div>
+      </div>
+
+      <div className="border-t border-rose-100 bg-[#fffafb] px-4 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+          <span>Mode: 3D Orbit View</span>
+          <span>Camera: Orbit Controls</span>
+          <span>{getRoomSummary(roomDimensions)}</span>
+          <span>{sunSummary.bar}</span>
+          <span>Walls: Solid</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// Legacy canvas renderer preserved below for reference while the Three.js view is active.
+export function LegacyHeatLoad3DPanel({
   formValues,
   activeView,
   onViewChange,
@@ -283,6 +580,7 @@ export function HeatLoad3DPanel({
         bounds.width,
         bounds.height,
         roomDimensions,
+        formValues,
         rotationRef.current.x,
         rotationRef.current.y,
         zoom,
@@ -331,6 +629,7 @@ export function HeatLoad3DPanel({
         bounds.width,
         bounds.height,
         roomDimensions,
+        formValues,
         rotationRef.current.x,
         rotationRef.current.y,
         zoom,
@@ -354,7 +653,7 @@ export function HeatLoad3DPanel({
       canvas.removeEventListener("mouseleave", handleMouseUp);
       canvas.removeEventListener("mousemove", handleMouseMove);
     };
-  }, [roomDimensions, zoom, solarState]);
+  }, [formValues, roomDimensions, zoom, solarState]);
 
   const sunSummary = getSunSummary(solarState);
 
@@ -408,6 +707,7 @@ function drawScene(
   width: number,
   height: number,
   roomDimensions: RoomDimensions | null,
+  formValues: CanvasFormValues,
   rotationX: number,
   rotationY: number,
   zoom: number,
@@ -483,6 +783,7 @@ function drawScene(
     roomDimensions.depth,
     roomDimensions.height
   );
+  const openingsByDirection = buildWallOpeningPlacements(formValues, roomDimensions);
   const vertices = createRoomVertices(roomDimensions);
   const projectedVertices = vertices.map((vertex) =>
     projectPoint(
@@ -494,34 +795,136 @@ function drawScene(
     )
   );
 
-  const sortedFaces = ROOM_FACES.map((face) => ({
-    ...face,
-    depth:
-      face.points.reduce(
-        (sum, pointIndex) => sum + projectedVertices[pointIndex].z,
-        0
-      ) / face.points.length,
-  })).sort((first, second) => first.depth - second.depth);
+  const shouldShowRoof = rotationX > TOP_VIEW_ROOF_CUTOFF;
 
-  sortedFaces.forEach((face) => {
+  const projectedFaces: ProjectedFace[] = ROOM_FACES.flatMap((face): ProjectedFace[] => {
+    if (face.isRoof && !shouldShowRoof) {
+      return [];
+    }
+
+    if (!face.direction) {
+      const points = face.points.map((pointIndex) => projectedVertices[pointIndex]);
+      const depth =
+        points.reduce((sum, point) => sum + point.z, 0) / Math.max(points.length, 1);
+
+      return [
+        {
+          ...face,
+          points,
+          depth,
+        },
+      ];
+    }
+
+    const wallFaceStyle = getWallFaceStyle(face.direction, formValues);
+    const openingCount = openingsByDirection[face.direction].length;
+    const outerPoints = face.points.map((pointIndex) => projectedVertices[pointIndex]);
+    const innerWallPoints = createWallFacePoints(
+      face.direction,
+      roomDimensions,
+      "inner",
+      Math.max(roomDimensions.wallThickness, 0.01)
+    ).map((point) =>
+      projectPoint(
+        rotatePoint(point, rotationX, rotationY),
+        width,
+        height,
+        sizeReference,
+        zoom
+      )
+    );
+
+    const outerDepth =
+      outerPoints.reduce((sum, point) => sum + point.z, 0) / Math.max(outerPoints.length, 1);
+    const innerDepth =
+      innerWallPoints.reduce((sum, point) => sum + point.z, 0) /
+      Math.max(innerWallPoints.length, 1);
+
+    return [
+      {
+        ...face,
+        points: outerPoints,
+        fill: wallFaceStyle.fill,
+        stroke: wallFaceStyle.stroke,
+        patternKind: wallFaceStyle.patternKind,
+        openingCount,
+        wallSide: "outer" as WallSide,
+        depth: outerDepth,
+      },
+      {
+        ...face,
+        points: innerWallPoints,
+        fill: wallFaceStyle.fill,
+        stroke: wallFaceStyle.stroke,
+        patternKind: wallFaceStyle.patternKind,
+        wallSide: "inner" as WallSide,
+        depth: innerDepth,
+      },
+    ];
+  }).filter((face): face is ProjectedFace => {
+    if (!face.direction) {
+      return true;
+    }
+
+    return isWallFacingCamera(
+      face.direction,
+      rotationX,
+      rotationY,
+      face.wallSide ?? "outer"
+    );
+  }).sort((first, second) => first.depth - second.depth);
+
+  projectedFaces.forEach((face) => {
     context.beginPath();
-    const firstPoint = projectedVertices[face.points[0]];
+    const firstPoint = face.points[0];
     context.moveTo(firstPoint.x, firstPoint.y);
 
-    face.points.slice(1).forEach((pointIndex) => {
-      const point = projectedVertices[pointIndex];
+    face.points.slice(1).forEach((point) => {
       context.lineTo(point.x, point.y);
     });
 
     context.closePath();
+    context.globalAlpha = 1;
     context.fillStyle = face.fill;
     context.fill();
+
     context.strokeStyle = face.stroke;
     context.lineWidth = 1.4;
     context.stroke();
+
+    if (face.direction && face.wallSide !== "inner") {
+      const openings = openingsByDirection[face.direction];
+
+      openings.forEach((opening) => {
+        eraseWallOpening(
+          context,
+          opening,
+          roomDimensions,
+          rotationX,
+          rotationY,
+          width,
+          height,
+          sizeReference,
+          zoom
+        );
+      });
+
+      openings.forEach((opening) => {
+        drawWallOpening(
+          context,
+          opening,
+          roomDimensions,
+          rotationX,
+          rotationY,
+          width,
+          height,
+          sizeReference,
+          zoom
+        );
+      });
+    }
   });
 
-  drawFrame(context, projectedVertices);
   drawDimensionChip(context, width, height, roomDimensions);
 }
 
@@ -1256,7 +1659,7 @@ function projectPoint(
   zoom: number
 ): ProjectedPoint {
   const cameraDistance = sizeReference * 4.2;
-  const perspective = (Math.min(canvasWidth, canvasHeight) * 0.52 * zoom) /
+  const perspective = (Math.min(canvasWidth, canvasHeight) * BASE_PROJECTION_SCALE * zoom) /
     (point.z + cameraDistance);
 
   return {
@@ -1264,36 +1667,6 @@ function projectPoint(
     y: canvasHeight * 0.58 - point.y * perspective,
     z: point.z,
   };
-}
-
-function drawFrame(
-  context: CanvasRenderingContext2D,
-  projectedVertices: ProjectedPoint[]
-) {
-  const edges: Array<[number, number]> = [
-    [0, 1],
-    [1, 2],
-    [2, 3],
-    [3, 0],
-    [4, 5],
-    [5, 6],
-    [6, 7],
-    [7, 4],
-    [0, 4],
-    [1, 5],
-    [2, 6],
-    [3, 7],
-  ];
-
-  context.strokeStyle = "#0f172b";
-  context.lineWidth = 1.5;
-
-  edges.forEach(([from, to]) => {
-    context.beginPath();
-    context.moveTo(projectedVertices[from].x, projectedVertices[from].y);
-    context.lineTo(projectedVertices[to].x, projectedVertices[to].y);
-    context.stroke();
-  });
 }
 
 function drawDimensionChip(
@@ -1345,6 +1718,586 @@ function roundRect(
   context.lineTo(x, y + radius);
   context.quadraticCurveTo(x, y, x + radius, y);
   context.closePath();
+}
+
+function buildWallOpeningPlacements(
+  formValues: CanvasFormValues,
+  roomDimensions: RoomDimensions
+) {
+  const openings: Record<WallDirection, WallFeaturePlacement[]> = {
+    North: [],
+    East: [],
+    South: [],
+    West: [],
+  };
+
+  const doorInputs = new Map<WallDirection, DoorInput>();
+  const windowInputs = new Map<WallDirection, WindowInput>();
+
+  getRawDoorInputs(formValues).forEach((door) => {
+    if (door.width > 0) {
+      doorInputs.set(door.direction, door);
+    }
+  });
+
+  getRawWindowInputs(formValues).forEach((window) => {
+    if (window.width > 0) {
+      windowInputs.set(window.direction, window);
+    }
+  });
+
+  (["North", "East", "South", "West"] as WallDirection[]).forEach((direction) => {
+    const wallLength = getWallLengthForDirection(direction, roomDimensions);
+    const doorInput = doorInputs.get(direction);
+    const windowInput = windowInputs.get(direction);
+    const spans = resolveWallFeatureSpans(
+      wallLength,
+      doorInput?.width ?? 0,
+      windowInput?.width ?? 0
+    );
+
+    if (doorInput && spans.door) {
+      openings[direction].push({
+        kind: "door",
+        direction,
+        startMeters: spans.door.startMeters,
+        widthMeters: spans.door.widthMeters,
+        bottomMeters: 0,
+        heightMeters: clampOpeningHeight(
+          doorInput.height,
+          roomDimensions.height,
+          DEFAULT_DOOR_HEIGHT,
+          1.8
+        ),
+      });
+    }
+
+    if (windowInput && spans.window) {
+      const heightMeters = clampOpeningHeight(
+        windowInput.height,
+        roomDimensions.height,
+        DEFAULT_WINDOW_HEIGHT,
+        0.6
+      );
+      const bottomMeters = getWindowBottomOffset(roomDimensions.height, heightMeters);
+
+      openings[direction].push({
+        kind: "window",
+        direction,
+        startMeters: spans.window.startMeters,
+        widthMeters: spans.window.widthMeters,
+        bottomMeters,
+        heightMeters,
+      });
+    }
+  });
+
+  return openings;
+}
+
+function drawWallOpening(
+  context: CanvasRenderingContext2D,
+  placement: WallFeaturePlacement,
+  roomDimensions: RoomDimensions,
+  rotationX: number,
+  rotationY: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  sizeReference: number,
+  zoom: number
+) {
+  const surface = getWallSurfaceFrame(placement.direction, roomDimensions);
+  const outerCorners = createWallFeaturePolygon(surface, placement);
+  const { horizontalInset, verticalInset } = getOpeningFrameInsets(placement);
+  const innerCorners = createInsetWallFeaturePolygon(
+    surface,
+    placement,
+    horizontalInset,
+    verticalInset
+  );
+  const projectedOuterCorners = outerCorners.map((point) =>
+    projectPoint(
+      rotatePoint(point, rotationX, rotationY),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    )
+  );
+  const projectedInnerCorners = innerCorners.map((point) =>
+    projectPoint(
+      rotatePoint(point, rotationX, rotationY),
+      canvasWidth,
+      canvasHeight,
+      sizeReference,
+      zoom
+    )
+  );
+
+  context.save();
+  context.lineJoin = "round";
+  context.lineCap = "round";
+
+  if (placement.kind === "door") {
+    context.fillStyle = "rgba(107, 68, 35, 0.92)";
+    context.strokeStyle = "rgba(92, 51, 23, 0.92)";
+    context.lineWidth = 1;
+  } else {
+    context.fillStyle = "rgba(71, 85, 105, 0.88)";
+    context.strokeStyle = "rgba(71, 85, 105, 0.95)";
+    context.lineWidth = 1;
+  }
+
+  traceProjectedShape(context, projectedOuterCorners, true);
+  context.fill();
+  context.stroke();
+
+  if (placement.kind === "door") {
+    const leafGradient = context.createLinearGradient(
+      projectedInnerCorners[3].x,
+      projectedInnerCorners[3].y,
+      projectedInnerCorners[1].x,
+      projectedInnerCorners[1].y
+    );
+    leafGradient.addColorStop(0, "rgba(252, 244, 230, 0.98)");
+    leafGradient.addColorStop(0.55, "rgba(217, 159, 98, 0.98)");
+    leafGradient.addColorStop(1, "rgba(126, 75, 42, 0.98)");
+
+    context.fillStyle = leafGradient;
+    context.strokeStyle = "rgba(92, 51, 23, 0.72)";
+    context.lineWidth = 1;
+    traceProjectedShape(context, projectedInnerCorners, true);
+    context.fill();
+    context.stroke();
+
+    drawDoorDetail(context, projectedInnerCorners);
+  } else {
+    const glassGradient = context.createLinearGradient(
+      projectedInnerCorners[3].x,
+      projectedInnerCorners[3].y,
+      projectedInnerCorners[1].x,
+      projectedInnerCorners[1].y
+    );
+    glassGradient.addColorStop(0, "rgba(224, 242, 254, 0.92)");
+    glassGradient.addColorStop(0.45, "rgba(186, 230, 253, 0.62)");
+    glassGradient.addColorStop(1, "rgba(56, 189, 248, 0.28)");
+
+    context.fillStyle = glassGradient;
+    context.strokeStyle = "rgba(255, 255, 255, 0.64)";
+    context.lineWidth = 1;
+    traceProjectedShape(context, projectedInnerCorners, true);
+    context.fill();
+    context.stroke();
+
+    drawWindowDetail(context, projectedInnerCorners);
+  }
+
+  context.restore();
+}
+
+function drawDoorDetail(context: CanvasRenderingContext2D, projectedCorners: ProjectedPoint[]) {
+  const panelFrame = insetProjectedQuad(projectedCorners, 0.2, 0.14);
+  const centerLineStart = projectQuadPoint(projectedCorners, 0.5, 0.18);
+  const centerLineEnd = projectQuadPoint(projectedCorners, 0.5, 0.82);
+  const handlePoint = projectQuadPoint(projectedCorners, 0.78, 0.56);
+  const handleRadius = clamp(Math.min(getQuadWidth(projectedCorners), getQuadHeight(projectedCorners)) * 0.04, 1.1, 2.1);
+
+  context.save();
+  context.strokeStyle = "rgba(92, 51, 23, 0.55)";
+  context.lineWidth = 0.95;
+
+  traceProjectedShape(context, panelFrame, true);
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(centerLineStart.x, centerLineStart.y);
+  context.lineTo(centerLineEnd.x, centerLineEnd.y);
+  context.stroke();
+
+  context.fillStyle = "rgba(255, 251, 235, 0.96)";
+  context.beginPath();
+  context.arc(handlePoint.x, handlePoint.y, handleRadius, 0, Math.PI * 2);
+  context.fill();
+
+  context.strokeStyle = "rgba(120, 53, 15, 0.92)";
+  context.lineWidth = 0.8;
+  context.beginPath();
+  context.arc(handlePoint.x, handlePoint.y, handleRadius, 0, Math.PI * 2);
+  context.stroke();
+
+  const hingeTop = projectQuadPoint(projectedCorners, 0.12, 0.22);
+  const hingeBottom = projectQuadPoint(projectedCorners, 0.12, 0.78);
+  context.strokeStyle = "rgba(255, 251, 235, 0.55)";
+  context.lineWidth = 1.1;
+  context.beginPath();
+  context.moveTo(hingeTop.x, hingeTop.y);
+  context.lineTo(hingeBottom.x, hingeBottom.y);
+  context.stroke();
+
+  context.restore();
+}
+
+function drawWindowDetail(context: CanvasRenderingContext2D, projectedCorners: ProjectedPoint[]) {
+  const frame = insetProjectedQuad(projectedCorners, 0.1, 0.1);
+  const topLeft = projectQuadPoint(projectedCorners, 0.12, 0.1);
+  const bottomRight = projectQuadPoint(projectedCorners, 0.88, 0.9);
+  const mullionTop = projectQuadPoint(projectedCorners, 0.5, 0.14);
+  const mullionBottom = projectQuadPoint(projectedCorners, 0.5, 0.86);
+  const sillLeft = projectQuadPoint(projectedCorners, 0.18, 0.82);
+  const sillRight = projectQuadPoint(projectedCorners, 0.82, 0.82);
+
+  context.save();
+  context.strokeStyle = "rgba(255, 255, 255, 0.55)";
+  context.lineWidth = 0.9;
+
+  traceProjectedShape(context, frame, true);
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(topLeft.x, topLeft.y);
+  context.lineTo(bottomRight.x, bottomRight.y);
+  context.stroke();
+
+  context.strokeStyle = "rgba(255, 255, 255, 0.35)";
+  context.lineWidth = 0.8;
+  context.beginPath();
+  context.moveTo(mullionTop.x, mullionTop.y);
+  context.lineTo(mullionBottom.x, mullionBottom.y);
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(sillLeft.x, sillLeft.y);
+  context.lineTo(sillRight.x, sillRight.y);
+  context.stroke();
+  context.restore();
+}
+
+function createWallFeaturePolygon(
+  surface: WallSurfaceFrame,
+  placement: WallFeaturePlacement
+): Point3D[] {
+  const startOffset = scalePoint3D(surface.horizontal, placement.startMeters);
+  const endOffset = scalePoint3D(
+    surface.horizontal,
+    placement.startMeters + placement.widthMeters
+  );
+  const bottomOffset = scalePoint3D(surface.vertical, placement.bottomMeters);
+  const topOffset = scalePoint3D(surface.vertical, placement.bottomMeters + placement.heightMeters);
+  const bottomLeft = addPoint3D(surface.origin, addPoint3D(startOffset, bottomOffset));
+  const bottomRight = addPoint3D(surface.origin, addPoint3D(endOffset, bottomOffset));
+  const topLeft = addPoint3D(surface.origin, addPoint3D(startOffset, topOffset));
+  const topRight = addPoint3D(surface.origin, addPoint3D(endOffset, topOffset));
+
+  return [bottomLeft, bottomRight, topRight, topLeft];
+}
+
+function createInsetWallFeaturePolygon(
+  surface: WallSurfaceFrame,
+  placement: WallFeaturePlacement,
+  horizontalInsetMeters: number,
+  verticalInsetMeters: number
+): Point3D[] {
+  const safeHorizontalInset = clamp(
+    horizontalInsetMeters,
+    0,
+    Math.max(placement.widthMeters / 2 - 0.01, 0)
+  );
+  const safeVerticalInset = clamp(
+    verticalInsetMeters,
+    0,
+    Math.max(placement.heightMeters / 2 - 0.01, 0)
+  );
+
+  return createWallFeaturePolygon(surface, {
+    ...placement,
+    startMeters: placement.startMeters + safeHorizontalInset,
+    widthMeters: Math.max(placement.widthMeters - safeHorizontalInset * 2, 0.02),
+    bottomMeters: placement.bottomMeters + safeVerticalInset,
+    heightMeters: Math.max(placement.heightMeters - safeVerticalInset * 2, 0.02),
+  });
+}
+
+function getOpeningFrameInsets(placement: WallFeaturePlacement) {
+  if (placement.kind === "door") {
+    return {
+      horizontalInset: clamp(placement.widthMeters * 0.06, 0.035, 0.08),
+      verticalInset: clamp(placement.heightMeters * 0.06, 0.035, 0.09),
+    };
+  }
+
+  return {
+    horizontalInset: clamp(placement.widthMeters * 0.05, 0.03, 0.07),
+    verticalInset: clamp(placement.heightMeters * 0.08, 0.04, 0.1),
+  };
+}
+
+function getWallSurfaceFrame(
+  direction: WallDirection,
+  roomDimensions: RoomDimensions
+): WallSurfaceFrame {
+  const halfWidth = roomDimensions.width / 2;
+  const halfDepth = roomDimensions.depth / 2;
+  const floorY = -roomDimensions.height / 2;
+
+  switch (direction) {
+    case "North":
+      return {
+        origin: { x: -halfWidth, y: floorY, z: -halfDepth },
+        horizontal: { x: 1, y: 0, z: 0 },
+        vertical: { x: 0, y: 1, z: 0 },
+      };
+    case "East":
+      return {
+        origin: { x: halfWidth, y: floorY, z: -halfDepth },
+        horizontal: { x: 0, y: 0, z: 1 },
+        vertical: { x: 0, y: 1, z: 0 },
+      };
+    case "South":
+      return {
+        origin: { x: halfWidth, y: floorY, z: halfDepth },
+        horizontal: { x: -1, y: 0, z: 0 },
+        vertical: { x: 0, y: 1, z: 0 },
+      };
+    case "West":
+      return {
+        origin: { x: -halfWidth, y: floorY, z: halfDepth },
+        horizontal: { x: 0, y: 0, z: -1 },
+        vertical: { x: 0, y: 1, z: 0 },
+      };
+  }
+}
+
+function createWallFacePoints(
+  direction: WallDirection,
+  roomDimensions: RoomDimensions,
+  wallSide: WallSide = "outer",
+  insetMeters = 0
+): Point3D[] {
+  const surface = getWallSurfaceFrame(direction, roomDimensions);
+  const length = getWallLengthForDirection(direction, roomDimensions);
+  const origin = addPoint3D(
+    surface.origin,
+    scalePoint3D(getWallNormal(direction, wallSide), insetMeters)
+  );
+
+  const start = origin;
+  const end = addPoint3D(origin, scalePoint3D(surface.horizontal, length));
+  const topEnd = addPoint3D(end, scalePoint3D(surface.vertical, roomDimensions.height));
+  const topStart = addPoint3D(origin, scalePoint3D(surface.vertical, roomDimensions.height));
+
+  return [start, end, topEnd, topStart];
+}
+
+function getWallLengthForDirection(
+  direction: WallDirection,
+  roomDimensions: RoomDimensions
+) {
+  return direction === "North" || direction === "South"
+    ? roomDimensions.width
+    : roomDimensions.depth;
+}
+
+function resolveWallFeatureSpans(
+  segmentLengthMeters: number,
+  doorWidthMeters: number,
+  windowWidthMeters: number
+): {
+  door: WallFeatureSpan | null;
+  window: WallFeatureSpan | null;
+} {
+  const sideInsetMeters = Math.min(segmentLengthMeters * 0.15, 0.12);
+  const usableStart = sideInsetMeters;
+  const usableEnd = Math.max(segmentLengthMeters - sideInsetMeters, usableStart);
+  const usableWidth = Math.max(usableEnd - usableStart, 0);
+  const clampToCenteredSpan = (desiredWidthMeters: number): WallFeatureSpan | null => {
+    const widthMeters = Math.min(desiredWidthMeters, usableWidth);
+
+    if (widthMeters <= 0.05) {
+      return null;
+    }
+
+    return {
+      startMeters: usableStart + (usableWidth - widthMeters) / 2,
+      widthMeters,
+    };
+  };
+
+  const result = {
+    door: null as WallFeatureSpan | null,
+    window: null as WallFeatureSpan | null,
+  };
+
+  if (doorWidthMeters > 0) {
+    result.door = clampToCenteredSpan(doorWidthMeters);
+  }
+
+  if (windowWidthMeters <= 0) {
+    return result;
+  }
+
+  if (!result.door) {
+    result.window = clampToCenteredSpan(windowWidthMeters);
+    return result;
+  }
+
+  const gapMeters = Math.min(Math.max(segmentLengthMeters * 0.04, 0.08), 0.2);
+  const doorStart = result.door.startMeters;
+  const doorEnd = doorStart + result.door.widthMeters;
+  const leftWidth = Math.max(doorStart - gapMeters - usableStart, 0);
+  const rightStart = doorEnd + gapMeters;
+  const rightWidth = Math.max(usableEnd - rightStart, 0);
+  const placeOnRight = rightWidth > leftWidth;
+
+  const trySpan = (spanStart: number, spanWidth: number): WallFeatureSpan | null => {
+    const widthMeters = Math.min(windowWidthMeters, spanWidth);
+
+    if (widthMeters <= 0.05) {
+      return null;
+    }
+
+    return {
+      startMeters: spanStart + (spanWidth - widthMeters) / 2,
+      widthMeters,
+    };
+  };
+
+  result.window = placeOnRight
+    ? trySpan(rightStart, rightWidth) ?? trySpan(usableStart, leftWidth)
+    : trySpan(usableStart, leftWidth) ?? trySpan(rightStart, rightWidth);
+
+  return result;
+}
+
+function getRawDoorInputs(formValues: CanvasFormValues): DoorInput[] {
+  return [
+    {
+      direction: "North",
+      width: parsePositiveNumber(formValues.doorNorthWidth),
+      height: parsePositiveNumber(formValues.doorNorthHeight, DEFAULT_DOOR_HEIGHT),
+    },
+    {
+      direction: "East",
+      width: parsePositiveNumber(formValues.doorEastWidth),
+      height: parsePositiveNumber(formValues.doorEastHeight, DEFAULT_DOOR_HEIGHT),
+    },
+    {
+      direction: "South",
+      width: parsePositiveNumber(formValues.doorSouthWidth),
+      height: parsePositiveNumber(formValues.doorSouthHeight, DEFAULT_DOOR_HEIGHT),
+    },
+    {
+      direction: "West",
+      width: parsePositiveNumber(formValues.doorWestWidth),
+      height: parsePositiveNumber(formValues.doorWestHeight, DEFAULT_DOOR_HEIGHT),
+    },
+  ];
+}
+
+function getRawWindowInputs(formValues: CanvasFormValues): WindowInput[] {
+  return [
+    {
+      direction: "North",
+      width: parsePositiveNumber(formValues.windowNorthWidth),
+      height: parsePositiveNumber(formValues.windowNorthHeight, DEFAULT_WINDOW_HEIGHT),
+    },
+    {
+      direction: "East",
+      width: parsePositiveNumber(formValues.windowEastWidth),
+      height: parsePositiveNumber(formValues.windowEastHeight, DEFAULT_WINDOW_HEIGHT),
+    },
+    {
+      direction: "South",
+      width: parsePositiveNumber(formValues.windowSouthWidth),
+      height: parsePositiveNumber(formValues.windowSouthHeight, DEFAULT_WINDOW_HEIGHT),
+    },
+    {
+      direction: "West",
+      width: parsePositiveNumber(formValues.windowWestWidth),
+      height: parsePositiveNumber(formValues.windowWestHeight, DEFAULT_WINDOW_HEIGHT),
+    },
+  ];
+}
+
+function clampOpeningHeight(
+  desiredHeight: number,
+  wallHeight: number,
+  fallbackHeight: number,
+  minimumHeight: number,
+  clearance = 0.15
+) {
+  const availableHeight = Math.max(wallHeight - clearance, 0.3);
+  const candidate = desiredHeight > 0 ? desiredHeight : fallbackHeight;
+  const lowerBound = Math.min(minimumHeight, availableHeight);
+
+  return clamp(candidate, lowerBound, availableHeight);
+}
+
+function getWindowBottomOffset(roomHeight: number, windowHeight: number) {
+  const availableBottom = Math.max(roomHeight - windowHeight - 0.15, 0);
+
+  return clamp(DEFAULT_WINDOW_SILL_HEIGHT, 0, availableBottom);
+}
+
+function addPoint3D(first: Point3D, second: Point3D): Point3D {
+  return {
+    x: first.x + second.x,
+    y: first.y + second.y,
+    z: first.z + second.z,
+  };
+}
+
+function scalePoint3D(point: Point3D, scalar: number): Point3D {
+  return {
+    x: point.x * scalar,
+    y: point.y * scalar,
+    z: point.z * scalar,
+  };
+}
+
+function getProjectedMidpoint(first: ProjectedPoint, second: ProjectedPoint) {
+  return {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+    z: (first.z + second.z) / 2,
+  };
+}
+
+function projectQuadPoint(projectedCorners: ProjectedPoint[], u: number, v: number) {
+  const bottomEdgePoint = lerpProjectedPoint(projectedCorners[0], projectedCorners[1], u);
+  const topEdgePoint = lerpProjectedPoint(projectedCorners[3], projectedCorners[2], u);
+
+  return lerpProjectedPoint(bottomEdgePoint, topEdgePoint, v);
+}
+
+function insetProjectedQuad(projectedCorners: ProjectedPoint[], insetU: number, insetV: number) {
+  return [
+    projectQuadPoint(projectedCorners, insetU, insetV),
+    projectQuadPoint(projectedCorners, 1 - insetU, insetV),
+    projectQuadPoint(projectedCorners, 1 - insetU, 1 - insetV),
+    projectQuadPoint(projectedCorners, insetU, 1 - insetV),
+  ];
+}
+
+function lerpProjectedPoint(first: ProjectedPoint, second: ProjectedPoint, t: number): ProjectedPoint {
+  return {
+    x: first.x + (second.x - first.x) * t,
+    y: first.y + (second.y - first.y) * t,
+    z: first.z + (second.z - first.z) * t,
+  };
+}
+
+function getQuadWidth(projectedCorners: ProjectedPoint[]) {
+  return Math.hypot(
+    projectedCorners[1].x - projectedCorners[0].x,
+    projectedCorners[1].y - projectedCorners[0].y
+  );
+}
+
+function getQuadHeight(projectedCorners: ProjectedPoint[]) {
+  return Math.hypot(
+    projectedCorners[3].x - projectedCorners[0].x,
+    projectedCorners[3].y - projectedCorners[0].y
+  );
 }
 
 function getRoomDimensions(formValues: CanvasFormValues): RoomDimensions | null {
@@ -1411,6 +2364,38 @@ function formatValue(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getLiveSunSummary(solarState: SolarState) {
+  if (solarState.status === "ready") {
+    const { snapshot } = solarState;
+
+    if (snapshot.altitude <= 0) {
+      return {
+        bar: `Sun below horizon | Azimuth ${formatDegree(snapshot.azimuth)}° | Zenith ${formatDegree(
+          snapshot.zenith
+        )}°`,
+      };
+    }
+
+    const direction = toCardinalDirection(snapshot.azimuth);
+
+    return {
+      bar: `Live sun | Azimuth ${formatDegree(snapshot.azimuth)}° ${direction} | Zenith ${formatDegree(
+        snapshot.zenith
+      )}° | Altitude ${formatDegree(snapshot.altitude)}°`,
+    };
+  }
+
+  if (solarState.status === "loading") {
+    return {
+      bar: "Sun: Syncing...",
+    };
+  }
+
+  return {
+    bar: solarState.message,
+  };
 }
 
 function getSunSummary(solarState: SolarState) {
