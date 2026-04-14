@@ -33,6 +33,7 @@ type WallSpec = {
   wallType: string;
   wallThickness: number;
   wallLength: number;
+  isVisible: boolean;
 };
 
 type WallOpeningKind = "door" | "window";
@@ -58,17 +59,18 @@ export function roomToThree(formValues: RoomInputValues): ThreeRoomModel | null 
   }
 
   const wallSpecs = buildWallSpecs(formValues, dimensions);
+  const visibleWallSpecs = wallSpecs.filter((spec) => spec.isVisible);
   const group = new THREE.Group();
   group.name = "three-room-root";
   group.userData.dimensions = dimensions;
 
   group.add(createFloorMesh(dimensions, wallSpecs));
 
-  wallSpecs.forEach((spec) => {
+  visibleWallSpecs.forEach((spec) => {
     group.add(createWallAssembly(spec, dimensions, formValues));
   });
 
-  group.add(createCornerFillers(wallSpecs, dimensions));
+  group.add(createCornerFillers(visibleWallSpecs, dimensions));
 
   return { group, dimensions };
 }
@@ -76,6 +78,7 @@ export function roomToThree(formValues: RoomInputValues): ThreeRoomModel | null 
 function buildWallSpecs(formValues: RoomInputValues, dimensions: RoomDimensions): WallSpec[] {
   return (["North", "East", "South", "West"] as WallDirection[]).map((direction) => {
     const wallType = formValues[getWallTypeFieldName(direction)] ?? "Brick Wall";
+    const sourceLength = parseLengthMeters(formValues[getWallLengthFieldName(direction)]);
 
     return {
       direction,
@@ -85,12 +88,16 @@ function buildWallSpecs(formValues: RoomInputValues, dimensions: RoomDimensions)
         wallType
       ),
       wallLength: getWallLengthForDirection(direction, dimensions),
+      isVisible: sourceLength > 0,
     };
   });
 }
 
 function createFloorMesh(dimensions: RoomDimensions, wallSpecs: WallSpec[]) {
-  const maxWallThickness = Math.max(...wallSpecs.map((spec) => spec.wallThickness));
+  const visibleWallThicknesses = wallSpecs
+    .filter((spec) => spec.isVisible)
+    .map((spec) => spec.wallThickness);
+  const maxWallThickness = Math.max(...visibleWallThicknesses, DEFAULT_WALL_THICKNESS_METERS);
 
   const floorWidth = dimensions.width + maxWallThickness * 2;
   const floorDepth = dimensions.depth + maxWallThickness * 2;
@@ -647,6 +654,10 @@ function getWallTypeFieldName(direction: WallDirection) {
   return `wall${direction}Type`;
 }
 
+function getWallLengthFieldName(direction: WallDirection) {
+  return `wall${direction}Length`;
+}
+
 function getWallWidthFieldName(direction: WallDirection) {
   return `wall${direction}Width`;
 }
@@ -668,14 +679,26 @@ function getWindowHeightFieldName(direction: WallDirection) {
 }
 
 function getRoomDimensions(formValues: RoomInputValues): RoomDimensions | null {
-  const horizontalLengths = [
-    parseLengthMeters(formValues.wallNorthLength),
-    parseLengthMeters(formValues.wallSouthLength),
-  ].filter((value) => value > 0);
-  const verticalLengths = [
-    parseLengthMeters(formValues.wallEastLength),
-    parseLengthMeters(formValues.wallWestLength),
-  ].filter((value) => value > 0);
+  const wallData = [
+    {
+      length: parseLengthMeters(formValues.wallNorthLength),
+      thickness: parseWallThicknessMeters(formValues.wallNorthWidth, formValues.wallNorthType),
+    },
+    {
+      length: parseLengthMeters(formValues.wallEastLength),
+      thickness: parseWallThicknessMeters(formValues.wallEastWidth, formValues.wallEastType),
+    },
+    {
+      length: parseLengthMeters(formValues.wallSouthLength),
+      thickness: parseWallThicknessMeters(formValues.wallSouthWidth, formValues.wallSouthType),
+    },
+    {
+      length: parseLengthMeters(formValues.wallWestLength),
+      thickness: parseWallThicknessMeters(formValues.wallWestWidth, formValues.wallWestType),
+    },
+  ];
+  const horizontalLengths = [wallData[0].length, wallData[2].length].filter((value) => value > 0);
+  const verticalLengths = [wallData[1].length, wallData[3].length].filter((value) => value > 0);
 
   if (horizontalLengths.length === 0 || verticalLengths.length === 0) {
     return null;
@@ -687,12 +710,9 @@ function getRoomDimensions(formValues: RoomInputValues): RoomDimensions | null {
     parseLengthMeters(formValues.wallSouthHeight, DEFAULT_HEIGHT_METERS),
     parseLengthMeters(formValues.wallWestHeight, DEFAULT_HEIGHT_METERS),
   ];
-  const thicknesses = [
-    parseWallThicknessMeters(formValues.wallNorthWidth, formValues.wallNorthType),
-    parseWallThicknessMeters(formValues.wallEastWidth, formValues.wallEastType),
-    parseWallThicknessMeters(formValues.wallSouthWidth, formValues.wallSouthType),
-    parseWallThicknessMeters(formValues.wallWestWidth, formValues.wallWestType),
-  ];
+  const thicknesses = wallData
+    .filter((wall) => wall.length > 0)
+    .map((wall) => wall.thickness);
 
   return {
     width: Math.max(...horizontalLengths),

@@ -220,10 +220,12 @@ export function HeatLoadCanvasPanel({
   formValues,
   activeView,
   onViewChange,
+  onFieldChange,
 }: {
   formValues: CanvasFormValues;
   activeView: WorkspaceView;
   onViewChange: (view: WorkspaceView) => void;
+  onFieldChange: (name: string, value: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -255,6 +257,52 @@ export function HeatLoadCanvasPanel({
     draftWallEndRef.current = null;
   };
 
+  const clearFormFields = (...fieldNames: string[]) => {
+    fieldNames.forEach((fieldName) => onFieldChange(fieldName, ""));
+  };
+
+  const deleteWallAndSync = (wall: EditableWall) => {
+    const direction = getEditorWallDirection(wall);
+
+    editorWallsRef.current = editorWallsRef.current.filter((item) => item.id !== wall.id);
+    editorOpeningsRef.current = editorOpeningsRef.current.filter(
+      (opening) => opening.wallId !== wall.id
+    );
+
+    clearFormFields(
+      getWallLengthFieldName(direction),
+      getDoorLengthFieldName(direction),
+      getDoorWidthFieldName(direction),
+      getDoorHeightFieldName(direction),
+      getWindowLengthFieldName(direction),
+      getWindowWidthFieldName(direction),
+      getWindowHeightFieldName(direction)
+    );
+  };
+
+  const deleteOpeningAndSync = (opening: EditableOpening, wall: EditableWall) => {
+    const direction = getEditorWallDirection(wall);
+
+    editorOpeningsRef.current = editorOpeningsRef.current.filter(
+      (item) => item.id !== opening.id
+    );
+
+    if (opening.kind === "door") {
+      clearFormFields(
+        getDoorLengthFieldName(direction),
+        getDoorWidthFieldName(direction),
+        getDoorHeightFieldName(direction)
+      );
+      return;
+    }
+
+    clearFormFields(
+      getWindowLengthFieldName(direction),
+      getWindowWidthFieldName(direction),
+      getWindowHeightFieldName(direction)
+    );
+  };
+
   const deleteSelectedEditorElement = () => {
     const selected = selectedEditorElementRef.current;
 
@@ -263,10 +311,27 @@ export function HeatLoadCanvasPanel({
     }
 
     if (selected.kind === "wall") {
-      editorWallsRef.current = editorWallsRef.current.filter((wall) => wall.id !== selected.id);
-      editorOpeningsRef.current = editorOpeningsRef.current.filter((opening) => opening.wallId !== selected.id);
+      const wall = editorWallsRef.current.find((item) => item.id === selected.id);
+
+      if (!wall) {
+        return;
+      }
+
+      deleteWallAndSync(wall);
     } else {
-      editorOpeningsRef.current = editorOpeningsRef.current.filter((opening) => opening.id !== selected.id);
+      const opening = editorOpeningsRef.current.find((item) => item.id === selected.id);
+
+      if (!opening) {
+        return;
+      }
+
+      const wall = editorWallsRef.current.find((item) => item.id === opening.wallId);
+
+      if (!wall) {
+        return;
+      }
+
+      deleteOpeningAndSync(opening, wall);
     }
 
     selectedEditorElementRef.current = null;
@@ -1032,9 +1097,7 @@ export function HeatLoadCanvasPanel({
 
       if (tool === "delete") {
         if (openingHit) {
-          editorOpeningsRef.current = editorOpeningsRef.current.filter(
-            (opening) => opening.id !== openingHit.opening.id
-          );
+          deleteOpeningAndSync(openingHit.opening, openingHit.wall);
           if (selectedEditorElementRef.current?.id === openingHit.opening.id) {
             selectedEditorElementRef.current = null;
           }
@@ -1044,12 +1107,7 @@ export function HeatLoadCanvasPanel({
         }
 
         if (wallHit) {
-          editorWallsRef.current = editorWallsRef.current.filter(
-            (wall) => wall.id !== wallHit.wall.id
-          );
-          editorOpeningsRef.current = editorOpeningsRef.current.filter(
-            (opening) => opening.wallId !== wallHit.wall.id
-          );
+          deleteWallAndSync(wallHit.wall);
           if (selectedEditorElementRef.current?.id === wallHit.wall.id) {
             selectedEditorElementRef.current = null;
           }
@@ -2655,6 +2713,38 @@ function drawSegmentDimension(
 
 function getWallTypeFieldName(direction: WallDirection) {
   return `wall${direction}Type`;
+}
+
+function getWallLengthFieldName(direction: WallDirection) {
+  return `wall${direction}Length`;
+}
+
+function getWallWidthFieldName(direction: WallDirection) {
+  return `wall${direction}Width`;
+}
+
+function getDoorLengthFieldName(direction: WallDirection) {
+  return `door${direction}Length`;
+}
+
+function getDoorWidthFieldName(direction: WallDirection) {
+  return `door${direction}Width`;
+}
+
+function getDoorHeightFieldName(direction: WallDirection) {
+  return `door${direction}Height`;
+}
+
+function getWindowLengthFieldName(direction: WallDirection) {
+  return `window${direction}Length`;
+}
+
+function getWindowWidthFieldName(direction: WallDirection) {
+  return `window${direction}Width`;
+}
+
+function getWindowHeightFieldName(direction: WallDirection) {
+  return `window${direction}Height`;
 }
 
 function getWallAppearanceForDirection(direction: WallDirection, formValues: CanvasFormValues) {

@@ -100,10 +100,11 @@ export default function HeatLoadWorkspace() {
         <main className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[40%_60%]">
           <HeatLoadFormPanel formValues={formValues} onFieldChange={handleFieldChange} />
           {activeView === "2d" ? (
-            <HeatLoadCanvasPanel
+          <HeatLoadCanvasPanel
               formValues={formValues}
               activeView={activeView}
               onViewChange={setActiveView}
+              onFieldChange={handleFieldChange}
             />
           ) : (
             <HeatLoad3DPanel
