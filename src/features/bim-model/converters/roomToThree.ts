@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { getWallAssetByType } from "@/data/assets";
-import { createWallSurfaceTexture } from "../shared/wallSurfaceTextures";
+import {
+  createWallSurfaceTextureSet,
+  type WallSurfaceTextureSet,
+} from "../shared/wallSurfaceTextures";
 
 const DEFAULT_HEIGHT_METERS = 3;
 const DEFAULT_WALL_THICKNESS_METERS = 0.2;
@@ -117,6 +120,18 @@ function createFloorMesh(dimensions: RoomDimensions, wallSpecs: WallSpec[]) {
   return floor;
 }
 
+function createWallSurfaceMaterial(textureSet: WallSurfaceTextureSet) {
+  return new THREE.MeshStandardMaterial({
+    color: "#ffffff",
+    map: textureSet.map,
+    normalMap: textureSet.normalMap,
+    normalScale: new THREE.Vector2(textureSet.normalScale, textureSet.normalScale),
+    roughness: 1,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+}
+
 function createWallAssembly(
   spec: WallSpec,
   dimensions: RoomDimensions,
@@ -133,22 +148,16 @@ function createWallAssembly(
   });
   wallGeometry.translate(-wallLength / 2, 0, -wallThickness / 2);
   wallGeometry.computeVertexNormals();
-  const wallTexture = createWallSurfaceTexture({
+  const wallTextures = createWallSurfaceTextureSet({
     wallType,
     wallLength,
     wallHeight: dimensions.height,
   });
-
-  const wallMaterial = new THREE.MeshStandardMaterial({
-    color: "#ffffff",
-    map: wallTexture,
-    roughness: 0.98,
-    metalness: 0.01,
-    side: THREE.DoubleSide,
-  });
+  const wallMaterial = createWallSurfaceMaterial(wallTextures);
 
   const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
   wallMesh.name = `wall-${direction.toLowerCase()}`;
+  wallMesh.castShadow = true;
   wallMesh.receiveShadow = true;
 
   const wallGroup = new THREE.Group();
@@ -231,18 +240,12 @@ function createCornerFillers(wallSpecs: WallSpec[], dimensions: RoomDimensions) 
     const positionX = corner.xSign > 0 ? halfWidth + xSpec.wallThickness / 2 + overlap : -halfWidth - xSpec.wallThickness / 2 - overlap;
     const positionZ = corner.zSign > 0 ? halfDepth + zSpec.wallThickness / 2 + overlap : -halfDepth - zSpec.wallThickness / 2 - overlap;
     const cornerGeometry = new THREE.BoxGeometry(sizeX, height, sizeZ);
-    const cornerTexture = createWallSurfaceTexture({
+    const cornerTextures = createWallSurfaceTextureSet({
       wallType: materialSpec.wallType,
       wallLength: Math.max(sizeX, sizeZ),
       wallHeight: height,
     });
-    const cornerMaterial = new THREE.MeshStandardMaterial({
-      color: "#ffffff",
-      map: cornerTexture,
-      roughness: 0.98,
-      metalness: 0.01,
-      side: THREE.DoubleSide,
-    });
+    const cornerMaterial = createWallSurfaceMaterial(cornerTextures);
 
     const cornerMesh = new THREE.Mesh(cornerGeometry, cornerMaterial);
     cornerMesh.name = corner.name;

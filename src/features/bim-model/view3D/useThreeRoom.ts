@@ -59,6 +59,8 @@ export function useThreeRoom(
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(Math.max(container.clientWidth, 1), Math.max(container.clientHeight, 1), false);
     renderer.domElement.style.display = "block";
@@ -79,10 +81,23 @@ export function useThreeRoom(
     controls.update();
     controlsRef.current = controls;
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.45);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 2.35);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2.1);
     directionalLight.position.set(8, 12, 10);
-    scene.add(ambientLight, directionalLight);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 1024;
+    directionalLight.shadow.mapSize.height = 1024;
+    directionalLight.shadow.camera.near = 0.5;
+    directionalLight.shadow.camera.far = 50;
+    directionalLight.shadow.camera.left = -18;
+    directionalLight.shadow.camera.right = 18;
+    directionalLight.shadow.camera.top = 18;
+    directionalLight.shadow.camera.bottom = -18;
+    directionalLight.shadow.bias = -0.0002;
+    directionalLight.shadow.normalBias = 0.03;
+    directionalLight.shadow.camera.updateProjectionMatrix();
+    directionalLight.target.position.set(0, 1.2, 0);
+    scene.add(ambientLight, directionalLight, directionalLight.target);
 
     const gridHelper = new THREE.GridHelper(60, 60, 0xcbd5e1, 0xe2e8f0);
     gridHelper.position.y = -0.04;
