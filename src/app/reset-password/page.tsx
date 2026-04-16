@@ -1,26 +1,37 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-function ResetPasswordForm() {
+export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(true);
 
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const accessToken = searchParams.get("access_token");
 
-  // Redirect if no token
+  // Verify the recovery token from Supabase
   useEffect(() => {
-    if (!accessToken) {
-      router.push("/login");
-    }
-  }, [accessToken, router]);
+    const verifyRecovery = async () => {
+      const supabase = createClient();
+      
+      const { data: { session }, error } = await supabase.auth.getSession();
+
+      if (error || !session) {
+        setError("This reset link is invalid or has expired.");
+        setTimeout(() => router.push("/login"), 3500);
+        return;
+      }
+
+      setIsVerifying(false);
+    };
+
+    verifyRecovery();
+  }, [router]);
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,32 +46,35 @@ function ResetPasswordForm() {
     }
 
     if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+      setError("Password must be at least 6 characters long");
       setLoading(false);
       return;
     }
 
     try {
       const supabase = createClient();
-
-      const { error } = await supabase.auth.updateUser({
-        password: password,
-      });
+      const { error } = await supabase.auth.updateUser({ password });
 
       if (error) {
         setError(error.message);
       } else {
-        setSuccess("Password updated successfully! Redirecting...");
-        setTimeout(() => {
-          router.push("/login");
-        }, 2000);
+        setSuccess("Password updated successfully! Redirecting to login...");
+        setTimeout(() => router.push("/login"), 2000);
       }
     } catch (err: any) {
-      setError(err.message || "Failed to update password");
+      setError(err?.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
   };
+
+  if (isVerifying) {
+    return (
+      <div className="min-h-screen bg-[#fff4f6] flex items-center justify-center">
+        <div className="text-center text-slate-600">Verifying reset link...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#fff4f6] flex items-center justify-center p-6">
@@ -95,8 +109,8 @@ function ResetPasswordForm() {
               className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:border-[#be123c]"
             />
 
-            {error && <p className="text-red-600 text-sm text-center">{error}</p>}
-            {success && <p className="text-green-600 text-sm text-center">{success}</p>}
+            {error && <p className="text-red-600 text-sm text-center font-medium">{error}</p>}
+            {success && <p className="text-green-600 text-sm text-center font-medium">{success}</p>}
 
             <button
               type="submit"
@@ -112,20 +126,11 @@ function ResetPasswordForm() {
               onClick={() => router.push("/login")}
               className="text-[#be123c] hover:underline text-sm"
             >
-              Back to Login
+              ← Back to Login
             </button>
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-// Wrap with Suspense to fix useSearchParams error
-export default function ResetPasswordPage() {
-  return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center">Loading...</div>}>
-      <ResetPasswordForm />
-    </Suspense>
   );
 }

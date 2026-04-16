@@ -1,55 +1,92 @@
 # HLC BIM Platform
 
-A web-based platform for heat load analysis with interactive 3D realtime building modeling, developed as a thesis project.
+Interactive Building Modeling and Heat Load Analysis System
 
-The platform collects building survey data through an input interface, analyzes it using a heat load engine, and reflects the results in a 3D building model in real time — combining engineering analysis and visualization in one place.
+## Overview
 
-Currently the project has the initial Next.js setup and folder structure in place. Implementation will be built out incrementally.
+The HLC BIM Platform is a web-based application developed as part of a thesis project. It integrates building design, visualization, and HVAC heat load analysis into a single system.
+
+The platform allows users to:
+
+- Input building survey data through an intuitive interface
+- Visualize the building layout in a 2D plan view
+- Generate a real-time 3D model of the building
+- Calculate cooling load requirements using a heat load engine
+
+This approach combines engineering calculations with interactive visualization, improving both usability and understanding.
+
+## Project Objective
+
+The main goal of this project is to develop a system that:
+
+- Simplifies building data input and visualization
+- Provides accurate heat load calculations
+- Connects design and analysis in real time
+- Reduces manual calculations and fragmented workflows in HVAC design
+
+## System Workflow
+
+The system follows a structured data-driven pipeline:
+
+`User Input -> JSON Data Model -> 2D Plan -> 3D Model -> Heat Load Calculation`
+
+- User enters building details such as room size, walls, windows, and other survey data
+- Data is stored in a structured format
+- The 2D canvas renders the plan view
+- The 3D module generates a spatial model
+- The heat load engine computes cooling requirements
+
+All modules operate using a shared data model to ensure consistency.
+
+## System Architecture
+
+The platform is built using a feature-based modular architecture, allowing independent development of each subsystem:
+
+- Heat Load Module: performs HVAC calculations
+- Building Survey Module: handles user input
+- BIM Model Module: manages 2D and 3D visualization
+
+
 
 ## Project Structure
 
 ```text
 hlc-bim-platform/
-├── public/
-│   ├── textures/
-│   ├── models/
-│   └── icons/
-│
-├── src/
-│   ├── app/
-│   ├── components/
-│   │   ├── layout/
-│   │   ├── survey/
-│   │   ├── calculation/
-│   │   ├── viewer3d/
-│   │   └── common/
-│   │
-│   ├── features/
-│   │   ├── building-survey/
-│   │   ├── heat-load/
-│   │   ├── bim-model/
-│   │   └── materials/
-│   │
-│   ├── lib/
-│   │   ├── calculations/
-│   │   ├── geometry/
-│   │   ├── converters/
-│   │   └── validators/
-│   │
-│   ├── data/
-│   │   ├── materials/
-│   │   ├── defaults/
-│   │   └── mock/
-│   │
-│   ├── hooks/
-│   ├── store/
-│   ├── types/
-│   └── utils/
+|-- public/
+|   |-- icons/
+|   |-- models/
+|   `-- textures/
+|-- src/
+|   |-- actions/
+|   |-- app/
+|   |-- components/
+|   |-- data/
+|   |-- features/
+|   |-- hooks/
+|   |-- lib/
+|   |-- store/
+|   |-- types/
+|   `-- utils/
+|-- middleware.ts
+|-- next.config.ts
+`-- package.json
 ```
 
-## Getting Started
+## Measurement System
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+The platform uses a consistent unit system:
+
+
+
+## Key Features
+
+- Interactive 2D plan workspace with grid and rulers
+- Real-time 3D building visualization
+- Structured building data input system
+- Modular heat load calculation engine
+- Clean and user-friendly interface
+
+## Getting Started
 
 Run the development server:
 
@@ -63,23 +100,35 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the result.
+Open:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`http://localhost:3000`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Technologies Used
 
-## Learn More
+- Next.js
+- React
+- Three.js for 3D visualization
+- Canvas API for 2D drawing
 
-To learn more about Next.js, take a look at the following resources:
+## Future Development
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Planned improvements include:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Multi-room and multi-floor support
+- Advanced material-based heat calculations
+- Exporting drawings and reports
+- Improved 3D interaction and realism
+- Backend integration for data storage
 
-## Deploy on Vercel
+## Academic Context
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+This project is developed as part of a thesis in the field of Information Technology, focusing on:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Web-based engineering tools
+- Visualization systems
+- HVAC analysis integration
+
+## Summary
+
+The HLC BIM Platform aims to bridge the gap between building design and HVAC analysis, providing a unified, interactive, and efficient solution for both learning and practical applications.

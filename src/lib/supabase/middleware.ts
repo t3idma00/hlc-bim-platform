@@ -7,10 +7,16 @@ export async function updateSession(request: NextRequest) {
     request,
   })
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.warn('[middleware] Missing Supabase environment variables')
+      return response
+    }
+
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -25,11 +31,16 @@ export async function updateSession(request: NextRequest) {
           })
         },
       },
-    }
-  )
+    })
 
-  // Refresh session if it has expired
-  await supabase.auth.getSession()
+    const { error } = await supabase.auth.getSession()
+    if (error) {
+      console.error('[middleware] Supabase getSession error:', error.message)
+    }
+  } catch (error) {
+    console.error('[middleware] Unexpected edge middleware error:', error)
+    return response
+  }
 
   return response
 }

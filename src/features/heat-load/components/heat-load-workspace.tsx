@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { type User } from "@supabase/supabase-js";
 import { HeatLoadCanvasPanel } from "../../bim-model/view2D";
+import { HeatLoad3DPanel } from "../../bim-model/view3D";
+import { type WorkspaceView } from "../../bim-model/workspace-view-toggle";
 import { HeatLoadFormPanel, initialFormValues, type FormValues } from "./form-panel";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/actions/auth";
@@ -9,13 +12,9 @@ import { saveProject, getUserProjects } from "@/actions/projects";
 import type { Project, ProjectData } from "@/types";
 
 export default function HeatLoadWorkspace() {
-  const [projectData, setProjectData] = useState<ProjectData>({
-    version: "1.1",
-    formValues: initialFormValues,
-    sheetValues: {},
-  });
-
-  const [user, setUser] = useState<any>(null);
+  const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
+  const [activeView, setActiveView] = useState<WorkspaceView>("2d");
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Save Modal
@@ -39,14 +38,17 @@ export default function HeatLoadWorkspace() {
     const supabase = createClient();
 
     const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       setUser(user);
       setLoading(false);
     };
 
     fetchUser();
 
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    // Real-time auth listener
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
 
@@ -188,18 +190,10 @@ export default function HeatLoadWorkspace() {
           <div className="flex items-center gap-3">
             {user && (
               <>
-                <span className="text-sm text-slate-600 hidden md:block">{user.email}</span>
-
-                <button 
-                  onClick={() => setShowSaveModal(true)} 
-                  className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition"
-                >
-                  Save Project
-                </button>
-
-                <button 
-                  onClick={loadMyProjects} 
-                  className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition"
+                <span className="hidden text-sm text-slate-600 md:block">{user.email}</span>
+                <button
+                  onClick={handleLogout}
+                  className="rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] transition hover:bg-rose-50"
                 >
                   My Projects
                 </button>
@@ -214,24 +208,36 @@ export default function HeatLoadWorkspace() {
               </>
             )}
 
-            <button className="bg-[#be123c] px-5 py-2 text-sm font-semibold text-white hover:bg-[#9f1239] rounded-lg transition">
+            <button className="rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] transition hover:bg-rose-50">
+              Export
+            </button>
+
+            <button className="rounded-lg bg-[#be123c] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#9f1239]">
               Run Analysis
             </button>
           </div>
         </header>
 
         <main className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[40%_60%]">
-          <HeatLoadFormPanel 
-            formValues={projectData.formValues}
-            sheetValues={projectData.sheetValues}
-            onFieldChange={handleFormChange}
-            onSheetChange={handleSheetChange}
-          />
-          <HeatLoadCanvasPanel formValues={projectData.formValues} />
+          <HeatLoadFormPanel formValues={formValues} onFieldChange={handleFieldChange} />
+          {activeView === "2d" ? (
+          <HeatLoadCanvasPanel
+              formValues={formValues}
+              activeView={activeView}
+              onViewChange={setActiveView}
+              onFieldChange={handleFieldChange}
+            />
+          ) : (
+            <HeatLoad3DPanel
+              formValues={formValues}
+              activeView={activeView}
+              onViewChange={setActiveView}
+            />
+          )}
         </main>
 
         <footer className="border-t border-rose-100 bg-[#fffafb] px-5 py-2 text-center text-xs text-rose-600">
-          HLC Platform — Thesis Project
+          HLC Platform - Thesis Project
         </footer>
       </div>
 
