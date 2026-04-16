@@ -9,6 +9,7 @@ import { calculateRelativeHumidityFromWetBulb, calculateWetBulbFromRelativeHumid
 
 type SurfaceType = "walls" | "windows" | "doors";
 type UnitSystem = "si" | "imperial";
+
 export type FormValues = Record<string, string>;
 
 type CountryOption = {
@@ -130,11 +131,10 @@ function parseConditionValue(value: string): number | null {
 
 export function HeatLoadFormPanel({
   formValues,
+  sheetValues,
   onFieldChange,
-}: {
-  formValues: FormValues;
-  onFieldChange: (name: string, value: string) => void;
-}) {
+  onSheetChange,
+}: Props) {
   const [surfaceType, setSurfaceType] = useState<SurfaceType>("walls");
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("si");
   const [countryOptions, setCountryOptions] = useState<CountryOption[]>([]);
@@ -529,7 +529,11 @@ export function HeatLoadFormPanel({
                       values={formValues}
                       onFieldChange={onFieldChange}
                     />
-                    <DesignConditionsRow rowIndex={rowIndex} values={formValues} onFieldChange={onFieldChange} />
+                    <DesignConditionsRow 
+                      rowIndex={rowIndex} 
+                      values={formValues} 
+                      onFieldChange={onFieldChange} 
+                    />
                   </tr>
                 ))}
               </tbody>

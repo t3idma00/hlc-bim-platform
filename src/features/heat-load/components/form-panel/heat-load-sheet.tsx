@@ -539,7 +539,11 @@ export function HeatLoadSheet({
       {sections.map((section) => (
         <SectionTable key={section.number} {...section} onCellChange={handleCellChange} />
       ))}
-      <SummaryTable rows={summaryRows} />
+      <SummaryTable 
+        rows={summaryRows} 
+        sheetValues={sheetValues} 
+        onSheetChange={onSheetChange} 
+      />
     </div>
   );
 }
@@ -564,20 +568,14 @@ function SectionTable({
       <thead>
         <tr>
           <th className={`${cellClass} bg-[#ffe7ee] text-center text-[11px] font-semibold whitespace-nowrap text-slate-900`}>{number}</th>
-          <th
-            className={`${cellClass} bg-[#ffe7ee] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`}
-            colSpan={columns.length}
-          >
+          <th className={`${cellClass} bg-[#ffe7ee] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`} colSpan={columns.length}>
             {title}
           </th>
         </tr>
         <tr>
           <th className={`${cellClass} bg-white text-center text-[10px] font-semibold whitespace-nowrap text-slate-900`} />
           {columns.map((column) => (
-            <th
-              key={column.key}
-              className={`${cellClass} bg-white text-center text-[10px] font-semibold leading-tight whitespace-normal break-words text-slate-900`}
-            >
+            <th key={column.key} className={`${cellClass} bg-white text-center text-[10px] font-semibold leading-tight whitespace-normal break-words text-slate-900`}>
               {column.label}
             </th>
           ))}
@@ -628,7 +626,15 @@ function SectionTable({
   );
 }
 
-function SummaryTable({ rows }: { rows: SummaryRow[] }) {
+function SummaryTable({ 
+  rows, 
+  sheetValues, 
+  onSheetChange 
+}: { 
+  rows: SummaryRow[]; 
+  sheetValues: SheetValues; 
+  onSheetChange: (key: string, value: string) => void;
+}) {
   return (
     <table className={tableClass}>
       <colgroup>
