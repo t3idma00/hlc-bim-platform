@@ -51,6 +51,18 @@ type WallFeatureSpan = {
   widthMeters: number;
 };
 
+type SceneObjectKind = "workDesk";
+
+type SceneObjectPlacement = {
+  id: string;
+  kind: SceneObjectKind;
+  position: {
+    x: number;
+    y: number;
+  };
+  rotationRadians: number;
+};
+
 export function roomToThree(formValues: RoomInputValues): ThreeRoomModel | null {
   const dimensions = getRoomDimensions(formValues);
 
@@ -71,8 +83,107 @@ export function roomToThree(formValues: RoomInputValues): ThreeRoomModel | null 
   });
 
   group.add(createCornerFillers(visibleWallSpecs, dimensions));
+  group.add(createSceneObjectGroup(formValues, dimensions));
 
   return { group, dimensions };
+}
+
+function createSceneObjectGroup(
+  formValues: RoomInputValues,
+  dimensions: RoomDimensions
+) {
+  const group = new THREE.Group();
+  group.name = "room-scene-objects";
+  const objects = parseSceneObjects(formValues.sceneObjectsJson);
+  const halfWidth = dimensions.width / 2;
+  const halfDepth = dimensions.depth / 2;
+
+  objects.forEach((object) => {
+    if (object.kind !== "workDesk") {
+      return;
+    }
+
+    const desk = createWorkDeskMesh();
+    const mappedPosition = mapEditorObjectToRoomPosition(object.position, dimensions);
+    const clampedX = clamp(mappedPosition.x, -halfWidth + 0.75, halfWidth - 0.75);
+    const clampedZ = clamp(mappedPosition.z, -halfDepth + 0.45, halfDepth - 0.45);
+    desk.position.set(clampedX, 0, clampedZ);
+    desk.rotation.y = -object.rotationRadians;
+    desk.userData = {
+      id: object.id,
+      kind: object.kind,
+    };
+    group.add(desk);
+  });
+
+  return group;
+}
+
+function mapEditorObjectToRoomPosition(
+  editorPosition: { x: number; y: number },
+  dimensions: RoomDimensions
+) {
+  return {
+    // 2D editor room coordinates are anchored from (0,0) at the north-west corner.
+    // 3D room coordinates are centered at (0,0), with positive Z pointing north.
+    x: editorPosition.x - dimensions.width / 2,
+    z: dimensions.depth / 2 - editorPosition.y,
+  };
+}
+
+function createWorkDeskMesh() {
+  const group = new THREE.Group();
+  group.name = "work-desk";
+
+  const topWidth = 1.4;
+  const topDepth = 0.7;
+  const topThickness = 0.05;
+  const legWidth = 0.06;
+  const legDepth = 0.06;
+  const height = 0.75;
+  const legHeight = height - topThickness;
+  const legInsetX = topWidth / 2 - legWidth / 2 - 0.06;
+  const legInsetZ = topDepth / 2 - legDepth / 2 - 0.06;
+
+  const topMaterial = new THREE.MeshStandardMaterial({
+    color: "#8b5a2b",
+    roughness: 0.7,
+    metalness: 0.05,
+  });
+  const legMaterial = new THREE.MeshStandardMaterial({
+    color: "#4b5563",
+    roughness: 0.55,
+    metalness: 0.2,
+  });
+
+  const top = new THREE.Mesh(
+    new THREE.BoxGeometry(topWidth, topThickness, topDepth),
+    topMaterial
+  );
+  top.position.set(0, height - topThickness / 2, 0);
+  top.castShadow = true;
+  top.receiveShadow = true;
+  group.add(top);
+
+  const legOffsets = [
+    { x: legInsetX, z: legInsetZ },
+    { x: -legInsetX, z: legInsetZ },
+    { x: legInsetX, z: -legInsetZ },
+    { x: -legInsetX, z: -legInsetZ },
+  ];
+
+  legOffsets.forEach((offset) => {
+    const leg = new THREE.Mesh(
+      new THREE.BoxGeometry(legWidth, legHeight, legDepth),
+      legMaterial
+    );
+    leg.position.set(offset.x, legHeight / 2, offset.z);
+    leg.castShadow = true;
+    leg.receiveShadow = true;
+    group.add(leg);
+  });
+
+  return group;
 }
 
 function buildWallSpecs(formValues: RoomInputValues, dimensions: RoomDimensions): WallSpec[] {
@@ -771,6 +882,54 @@ function parsePositiveNumber(value: string | undefined, fallback = 0) {
   }
 
   return normalizedValue;
+}
+
+function parseSceneObjects(rawValue: string | undefined): SceneObjectPlacement[] {
+  if (!rawValue) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item, index) => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const source = item as {
+          id?: unknown;
+          kind?: unknown;
+          position?: { x?: unknown; y?: unknown };
+          rotationRadians?: unknown;
+        };
+        const x = Number(source.position?.x);
+        const y = Number(source.position?.y);
+        const rotationRadians = Number(source.rotationRadians ?? 0);
+
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return null;
+        }
+
+        return {
+          id:
+            typeof source.id === "string" && source.id.trim().length > 0
+              ? source.id
+              : `object-${index + 1}`,
+          kind: source.kind === "workDesk" ? "workDesk" : "workDesk",
+          position: { x, y },
+          rotationRadians: Number.isFinite(rotationRadians) ? rotationRadians : 0,
+        } as SceneObjectPlacement;
+      })
+      .filter((item): item is SceneObjectPlacement => item !== null);
+  } catch {
+    return [];
+  }
 }
 
 function clamp(value: number, min: number, max: number) {

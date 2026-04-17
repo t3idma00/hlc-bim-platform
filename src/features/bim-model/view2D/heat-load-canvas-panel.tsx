@@ -139,7 +139,7 @@ type SolarApiResponse = {
   error?: string;
 };
 
-type EditorTool = "select" | "pan" | "delete" | "wall" | "window" | "door";
+type EditorTool = "select" | "pan" | "delete" | "wall" | "window" | "door" | "desk";
 
 type EditableWall = {
   id: string;
@@ -158,14 +158,24 @@ type EditableOpening = {
   widthMeters: number;
 };
 
+type EditorObjectKind = "workDesk";
+
+type EditableObject = {
+  id: string;
+  kind: EditorObjectKind;
+  position: Point;
+  rotationRadians: number;
+};
+
 type EditorSnapshot = {
   walls: EditableWall[];
   openings: EditableOpening[];
+  objects: EditableObject[];
 };
 
 type SelectedEditorElement =
   | {
-      kind: "wall" | "opening";
+      kind: "wall" | "opening" | "object";
       id: string;
     }
   | null;
@@ -188,6 +198,13 @@ type EditorDragState =
       kind: "opening";
       openingId: string;
       didRecordHistory: boolean;
+      lastWorld: Point;
+    }
+  | {
+      kind: "object";
+      objectId: string;
+      didRecordHistory: boolean;
+      lastWorld: Point;
     };
 
 type EditorViewport = {
@@ -215,6 +232,11 @@ type EditorOpeningHit = {
   wall: EditableWall;
 };
 
+type EditorObjectHit = {
+  object: EditableObject;
+  distance: number;
+};
+
 type ActiveEditorTool = EditorTool | null;
 
 const TOOL_OPTIONS: ToolOption[] = [
@@ -224,6 +246,9 @@ const TOOL_OPTIONS: ToolOption[] = [
 ];
 
 const MAX_HISTORY_STEPS = 60;
+const EDITOR_OBJECTS_FIELD_NAME = "sceneObjectsJson";
+const EDITOR_DESK_WIDTH_METERS = 1.4;
+const EDITOR_DESK_DEPTH_METERS = 0.7;
 
 export function HeatLoadCanvasPanel({
   formValues,
@@ -255,6 +280,7 @@ export function HeatLoadCanvasPanel({
   const editorToolRef = useRef<ActiveEditorTool>(null);
   const editorWallsRef = useRef<EditableWall[]>([]);
   const editorOpeningsRef = useRef<EditableOpening[]>([]);
+  const editorObjectsRef = useRef<EditableObject[]>([]);
   const selectedEditorElementRef = useRef<SelectedEditorElement>(null);
   const draftWallStartRef = useRef<Point | null>(null);
   const draftWallEndRef = useRef<Point | null>(null);
@@ -283,17 +309,26 @@ export function HeatLoadCanvasPanel({
   const cloneEditorOpenings = (openings: EditableOpening[]) =>
     openings.map((opening) => ({ ...opening }));
 
+  const cloneEditorObjects = (objects: EditableObject[]) =>
+    objects.map((object) => ({
+      ...object,
+      position: { ...object.position },
+    }));
+
   const createEditorSnapshot = (): EditorSnapshot => ({
     walls: cloneEditorWalls(editorWallsRef.current),
     openings: cloneEditorOpenings(editorOpeningsRef.current),
+    objects: cloneEditorObjects(editorObjectsRef.current),
   });
 
   const applyEditorSnapshot = (snapshot: EditorSnapshot) => {
     editorWallsRef.current = cloneEditorWalls(snapshot.walls);
     editorOpeningsRef.current = cloneEditorOpenings(snapshot.openings);
+    editorObjectsRef.current = cloneEditorObjects(snapshot.objects);
     selectedEditorElementRef.current = null;
     dragStateRef.current = { kind: "idle" };
     clearEditorDraft();
+    syncEditorObjectsField();
     refreshEditorUi();
   };
 
@@ -347,6 +382,14 @@ export function HeatLoadCanvasPanel({
   const clearFormFields = (...fieldNames: string[]) => {
     suppressFormReseedCountRef.current += fieldNames.length;
     fieldNames.forEach((fieldName) => onFieldChange(fieldName, ""));
+  };
+
+  const syncEditorObjectsField = () => {
+    suppressFormReseedCountRef.current += 1;
+    onFieldChange(
+      EDITOR_OBJECTS_FIELD_NAME,
+      JSON.stringify(serializeEditorObjects(editorObjectsRef.current))
+    );
   };
 
   const deleteWallAndSync = (wall: EditableWall) => {
@@ -406,7 +449,7 @@ export function HeatLoadCanvasPanel({
       }
 
       deleteWallAndSync(wall);
-    } else {
+    } else if (selected.kind === "opening") {
       const opening = editorOpeningsRef.current.find((item) => item.id === selected.id);
 
       if (!opening) {
@@ -420,6 +463,15 @@ export function HeatLoadCanvasPanel({
       }
 
       deleteOpeningAndSync(opening, wall);
+    } else {
+      const nextObjects = editorObjectsRef.current.filter((item) => item.id !== selected.id);
+
+      if (nextObjects.length === editorObjectsRef.current.length) {
+        return;
+      }
+
+      editorObjectsRef.current = nextObjects;
+      syncEditorObjectsField();
     }
 
     selectedEditorElementRef.current = null;
@@ -459,6 +511,7 @@ export function HeatLoadCanvasPanel({
 
     editorWallsRef.current = seededSketch.walls;
     editorOpeningsRef.current = seededSketch.openings;
+    editorObjectsRef.current = seededSketch.objects;
     idCounterRef.current = seededSketch.lastId;
     selectedEditorElementRef.current = null;
     dragStateRef.current = { kind: "idle" };
@@ -830,6 +883,7 @@ export function HeatLoadCanvasPanel({
       const hasEditorContent =
         editorWallsRef.current.length > 0 ||
         editorOpeningsRef.current.length > 0 ||
+        editorObjectsRef.current.length > 0 ||
         draftWallStartRef.current !== null;
 
       if (hasEditorContent) {
@@ -838,6 +892,7 @@ export function HeatLoadCanvasPanel({
           editorViewport,
           editorWallsRef.current,
           editorOpeningsRef.current,
+          editorObjectsRef.current,
           selectedEditorElementRef.current,
           draftWallStartRef.current,
           draftWallEndRef.current
@@ -1096,6 +1151,11 @@ export function HeatLoadCanvasPanel({
         return;
       }
 
+      const objectHit = findEditorObjectHit(
+        interaction.point,
+        interaction.viewport,
+        editorObjectsRef.current
+      );
       const openingHit = findEditorOpeningHit(
         interaction.point,
         interaction.viewport,
@@ -1103,7 +1163,7 @@ export function HeatLoadCanvasPanel({
         editorOpeningsRef.current
       );
       const wallHit: EditorWallHit | null =
-        openingHit === null
+        openingHit === null && objectHit === null
           ? findEditorWallHit(
               interaction.point,
               interaction.viewport,
@@ -1191,7 +1251,46 @@ export function HeatLoadCanvasPanel({
         return;
       }
 
+      if (tool === "desk") {
+        if (!interaction.worldPoint) {
+          return;
+        }
+
+        recordEditorHistory();
+        idCounterRef.current += 1;
+        const object: EditableObject = {
+          id: `object-${idCounterRef.current}`,
+          kind: "workDesk",
+          position: interaction.worldPoint,
+          rotationRadians: 0,
+        };
+
+        editorObjectsRef.current = [...editorObjectsRef.current, object];
+        selectedEditorElementRef.current = {
+          kind: "object",
+          id: object.id,
+        };
+        syncEditorObjectsField();
+        refreshEditorUi();
+        redrawCanvas();
+        return;
+      }
+
       if (tool === "delete") {
+        if (objectHit) {
+          recordEditorHistory();
+          editorObjectsRef.current = editorObjectsRef.current.filter(
+            (item) => item.id !== objectHit.object.id
+          );
+          if (selectedEditorElementRef.current?.id === objectHit.object.id) {
+            selectedEditorElementRef.current = null;
+          }
+          syncEditorObjectsField();
+          refreshEditorUi();
+          redrawCanvas();
+          return;
+        }
+
         if (openingHit) {
           recordEditorHistory();
           deleteOpeningAndSync(openingHit.opening, openingHit.wall);
@@ -1234,6 +1333,23 @@ export function HeatLoadCanvasPanel({
           kind: "opening",
           openingId: openingHit.opening.id,
           didRecordHistory: false,
+          lastWorld: interaction.worldPoint,
+        };
+        refreshEditorUi();
+        redrawCanvas();
+        return;
+      }
+
+      if (objectHit && interaction.worldPoint) {
+        selectedEditorElementRef.current = {
+          kind: "object",
+          id: objectHit.object.id,
+        };
+        dragStateRef.current = {
+          kind: "object",
+          objectId: objectHit.object.id,
+          didRecordHistory: false,
+          lastWorld: interaction.worldPoint,
         };
         refreshEditorUi();
         redrawCanvas();
@@ -1358,7 +1474,41 @@ export function HeatLoadCanvasPanel({
           kind: "opening",
           openingId: dragState.openingId,
           didRecordHistory: true,
+          lastWorld: interaction.worldPoint,
         };
+        redrawCanvas();
+        return;
+      }
+
+      if (dragState.kind === "object" && interaction.worldPoint) {
+        const delta = {
+          x: interaction.worldPoint.x - dragState.lastWorld.x,
+          y: interaction.worldPoint.y - dragState.lastWorld.y,
+        };
+
+        if (Math.abs(delta.x) <= 0.0001 && Math.abs(delta.y) <= 0.0001) {
+          return;
+        }
+
+        if (!dragState.didRecordHistory) {
+          recordEditorHistory();
+        }
+
+        editorObjectsRef.current = editorObjectsRef.current.map((object) =>
+          object.id === dragState.objectId
+            ? {
+                ...object,
+                position: addPoints(object.position, delta),
+              }
+            : object
+        );
+        dragStateRef.current = {
+          kind: "object",
+          objectId: dragState.objectId,
+          didRecordHistory: true,
+          lastWorld: interaction.worldPoint,
+        };
+        syncEditorObjectsField();
         redrawCanvas();
       }
     };
@@ -1445,6 +1595,7 @@ export function HeatLoadCanvasPanel({
     formValues,
     editorWalls,
     editorOpenings,
+    editorObjectsRef.current,
     draftWallStartRef.current
   );
   const sunSummary = getSunSummary(solarState);
@@ -1535,6 +1686,20 @@ export function HeatLoadCanvasPanel({
               >
                 <HistoryToolIcon action="redo" />
               </button>
+              <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
+              <button
+                type="button"
+                aria-label="Desk"
+                title="Desk"
+                onClick={() => handleToolbarToolClick("desk")}
+                className={`flex h-10 w-10 items-center justify-center border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 ${
+                  editorTool === "desk"
+                    ? "border-[#a9c8ff] bg-[#2f6fe4] text-white shadow-sm"
+                    : "border-transparent bg-transparent text-[#f8fbff] hover:border-[#8ea2bf]/55 hover:bg-[#7686a0]/28"
+                }`}
+              >
+                <ToolboxIcon tool="desk" />
+              </button>
             </div>
           </div>
 
@@ -1603,6 +1768,25 @@ function ToolboxIcon({ tool }: { tool: EditorTool }) {
         <path d="M14.1 9.5V6.9a1.4 1.4 0 112.8 0v4.7" />
         <path d="M8.5 11.1a1.7 1.7 0 00-2.8 1.9l2.2 3.7A4.4 4.4 0 0011.7 19H17a3 3 0 003-3v-2.2c0-.9-.3-1.8-1-2.4l-2.1-2" />
         <path d="M16.9 11.8V9.2a1.4 1.4 0 112.8 0v4.3" />
+      </svg>
+    );
+  }
+
+  if (tool === "desk") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M4.5 8.5h15v3.5h-15z" />
+        <path d="M7 12v6" />
+        <path d="M17 12v6" />
       </svg>
     );
   }
@@ -1719,11 +1903,86 @@ function buildEditorSketchFromFormValues(formValues: CanvasFormValues) {
     }
   });
 
+  const seededObjects = parseEditorObjects(formValues[EDITOR_OBJECTS_FIELD_NAME]);
+  const maxSeededId = Math.max(
+    0,
+    ...seededWalls.map((item) => getEditorNumericId(item.id)),
+    ...seededOpenings.map((item) => getEditorNumericId(item.id)),
+    ...seededObjects.map((item) => getEditorNumericId(item.id))
+  );
+
   return {
     walls: seededWalls,
     openings: seededOpenings,
-    lastId: nextId,
+    objects: seededObjects,
+    lastId: Math.max(nextId, maxSeededId),
   };
+}
+
+function serializeEditorObjects(objects: EditableObject[]) {
+  return objects.map((object) => ({
+    id: object.id,
+    kind: object.kind,
+    position: {
+      x: Number(object.position.x.toFixed(4)),
+      y: Number(object.position.y.toFixed(4)),
+    },
+    rotationRadians: Number(object.rotationRadians.toFixed(4)),
+  }));
+}
+
+function parseEditorObjects(rawValue: string | undefined): EditableObject[] {
+  if (!rawValue) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item, index) => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const source = item as {
+          id?: unknown;
+          kind?: unknown;
+          position?: { x?: unknown; y?: unknown };
+          rotationRadians?: unknown;
+        };
+        const positionX = Number(source.position?.x);
+        const positionY = Number(source.position?.y);
+        const rotationRadians = Number(source.rotationRadians ?? 0);
+
+        if (!Number.isFinite(positionX) || !Number.isFinite(positionY)) {
+          return null;
+        }
+
+        return {
+          id:
+            typeof source.id === "string" && source.id.trim().length > 0
+              ? source.id
+              : `object-${index + 1}`,
+          kind: source.kind === "workDesk" ? "workDesk" : "workDesk",
+          position: { x: positionX, y: positionY },
+          rotationRadians: Number.isFinite(rotationRadians) ? rotationRadians : 0,
+        } as EditableObject;
+      })
+      .filter((item): item is EditableObject => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+function getEditorNumericId(id: string) {
+  const parts = id.split("-");
+  const numeric = Number(parts[parts.length - 1]);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function getEditorViewport(
@@ -1948,6 +2207,7 @@ function drawEditorPlan(
   viewport: EditorViewport,
   walls: EditableWall[],
   openings: EditableOpening[],
+  objects: EditableObject[],
   selectedElement: SelectedEditorElement,
   draftWallStart: Point | null,
   draftWallEnd: Point | null
@@ -1980,6 +2240,10 @@ function drawEditorPlan(
       openingsByWall.get(wall.id) ?? [],
       selectedElement
     );
+  });
+
+  objects.forEach((object) => {
+    drawEditorObject(context, object, viewport, selectedElement);
   });
 
   if (draftWallStart && draftWallEnd) {
@@ -2019,17 +2283,57 @@ function drawEditorPlan(
     }
   }
 
-  if (walls.length === 0 && !draftWallStart) {
+  if (walls.length === 0 && objects.length === 0 && !draftWallStart) {
     context.fillStyle = "#475569";
     context.font = "14px sans-serif";
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillText(
-      "Choose Wall and click two points on the grid to start sketching.",
+      "Choose Wall or Desk to start sketching.",
       viewport.x + viewport.width / 2,
       viewport.y + viewport.height / 2
     );
   }
+
+  context.restore();
+}
+
+function drawEditorObject(
+  context: CanvasRenderingContext2D,
+  object: EditableObject,
+  viewport: EditorViewport,
+  selectedElement: SelectedEditorElement
+) {
+  const corners = getEditorObjectPolygon(object, viewport);
+  const isSelected =
+    selectedElement?.kind === "object" && selectedElement.id === object.id;
+
+  context.save();
+  context.lineJoin = "round";
+
+  if (isSelected) {
+    context.beginPath();
+    addClosedPath(context, corners);
+    context.strokeStyle = "rgba(14, 165, 233, 0.9)";
+    context.lineWidth = 3;
+    context.stroke();
+  }
+
+  context.beginPath();
+  addClosedPath(context, corners);
+  context.fillStyle = "#8b5a2b";
+  context.fill();
+  context.strokeStyle = "rgba(15, 23, 42, 0.65)";
+  context.lineWidth = 1.2;
+  context.stroke();
+
+  const center = worldToEditorScreen(object.position, viewport);
+  context.beginPath();
+  context.moveTo(center.x - 9, center.y);
+  context.lineTo(center.x + 9, center.y);
+  context.strokeStyle = "rgba(255,255,255,0.8)";
+  context.lineWidth = 1;
+  context.stroke();
 
   context.restore();
 }
@@ -2266,6 +2570,61 @@ function findEditorOpeningHit(
   return null;
 }
 
+function findEditorObjectHit(
+  point: Point,
+  viewport: EditorViewport,
+  objects: EditableObject[]
+): EditorObjectHit | null {
+  for (let index = objects.length - 1; index >= 0; index -= 1) {
+    const object = objects[index];
+    const polygon = getEditorObjectPolygon(object, viewport);
+
+    if (isPointInsidePolygon(point, polygon)) {
+      return {
+        object,
+        distance: 0,
+      };
+    }
+
+    const edgeDistance = getPolygonEdgeDistance(point, polygon);
+
+    if (edgeDistance <= 10) {
+      return {
+        object,
+        distance: edgeDistance,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getEditorObjectPolygon(
+  object: EditableObject,
+  viewport: EditorViewport
+) {
+  const halfWidth = (EDITOR_DESK_WIDTH_METERS * viewport.pixelsPerMeter) / 2;
+  const halfDepth = (EDITOR_DESK_DEPTH_METERS * viewport.pixelsPerMeter) / 2;
+  const center = worldToEditorScreen(object.position, viewport);
+  const baseCorners = [
+    { x: -halfWidth, y: -halfDepth },
+    { x: halfWidth, y: -halfDepth },
+    { x: halfWidth, y: halfDepth },
+    { x: -halfWidth, y: halfDepth },
+  ];
+
+  return baseCorners.map((corner) => ({
+    x:
+      center.x +
+      corner.x * Math.cos(object.rotationRadians) -
+      corner.y * Math.sin(object.rotationRadians),
+    y:
+      center.y +
+      corner.x * Math.sin(object.rotationRadians) +
+      corner.y * Math.cos(object.rotationRadians),
+  }));
+}
+
 function getDistanceToSegment(point: Point, start: Point, end: Point) {
   const lengthSquared =
     (end.x - start.x) * (end.x - start.x) +
@@ -2334,20 +2693,27 @@ function getCanvasSummary(
   formValues: CanvasFormValues,
   editorWalls: EditableWall[],
   editorOpenings: EditableOpening[],
+  editorObjects: EditableObject[],
   draftWallStart: Point | null
 ) {
-  if (editorWalls.length === 0 && editorOpenings.length === 0 && !draftWallStart) {
+  if (
+    editorWalls.length === 0 &&
+    editorOpenings.length === 0 &&
+    editorObjects.length === 0 &&
+    !draftWallStart
+  ) {
     return getWallSummary(formValues);
   }
 
   const wallLabel = editorWalls.length === 1 ? "wall" : "walls";
   const openingLabel = editorOpenings.length === 1 ? "opening" : "openings";
+  const objectLabel = editorObjects.length === 1 ? "object" : "objects";
 
   if (draftWallStart) {
-    return `Sketching wall | ${editorWalls.length} ${wallLabel} | ${editorOpenings.length} ${openingLabel}`;
+    return `Sketching wall | ${editorWalls.length} ${wallLabel} | ${editorOpenings.length} ${openingLabel} | ${editorObjects.length} ${objectLabel}`;
   }
 
-  return `Sketch: ${editorWalls.length} ${wallLabel} | ${editorOpenings.length} ${openingLabel}`;
+  return `Sketch: ${editorWalls.length} ${wallLabel} | ${editorOpenings.length} ${openingLabel} | ${editorObjects.length} ${objectLabel}`;
 }
 
 function getEditorToolHelp(
@@ -2368,6 +2734,10 @@ function getEditorToolHelp(
     return "Click a sketched wall to place a door.";
   }
 
+  if (tool === "desk") {
+    return "Click inside the room to place a work desk.";
+  }
+
   if (tool === "delete") {
     return "Click any wall, window, or door to remove it.";
   }
@@ -2378,7 +2748,8 @@ function getEditorToolHelp(
 function getSelectedEditorElementLabel(
   selectedElement: SelectedEditorElement,
   walls: EditableWall[],
-  openings: EditableOpening[]
+  openings: EditableOpening[],
+  objects: EditableObject[]
 ) {
   if (!selectedElement) {
     return "Nothing selected";
@@ -2388,6 +2759,11 @@ function getSelectedEditorElementLabel(
     const wallIndex = walls.findIndex((wall) => wall.id === selectedElement.id);
 
     return wallIndex >= 0 ? `Wall ${wallIndex + 1}` : "Wall";
+  }
+
+  if (selectedElement.kind === "object") {
+    const object = objects.find((item) => item.id === selectedElement.id);
+    return object?.kind === "workDesk" ? "Work Desk" : "Object";
   }
 
   const opening = openings.find(
