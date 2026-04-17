@@ -12,7 +12,13 @@ import { saveProject, getUserProjects } from "@/actions/projects";
 import type { Project, ProjectData } from "@/types";
 
 export default function HeatLoadWorkspace() {
-  const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
+  const [projectData, setProjectData] = useState<ProjectData>({
+    version: "1.1",
+    lastSaved: new Date().toISOString(),
+    formValues: initialFormValues,
+    sheetValues: {},
+  });
+
   const [activeView, setActiveView] = useState<WorkspaceView>("2d");
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,16 +44,13 @@ export default function HeatLoadWorkspace() {
     const supabase = createClient();
 
     const fetchUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
       setLoading(false);
     };
 
     fetchUser();
 
-    // Real-time auth listener
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
@@ -98,7 +101,7 @@ export default function HeatLoadWorkspace() {
     if (result.error) {
       setSaveMessage({ type: "error", text: result.error });
     } else {
-      setSaveMessage({ type: "success", text: " Project saved successfully!" });
+      setSaveMessage({ type: "success", text: "Project saved successfully!" });
       setProjectName("");
       setTimeout(() => setShowSaveModal(false), 1800);
     }
@@ -106,42 +109,52 @@ export default function HeatLoadWorkspace() {
   };
 
   const loadMyProjects = async () => {
+    if (loadingProjects) return;
+
     setLoadingProjects(true);
-    const rawProjects = await getUserProjects();
+    setSaveMessage(null);
 
-    const mappedProjects: Project[] = rawProjects.map((p: any) => ({
-      id: p.id,
-      user_id: p.user_id,
-      name: p.name,
-      created_at: p.created_at,
-      updated_at: p.updated_at,
-      data: p.data || { version: "1.1", formValues: initialFormValues, sheetValues: {} },
-    }));
+    try {
+      const rawProjects = await getUserProjects();
 
-    setProjects(mappedProjects);
-    setLoadingProjects(false);
-    setShowProjectsModal(true);
+      const mappedProjects: Project[] = rawProjects.map((p: any) => ({
+        id: p.id,
+        user_id: p.user_id,
+        name: p.name,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        data: p.data || { version: "1.1", formValues: initialFormValues, sheetValues: {} },
+      }));
+
+      setProjects(mappedProjects);
+      setShowProjectsModal(true);
+    } catch (error) {
+      console.error("Failed to load projects:", error);
+      setSaveMessage({ type: "error", text: "Failed to load projects" });
+    } finally {
+      setLoadingProjects(false);
+    }
   };
 
   const loadProject = (project: Project) => {
-    const saved = project.data;
+    const saved = project.data || {};
 
     setProjectData({
       version: saved.version || "1.1",
-      lastSaved: saved.lastSaved,
+      lastSaved: saved.lastSaved || new Date().toISOString(),
       formValues: saved.formValues || initialFormValues,
       sheetValues: saved.sheetValues || {},
     });
 
     setShowProjectsModal(false);
-    setSaveMessage({ type: "success", text: ` Loaded: ${project.name}` });
+    setSaveMessage({ type: "success", text: `Loaded: ${project.name}` });
     setTimeout(() => setSaveMessage(null), 2500);
   };
 
   const deleteProject = async (projectId: string) => {
     if (!confirm("Are you sure you want to delete this project?")) return;
 
-    const supabase = await createClient();
+    const supabase = createClient();
     const { error } = await supabase.from("projects").delete().eq("id", projectId);
 
     if (!error) {
@@ -160,7 +173,7 @@ export default function HeatLoadWorkspace() {
   const handleUpdateProjectName = async () => {
     if (!editingProject || !newProjectName.trim()) return;
 
-    const supabase = await createClient();
+    const supabase = createClient();
     const { error } = await supabase
       .from("projects")
       .update({ name: newProjectName.trim() })
@@ -191,26 +204,34 @@ export default function HeatLoadWorkspace() {
             {user && (
               <>
                 <span className="hidden text-sm text-slate-600 md:block">{user.email}</span>
+
                 <button
-                  onClick={handleLogout}
-                  className="rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] transition hover:bg-rose-50"
+                  onClick={() => setShowSaveModal(true)}
+                  className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition"
                 >
-                  My Projects
+                  Save Project
+                </button>
+
+                <button
+                  onClick={loadMyProjects}
+                  disabled={loadingProjects}
+                  className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition disabled:opacity-50"
+                >
+                  {loadingProjects ? "Loading..." : "My Projects"}
                 </button>
 
                 <button className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition">
                   Export
                 </button>
 
-                <button onClick={handleLogout} className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition">
+                <button
+                  onClick={handleLogout}
+                  className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition"
+                >
                   Logout
                 </button>
               </>
             )}
-
-            <button className="rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] transition hover:bg-rose-50">
-              Export
-            </button>
 
             <button className="rounded-lg bg-[#be123c] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#9f1239]">
               Run Analysis
@@ -219,17 +240,23 @@ export default function HeatLoadWorkspace() {
         </header>
 
         <main className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[40%_60%]">
-          <HeatLoadFormPanel formValues={formValues} onFieldChange={handleFieldChange} />
+          <HeatLoadFormPanel
+            formValues={projectData.formValues}
+            sheetValues={projectData.sheetValues}
+            onFieldChange={handleFormChange}
+            onSheetChange={handleSheetChange}
+          />
+
           {activeView === "2d" ? (
-          <HeatLoadCanvasPanel
-              formValues={formValues}
+            <HeatLoadCanvasPanel
+              formValues={projectData.formValues}
               activeView={activeView}
               onViewChange={setActiveView}
-              onFieldChange={handleFieldChange}
+              onFieldChange={handleFormChange}
             />
           ) : (
             <HeatLoad3DPanel
-              formValues={formValues}
+              formValues={projectData.formValues}
               activeView={activeView}
               onViewChange={setActiveView}
             />
@@ -240,6 +267,8 @@ export default function HeatLoadWorkspace() {
           HLC Platform - Thesis Project
         </footer>
       </div>
+
+      {/* ====================== MODALS ====================== */}
 
       {/* Save Project Modal */}
       {showSaveModal && (
@@ -255,17 +284,21 @@ export default function HeatLoadWorkspace() {
               className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:border-[#be123c] mb-6"
               autoFocus
             />
-            {saveMessage && <p className={`text-center mb-4 text-sm font-medium ${saveMessage.type === "success" ? "text-green-600" : "text-red-600"}`}>{saveMessage.text}</p>}
+            {saveMessage && (
+              <p className={`text-center mb-4 text-sm font-medium ${saveMessage.type === "success" ? "text-green-600" : "text-red-600"}`}>
+                {saveMessage.text}
+              </p>
+            )}
             <div className="flex gap-3">
-              <button 
-                onClick={() => {setShowSaveModal(false); setProjectName(""); setSaveMessage(null);}} 
+              <button
+                onClick={() => { setShowSaveModal(false); setProjectName(""); setSaveMessage(null); }}
                 className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50"
               >
                 Cancel
               </button>
-              <button 
-                onClick={handleSaveProject} 
-                disabled={saving || !projectName.trim()} 
+              <button
+                onClick={handleSaveProject}
+                disabled={saving || !projectName.trim()}
                 className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239] disabled:bg-rose-300"
               >
                 {saving ? "Saving..." : "Save Project"}
@@ -320,7 +353,10 @@ export default function HeatLoadWorkspace() {
               </div>
             )}
 
-            <button onClick={() => setShowProjectsModal(false)} className="mt-6 w-full py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50">
+            <button 
+              onClick={() => setShowProjectsModal(false)} 
+              className="mt-6 w-full py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50"
+            >
               Close
             </button>
           </div>
@@ -340,10 +376,16 @@ export default function HeatLoadWorkspace() {
               autoFocus
             />
             <div className="flex gap-3">
-              <button onClick={() => setShowEditModal(false)} className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50">
+              <button 
+                onClick={() => setShowEditModal(false)} 
+                className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50"
+              >
                 Cancel
               </button>
-              <button onClick={handleUpdateProjectName} className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239]">
+              <button 
+                onClick={handleUpdateProjectName} 
+                className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239]}"
+              >
                 Update Name
               </button>
             </div>
