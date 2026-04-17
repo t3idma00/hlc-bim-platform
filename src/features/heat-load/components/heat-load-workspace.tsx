@@ -69,6 +69,7 @@ export default function HeatLoadWorkspace() {
     setProjectData((prev) => ({
       ...prev,
       sheetValues: { ...prev.sheetValues, [name]: value },
+      formValues: applySheetValueToFormValues(prev.formValues, name, value),
     }));
   };
 
@@ -394,4 +395,32 @@ export default function HeatLoadWorkspace() {
       )}
     </div>
   );
+}
+
+function applySheetValueToFormValues(
+  formValues: FormValues,
+  sheetKey: string,
+  sheetValue: string
+): FormValues {
+  const wallFieldMap: Record<string, keyof FormValues> = {
+    "1.1_type": "wallNorthType",
+    "1.2_type": "wallEastType",
+    "1.3_type": "wallSouthType",
+    "1.4_type": "wallWestType",
+    "1.1_thickness": "wallNorthWidth",
+    "1.2_thickness": "wallEastWidth",
+    "1.3_thickness": "wallSouthWidth",
+    "1.4_thickness": "wallWestWidth",
+  };
+
+  const formField = wallFieldMap[sheetKey];
+
+  if (!formField) {
+    return formValues;
+  }
+
+  return {
+    ...formValues,
+    [formField]: sheetValue,
+  };
 }
