@@ -5,8 +5,7 @@ import { revalidatePath } from "next/cache";
 
 export async function saveProject(formData: FormData) {
   const projectName = formData.get("projectName") as string;
-  const fullDataJson = formData.get("formValues") as string;   // This now contains the full ProjectData
-
+  const fullDataJson = formData.get("formValues") as string;   
   if (!projectName?.trim()) {
     return { error: "Project name is required" };
   }
