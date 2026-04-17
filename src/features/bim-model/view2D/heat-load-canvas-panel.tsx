@@ -158,6 +158,11 @@ type EditableOpening = {
   widthMeters: number;
 };
 
+type EditorSnapshot = {
+  walls: EditableWall[];
+  openings: EditableOpening[];
+};
+
 type SelectedEditorElement =
   | {
       kind: "wall" | "opening";
@@ -177,10 +182,12 @@ type EditorDragState =
       kind: "wall";
       wallId: string;
       lastWorld: Point;
+      didRecordHistory: boolean;
     }
   | {
       kind: "opening";
       openingId: string;
+      didRecordHistory: boolean;
     };
 
 type EditorViewport = {
@@ -216,6 +223,8 @@ const TOOL_OPTIONS: ToolOption[] = [
   { key: "delete", label: "Delete" },
 ];
 
+const MAX_HISTORY_STEPS = 60;
+
 export function HeatLoadCanvasPanel({
   formValues,
   activeView,
@@ -237,6 +246,10 @@ export function HeatLoadCanvasPanel({
   });
   const [editorTool, setEditorTool] = useState<ActiveEditorTool>(null);
   const [editorRevision, setEditorRevision] = useState(0);
+  const [historyControls, setHistoryControls] = useState({
+    canUndo: false,
+    canRedo: false,
+  });
 
   const offsetRef = useRef({ x: 0, y: 0 });
   const editorToolRef = useRef<ActiveEditorTool>(null);
@@ -247,6 +260,9 @@ export function HeatLoadCanvasPanel({
   const draftWallEndRef = useRef<Point | null>(null);
   const dragStateRef = useRef<EditorDragState>({ kind: "idle" });
   const idCounterRef = useRef(0);
+  const undoStackRef = useRef<EditorSnapshot[]>([]);
+  const redoStackRef = useRef<EditorSnapshot[]>([]);
+  const suppressFormReseedCountRef = useRef(0);
 
   const refreshEditorUi = () => {
     setEditorRevision((previousValue) => previousValue + 1);
@@ -257,7 +273,79 @@ export function HeatLoadCanvasPanel({
     draftWallEndRef.current = null;
   };
 
+  const cloneEditorWalls = (walls: EditableWall[]) =>
+    walls.map((wall) => ({
+      ...wall,
+      start: { ...wall.start },
+      end: { ...wall.end },
+    }));
+
+  const cloneEditorOpenings = (openings: EditableOpening[]) =>
+    openings.map((opening) => ({ ...opening }));
+
+  const createEditorSnapshot = (): EditorSnapshot => ({
+    walls: cloneEditorWalls(editorWallsRef.current),
+    openings: cloneEditorOpenings(editorOpeningsRef.current),
+  });
+
+  const applyEditorSnapshot = (snapshot: EditorSnapshot) => {
+    editorWallsRef.current = cloneEditorWalls(snapshot.walls);
+    editorOpeningsRef.current = cloneEditorOpenings(snapshot.openings);
+    selectedEditorElementRef.current = null;
+    dragStateRef.current = { kind: "idle" };
+    clearEditorDraft();
+    refreshEditorUi();
+  };
+
+  const syncHistoryControls = () => {
+    setHistoryControls({
+      canUndo: undoStackRef.current.length > 0,
+      canRedo: redoStackRef.current.length > 0,
+    });
+  };
+
+  const recordEditorHistory = () => {
+    undoStackRef.current = [...undoStackRef.current, createEditorSnapshot()].slice(
+      -MAX_HISTORY_STEPS
+    );
+    redoStackRef.current = [];
+    syncHistoryControls();
+  };
+
+  const undoEditorChange = () => {
+    const previousSnapshot = undoStackRef.current.at(-1);
+
+    if (!previousSnapshot) {
+      return;
+    }
+
+    const currentSnapshot = createEditorSnapshot();
+    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    redoStackRef.current = [...redoStackRef.current, currentSnapshot].slice(
+      -MAX_HISTORY_STEPS
+    );
+    applyEditorSnapshot(previousSnapshot);
+    syncHistoryControls();
+  };
+
+  const redoEditorChange = () => {
+    const nextSnapshot = redoStackRef.current.at(-1);
+
+    if (!nextSnapshot) {
+      return;
+    }
+
+    const currentSnapshot = createEditorSnapshot();
+    redoStackRef.current = redoStackRef.current.slice(0, -1);
+    undoStackRef.current = [...undoStackRef.current, currentSnapshot].slice(
+      -MAX_HISTORY_STEPS
+    );
+    applyEditorSnapshot(nextSnapshot);
+    syncHistoryControls();
+  };
+
   const clearFormFields = (...fieldNames: string[]) => {
+    suppressFormReseedCountRef.current += fieldNames.length;
     fieldNames.forEach((fieldName) => onFieldChange(fieldName, ""));
   };
 
@@ -340,6 +428,7 @@ export function HeatLoadCanvasPanel({
 
   const handleToolbarToolClick = (tool: EditorTool) => {
     if (tool === "delete" && selectedEditorElementRef.current !== null) {
+      recordEditorHistory();
       deleteSelectedEditorElement();
       setEditorTool(null);
       return;
@@ -361,6 +450,11 @@ export function HeatLoadCanvasPanel({
   }, [editorTool]);
 
   useEffect(() => {
+    if (suppressFormReseedCountRef.current > 0) {
+      suppressFormReseedCountRef.current -= 1;
+      return;
+    }
+
     const seededSketch = buildEditorSketchFromFormValues(formValues);
 
     editorWallsRef.current = seededSketch.walls;
@@ -1040,6 +1134,7 @@ export function HeatLoadCanvasPanel({
           getDistance(draftWallStartRef.current, endPoint) >=
           EDITOR_MIN_WALL_LENGTH
         ) {
+          recordEditorHistory();
           idCounterRef.current += 1;
 
           const wall: EditableWall = {
@@ -1079,6 +1174,7 @@ export function HeatLoadCanvasPanel({
           return;
         }
 
+        recordEditorHistory();
         idCounterRef.current += 1;
         const opening: EditableOpening = {
           ...nextOpening,
@@ -1097,6 +1193,7 @@ export function HeatLoadCanvasPanel({
 
       if (tool === "delete") {
         if (openingHit) {
+          recordEditorHistory();
           deleteOpeningAndSync(openingHit.opening, openingHit.wall);
           if (selectedEditorElementRef.current?.id === openingHit.opening.id) {
             selectedEditorElementRef.current = null;
@@ -1107,6 +1204,7 @@ export function HeatLoadCanvasPanel({
         }
 
         if (wallHit) {
+          recordEditorHistory();
           deleteWallAndSync(wallHit.wall);
           if (selectedEditorElementRef.current?.id === wallHit.wall.id) {
             selectedEditorElementRef.current = null;
@@ -1135,6 +1233,7 @@ export function HeatLoadCanvasPanel({
         dragStateRef.current = {
           kind: "opening",
           openingId: openingHit.opening.id,
+          didRecordHistory: false,
         };
         refreshEditorUi();
         redrawCanvas();
@@ -1152,6 +1251,7 @@ export function HeatLoadCanvasPanel({
           kind: "wall",
           wallId: wallHit.wall.id,
           lastWorld: worldPoint,
+          didRecordHistory: false,
         };
         refreshEditorUi();
         redrawCanvas();
@@ -1208,6 +1308,10 @@ export function HeatLoadCanvasPanel({
           return;
         }
 
+        if (!dragState.didRecordHistory) {
+          recordEditorHistory();
+        }
+
         editorWallsRef.current = editorWallsRef.current.map((wall) =>
           wall.id === dragState.wallId ? moveEditorWall(wall, delta) : wall
         );
@@ -1215,6 +1319,7 @@ export function HeatLoadCanvasPanel({
           kind: "wall",
           wallId: dragState.wallId,
           lastWorld: interaction.worldPoint,
+          didRecordHistory: true,
         };
         redrawCanvas();
         return;
@@ -1240,16 +1345,49 @@ export function HeatLoadCanvasPanel({
           return;
         }
 
+        if (!dragState.didRecordHistory) {
+          recordEditorHistory();
+        }
+
         editorOpeningsRef.current = editorOpeningsRef.current.map((opening) =>
           opening.id === dragState.openingId
             ? moveEditorOpeningAlongWall(opening, ownerWall, worldPoint)
             : opening
         );
+        dragStateRef.current = {
+          kind: "opening",
+          openingId: dragState.openingId,
+          didRecordHistory: true,
+        };
         redrawCanvas();
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      const isUndoShortcut =
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "z" &&
+        !event.shiftKey;
+      const isRedoShortcut =
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === "z" &&
+        event.shiftKey;
+      const isRedoByY = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y";
+
+      if (isUndoShortcut) {
+        event.preventDefault();
+        undoEditorChange();
+        redrawCanvas();
+        return;
+      }
+
+      if (isRedoShortcut || isRedoByY) {
+        event.preventDefault();
+        redoEditorChange();
+        redrawCanvas();
+        return;
+      }
+
       if (event.key === "Escape") {
         if (draftWallStartRef.current || draftWallEndRef.current) {
           clearEditorDraft();
@@ -1264,6 +1402,7 @@ export function HeatLoadCanvasPanel({
         selectedEditorElementRef.current
       ) {
         event.preventDefault();
+        recordEditorHistory();
         deleteSelectedEditorElement();
         redrawCanvas();
       }
@@ -1287,10 +1426,21 @@ export function HeatLoadCanvasPanel({
       canvas.removeEventListener("mouseleave", handleMouseUp);
       canvas.removeEventListener("mousemove", handleMouseMove);
     };
-  }, [deleteSelectedEditorElement, editorRevision, editorTool, formValues, scale, solarState]);
+  }, [
+    deleteSelectedEditorElement,
+    editorRevision,
+    editorTool,
+    formValues,
+    redoEditorChange,
+    scale,
+    solarState,
+    undoEditorChange,
+  ]);
 
   const editorWalls = editorWallsRef.current;
   const editorOpenings = editorOpeningsRef.current;
+  const canUndo = historyControls.canUndo;
+  const canRedo = historyControls.canRedo;
   const wallSummary = getCanvasSummary(
     formValues,
     editorWalls,
@@ -1352,6 +1502,39 @@ export function HeatLoadCanvasPanel({
                   </button>
                 );
               })}
+              <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
+              <button
+                type="button"
+                aria-label="Undo"
+                title="Undo (Ctrl/Cmd+Z)"
+                onClick={() => {
+                  undoEditorChange();
+                }}
+                disabled={!canUndo}
+                className={`flex h-10 w-10 items-center justify-center border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 ${
+                  canUndo
+                    ? "border-transparent bg-transparent text-[#f8fbff] hover:border-[#8ea2bf]/55 hover:bg-[#7686a0]/28"
+                    : "cursor-not-allowed border-transparent bg-transparent text-[#f8fbff]/35"
+                }`}
+              >
+                <HistoryToolIcon action="undo" />
+              </button>
+              <button
+                type="button"
+                aria-label="Redo"
+                title="Redo (Ctrl/Cmd+Shift+Z / Ctrl+Y)"
+                onClick={() => {
+                  redoEditorChange();
+                }}
+                disabled={!canRedo}
+                className={`flex h-10 w-10 items-center justify-center border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 ${
+                  canRedo
+                    ? "border-transparent bg-transparent text-[#f8fbff] hover:border-[#8ea2bf]/55 hover:bg-[#7686a0]/28"
+                    : "cursor-not-allowed border-transparent bg-transparent text-[#f8fbff]/35"
+                }`}
+              >
+                <HistoryToolIcon action="redo" />
+              </button>
             </div>
           </div>
 
@@ -1440,6 +1623,42 @@ function ToolboxIcon({ tool }: { tool: EditorTool }) {
       <path d="M7.2 6.5l.8 12h8l.8-12" />
       <path d="M10 10.2v4.6" />
       <path d="M14 10.2v4.6" />
+    </svg>
+  );
+}
+
+function HistoryToolIcon({ action }: { action: "undo" | "redo" }) {
+  if (action === "undo") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M9 7l-4 4 4 4" />
+        <path d="M20 17a7 7 0 00-7-7H5" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M15 7l4 4-4 4" />
+      <path d="M4 17a7 7 0 017-7h8" />
     </svg>
   );
 }
