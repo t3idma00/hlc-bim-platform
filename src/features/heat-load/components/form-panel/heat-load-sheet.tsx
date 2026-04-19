@@ -152,6 +152,88 @@ function buildInitialSections(): Section[] {
         { id: "3.3", values: { item: "Floor", typeA: "Intermediate Floor", typeB: "Concrete Wall", thickness: "100", uFactor: "", cltd: "", calcValue: "", heatLoad: "" }, selectOptions: floorCellSelects },
       ],
     },
+    {
+      number: "4",
+      title: "Infiltration",
+      columns: [
+        { key: "componentA", label: "Component", width: "15%" },
+        { key: "qty", label: "Qty", align: "right", width: "15%", editable: true },
+        { key: "crackLength", label: "Crack length", align: "right", width: "14%", editable: true },
+        { key: "componentB", label: "Component", wrap: true, width: "18%" },
+        { key: "qtySecondary", label: "QTY", align: "right", width: "9%", editable: true },
+        { key: "doorArea", label: "Door Area", align: "right", width: "10%", editable: true },
+        { key: "factor", label: "Factor", align: "right", width: "10%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "9%", editable: true },
+      ],
+      rows: [
+        {
+          id: "4.1",
+          values: {
+            componentA: "Window",
+            qty: "1",
+            crackLength: "5",
+            componentB: "Nonresidential door",
+            qtySecondary: "2.00",
+            doorArea: "1",
+            factor: "1.0",
+            heatLoad: "106.72",
+          },
+          selectOptions: {
+            componentB: heatLoadLookupOptions.infiltrationDoorComponents,
+          },
+        },
+      ],
+    },
+    {
+      number: "5",
+      title: "Internal Heat",
+      columns: [
+        { key: "item", label: "Item", wrap: true, width: "12%" },
+        { key: "application", label: "Application", wrap: true, width: "31%" },
+        { key: "heatGain", label: "Heat gain", align: "right", width: "14%", editable: true },
+        { key: "qty", label: "QTY", align: "right", width: "19%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%", editable: true },
+      ],
+      rows: [
+        { id: "5.1", values: { item: "People", application: "Standing, light work or walking", heatGain: "", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.peopleApplications } },
+        { id: "5.2", values: { item: "Motor power (Name plate)", application: "(0.04)", heatGain: "", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.motorPowerFactors } },
+        { id: "5.3", values: { item: "compact fluorescent lamp", application: "Office", heatGain: "", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.lampApplications } },
+        { id: "5.4", values: { item: "Appliance etc.", application: "Medium, desktop type", heatGain: "", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.applianceApplications } },
+        { id: "5.5", values: { item: "Additional heat gain", application: "Miscellaneous equipment", heatGain: "", qty: "", heatLoad: "" } },
+      ],
+    },
+    {
+      number: "6",
+      title: "Ventilation",
+      columns: [
+        { key: "application", label: "Application", width: "13%" },
+        { key: "item", label: "Item", width: "10%" },
+        { key: "quantity", label: "Quantity", align: "right", width: "8%", editable: true },
+        { key: "area", label: "Area", width: "8%" },
+        { key: "areaQty", label: "Area quantity", align: "right", width: "9%", editable: true },
+        { key: "totalFlowRate", label: "Total flowrate", align: "right", width: "11%", editable: true },
+        { key: "sensible", label: "Sensible heat", align: "right", width: "8%", editable: true },
+        { key: "latent", label: "Latent heat", align: "right", width: "9%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%", editable: true },
+      ],
+      rows: [
+        {
+          id: "6.1",
+          values: {
+            application: "Pharmacy",
+            item: "People",
+            quantity: "",
+            area: "Area",
+            areaQty: "",
+            totalFlowRate: "",
+            sensible: "",
+            latent: "",
+            heatLoad: "",
+          },
+          selectOptions: { application: heatLoadLookupOptions.ventilationApplications },
+        },
+      ],
+    },
   ];
 }
 

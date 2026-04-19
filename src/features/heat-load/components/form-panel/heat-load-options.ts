@@ -33,6 +33,7 @@ export const heatLoadLookupOptions = {
   glassFrameTypes: ["Glass only (Centre of Glass)", "OperableWood/Vinyl", "Fixed Wood/Vinyl"],
   infiltrationComponents: ["Window", "Door"],
   infiltrationOccupancies: ["Residential", "Non residential"],
+  infiltrationDoorComponents: ["Residential door", "Nonresidential door"],
   peopleApplications: [
     "Seated at Theater",
     "Seated at Theater, night",
