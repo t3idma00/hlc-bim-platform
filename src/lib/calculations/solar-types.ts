@@ -47,10 +47,12 @@ export type SolarIntensity = {
 export type AmbientConditions = {
   dryBulbTemp: number;
   relativeHumidity: number;
+  wetBulbTemp: number | null;
   source: "open-meteo" | "open-meteo-archive";
   availability: {
     dryBulbTemp: boolean;
     relativeHumidity: boolean;
+    wetBulbTemp: boolean;
   };
   missingVariables: string[];
 };

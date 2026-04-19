@@ -6,6 +6,7 @@ import type {
   SolarLocationInput,
   SolarMode,
 } from "./solar-types";
+import { calculateWetBulbFromRelativeHumidity } from "./psychrometrics";
 
 function toRadians(value: number): number {
   return (value * Math.PI) / 180;
@@ -49,6 +50,7 @@ function buildMissingVariables(availability: { ghi: boolean; dni: boolean; dhi: 
 function buildAmbientMissingVariables(availability: {
   dryBulbTemp: boolean;
   relativeHumidity: boolean;
+  wetBulbTemp: boolean;
 }): string[] {
   const missing: string[] = [];
   if (!availability.dryBulbTemp) {
@@ -56,6 +58,9 @@ function buildAmbientMissingVariables(availability: {
   }
   if (!availability.relativeHumidity) {
     missing.push("RelativeHumidity");
+  }
+  if (!availability.wetBulbTemp) {
+    missing.push("WetBulbTemp");
   }
   return missing;
 }
@@ -459,15 +464,21 @@ export async function fetchOpenMeteoAmbientConditions(
   const nearestIndex = findNearestHourlyIndex(hourly.time, targetDateTime);
   const dryBulbTemp = parseMeasurement(hourly.temperature_2m?.[nearestIndex]);
   const relativeHumidity = parseMeasurement(hourly.relative_humidity_2m?.[nearestIndex]);
+  const wetBulbTemp =
+    dryBulbTemp.available && relativeHumidity.available
+      ? calculateWetBulbFromRelativeHumidity(dryBulbTemp.value, relativeHumidity.value)
+      : null;
 
   const availability = {
     dryBulbTemp: dryBulbTemp.available,
     relativeHumidity: relativeHumidity.available,
+    wetBulbTemp: wetBulbTemp !== null,
   };
 
   return {
     dryBulbTemp: dryBulbTemp.value,
     relativeHumidity: relativeHumidity.value,
+    wetBulbTemp,
     source,
     availability,
     missingVariables: buildAmbientMissingVariables(availability),

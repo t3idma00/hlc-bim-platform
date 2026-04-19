@@ -29,6 +29,14 @@ type TemperatureHistoryResponse = {
   }>;
 };
 
+type SolarDetailsResponse = {
+  ambient?: {
+    dryBulbTemp?: number | null;
+    relativeHumidity?: number | null;
+    wetBulbTemp?: number | null;
+  };
+};
+
 const topSectionRows = [0, 1, 2, 3];
 
 export const initialFormValues: FormValues = {
@@ -117,6 +125,25 @@ function computePercentile(values: number[], percentile: number): number {
 
   const weight = rank - lowIndex;
   return sorted[lowIndex] * (1 - weight) + sorted[highIndex] * weight;
+}
+
+function findNearestDesignHour(
+  entries: Array<{ time: string; dryBulbTemp: number | null }>,
+  targetDryBulb: number,
+) {
+  const candidates = entries.filter(
+    (entry): entry is { time: string; dryBulbTemp: number } => typeof entry.dryBulbTemp === "number",
+  );
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  return candidates.reduce((closest, entry) => {
+    const currentDifference = Math.abs(entry.dryBulbTemp - targetDryBulb);
+    const closestDifference = Math.abs(closest.dryBulbTemp - targetDryBulb);
+    return currentDifference < closestDifference ? entry : closest;
+  });
 }
 
 function formatConditionValue(value: number): string {
@@ -287,7 +314,8 @@ export function HeatLoadFormPanel({
           }
         );
 
-        const dryBulbSeries = (historyPayload.hourlyDryBulb ?? [])
+        const hourlyDryBulb = historyPayload.hourlyDryBulb ?? [];
+        const dryBulbSeries = hourlyDryBulb
           .map((entry) => entry.dryBulbTemp)
           .filter((value): value is number => typeof value === "number");
 
@@ -298,8 +326,45 @@ export function HeatLoadFormPanel({
         const selectedPercent = Number(formValues.dryBulbPercentile || "1");
         // Cooling design style: 1% means the top hottest 1% hours, so use (100 - p) percentile.
         const dryBulb = computePercentile(dryBulbSeries, 100 - selectedPercent);
+        const designHour = findNearestDesignHour(hourlyDryBulb, dryBulb);
+
         onFieldChange("dryBulbTemp", formatConditionValue(dryBulb));
         onFieldChange("outsideCondition", formatConditionValue(dryBulb));
+
+        if (!designHour) {
+          onFieldChange("conditionValue", "");
+          onFieldChange("wetBulbTemp", "");
+          return;
+        }
+
+        const solarDetailsParams = new URLSearchParams({
+          latitude: String(resolved.latitude),
+          longitude: String(resolved.longitude),
+          timezone: resolved.timezone ?? "UTC",
+          datetime: designHour.time,
+          mode: "auto",
+        });
+
+        const solarDetailsPayload = await fetchCachedJson<SolarDetailsResponse & { error?: string }>(
+          `/api/solar-details?${solarDetailsParams.toString()}`,
+          undefined,
+          {
+            cacheKey: `solar-details:${solarDetailsParams.toString()}`,
+            ttlMs: 24 * 60 * 60 * 1000,
+          }
+        );
+
+        const currentType = formValues.conditionType ?? "Relative Humidity";
+        const ambient = solarDetailsPayload.ambient;
+        const nextConditionValue =
+          currentType === "Wet bulb temperature" ? ambient?.wetBulbTemp : ambient?.relativeHumidity;
+
+        if (typeof nextConditionValue === "number") {
+          onFieldChange("conditionValue", formatConditionValue(nextConditionValue));
+        } else {
+          onFieldChange("conditionValue", "");
+          onFieldChange("wetBulbTemp", "");
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to auto-fill design temperatures.";
         setDesignTempError(message);

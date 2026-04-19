@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
           country,
           latitude,
           longitude,
-          thresholdKm: 50,
+          thresholdKm: 5,
         });
 
         cityCoordinateMatch = {
@@ -130,6 +130,7 @@ export async function GET(request: NextRequest) {
     let ambient = {
       dryBulbTemp: null as number | null,
       relativeHumidity: null as number | null,
+      wetBulbTemp: null as number | null,
       source: null as "open-meteo" | "open-meteo-archive" | null,
       missingVariables: [] as string[],
     };
@@ -140,6 +141,7 @@ export async function GET(request: NextRequest) {
       ambient = {
         dryBulbTemp: ambientData.dryBulbTemp,
         relativeHumidity: ambientData.relativeHumidity,
+        wetBulbTemp: ambientData.wetBulbTemp,
         source: ambientData.source,
         missingVariables: ambientData.missingVariables,
       };
