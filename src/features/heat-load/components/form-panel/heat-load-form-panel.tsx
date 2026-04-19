@@ -9,7 +9,16 @@ import { calculateRelativeHumidityFromWetBulb, calculateWetBulbFromRelativeHumid
 
 type SurfaceType = "walls" | "windows" | "doors";
 type UnitSystem = "si" | "imperial";
+
 export type FormValues = Record<string, string>;
+type SheetValues = Record<string, string>;
+
+type Props = {
+  formValues: FormValues;
+  sheetValues: SheetValues;
+  onFieldChange: (name: string, value: string) => void;
+  onSheetChange: (name: string, value: string) => void;
+};
 
 type CountryOption = {
   name: string;
@@ -108,11 +117,11 @@ export const initialFormValues: FormValues = {
   indoorConditionValue: "",
 };
 
+// Helper functions (from main branch - better version)
 function computePercentile(values: number[], percentile: number): number {
   if (!values.length) {
     return 0;
   }
-
   const sorted = [...values].sort((a, b) => a - b);
   const clamped = Math.min(100, Math.max(0, percentile));
   const rank = (clamped / 100) * (sorted.length - 1);
@@ -157,11 +166,10 @@ function parseConditionValue(value: string): number | null {
 
 export function HeatLoadFormPanel({
   formValues,
+  sheetValues,
   onFieldChange,
-}: {
-  formValues: FormValues;
-  onFieldChange: (name: string, value: string) => void;
-}) {
+  onSheetChange,
+}: Props) {
   const [surfaceType, setSurfaceType] = useState<SurfaceType>("walls");
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("si");
   const [countryOptions, setCountryOptions] = useState<CountryOption[]>([]);
@@ -171,9 +179,11 @@ export function HeatLoadFormPanel({
   const [designTempLoading, setDesignTempLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [designTempError, setDesignTempError] = useState<string | null>(null);
+
   const previousOutdoorConditionType = useRef(formValues.conditionType);
   const previousIndoorConditionType = useRef(formValues.indoorConditionType);
 
+  // All your useEffect hooks (they are almost identical, I kept the better versions)
   useEffect(() => {
     async function loadCountries() {
       setCountryLoading(true);
@@ -188,12 +198,12 @@ export function HeatLoadFormPanel({
         const countries = payload.results ?? [];
         setCountryOptions(countries);
 
-        if (!countries.length) {
-          return;
-        }
+        if (!countries.length) return;
 
         const selected = formValues.selectedCountry;
-        const nextCountry = selected && countries.some((item) => item.name === selected) ? selected : countries[0].name;
+        const nextCountry = selected && countries.some((item) => item.name === selected)
+          ? selected
+          : countries[0].name;
         const matched = countries.find((item) => item.name === nextCountry);
 
         if (formValues.selectedCountry !== nextCountry) {
@@ -533,6 +543,7 @@ export function HeatLoadFormPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
           <div className="space-y-3">
+            {/* Location Selection - restored from main */}
             <div className="border border-rose-200 bg-white px-2 py-2">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]">Location Selection</p>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -574,6 +585,7 @@ export function HeatLoadFormPanel({
               {designTempError ? <p className="mt-2 text-[10px] text-rose-700">{designTempError}</p> : null}
             </div>
 
+            {/* Room Details + Design Conditions Table */}
             <table className="w-full table-fixed border-collapse text-[10px] leading-none text-slate-900">
               <colgroup>
                 <col style={{ width: "22%" }} />
@@ -594,12 +606,21 @@ export function HeatLoadFormPanel({
                       values={formValues}
                       onFieldChange={onFieldChange}
                     />
-                    <DesignConditionsRow rowIndex={rowIndex} values={formValues} onFieldChange={onFieldChange} />
+                    <DesignConditionsRow 
+                      rowIndex={rowIndex} 
+                      values={formValues} 
+                      onFieldChange={onFieldChange} 
+                    />
                   </tr>
                 ))}
               </tbody>
             </table>
-            <HeatLoadSheet onFieldChange={onFieldChange} />
+
+            {/* ✅ Your Save/Load Feature - restored from your branch */}
+            <HeatLoadSheet 
+              sheetValues={sheetValues} 
+              onSheetChange={onSheetChange} 
+            />
           </div>
         </div>
 
