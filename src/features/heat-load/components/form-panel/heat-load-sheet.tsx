@@ -159,11 +159,10 @@ function buildInitialSections(): Section[] {
         { key: "componentA", label: "Component", width: "15%" },
         { key: "qty", label: "Qty", align: "right", width: "15%", editable: true },
         { key: "crackLength", label: "Crack length", align: "right", width: "14%", editable: true },
-        { key: "componentB", label: "Component", wrap: true, width: "18%" },
+        { key: "componentB", label: "Component", wrap: true, width: "19%" },
         { key: "qtySecondary", label: "QTY", align: "right", width: "9%", editable: true },
-        { key: "doorArea", label: "Door Area", align: "right", width: "10%", editable: true },
-        { key: "factor", label: "Factor", align: "right", width: "10%", editable: true },
-        { key: "heatLoad", label: "Total Heat load", align: "right", width: "9%", editable: true },
+        { key: "doorArea", label: "Door Area", align: "right", width: "11%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", align: "right", width: "10%", editable: true },
       ],
       rows: [
         {
@@ -175,7 +174,6 @@ function buildInitialSections(): Section[] {
             componentB: "Nonresidential door",
             qtySecondary: "2.00",
             doorArea: "1",
-            factor: "1.0",
             heatLoad: "106.72",
           },
           selectOptions: {
