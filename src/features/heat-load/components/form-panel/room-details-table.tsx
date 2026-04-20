@@ -1,4 +1,4 @@
-import { DirectionDimensionCell, TopSelectField } from "./top-form-fields";
+import { DirectionDimensionCell, TopStaticField } from "./top-form-fields";
 
 type SurfaceType = "walls" | "windows" | "doors";
 type FormValues = Record<string, string>;
@@ -7,8 +7,6 @@ type RoomRow = {
   name: string;
   defaultDirection: string;
 };
-
-const directionOptions = ["North", "East", "South", "West"];
 
 const surfaceTabs: { key: SurfaceType; label: string }[] = [
   { key: "walls", label: "Walls" },
@@ -92,12 +90,9 @@ export function RoomDetailsRow({
   return (
     <>
       <td className="border border-slate-300 bg-[#fff4f7] p-0">
-        <TopSelectField
+        <TopStaticField
           ariaLabel={`${roomRow.defaultDirection} direction`}
-          name={`${roomRow.name}Direction`}
-          options={directionOptions}
-          value={values[`${roomRow.name}Direction`] ?? roomRow.defaultDirection}
-          onValueChange={onFieldChange}
+          value={roomRow.defaultDirection}
         />
       </td>
       <td className="border border-slate-300 bg-white p-0">

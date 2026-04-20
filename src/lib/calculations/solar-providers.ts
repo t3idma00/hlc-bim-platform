@@ -82,6 +82,41 @@ function findNearestHourlyIndex(times: string[], targetDateTime: Date): number {
   return nearestIndex;
 }
 
+
+// Great-circle distance between two geographic points on Earth using the Haversine formula.
+//
+// Inputs:
+//   aLat, aLon = latitude and longitude of point A in degrees
+//   bLat, bLon = latitude and longitude of point B in degrees
+//
+// Mathematical steps:
+//
+// 1) Convert angular differences from degrees to radians:
+//      Δφ = (bLat - aLat) * π / 180
+//      Δλ = (bLon - aLon) * π / 180
+//
+//    Also convert the original latitudes:
+//      φ1 = aLat * π / 180
+//      φ2 = bLat * π / 180
+//
+// 2) Haversine formula:
+//      a = sin²(Δφ / 2) + cos(φ1) cos(φ2) sin²(Δλ / 2)
+//
+// 3) Central angle between the two points:
+//      c = 2 atan2( √a, √(1 - a) )
+//
+// 4) Surface distance on the Earth:
+//      d = R c
+//
+//    where R = 6371 km is the approximate mean Earth radius.
+//
+// Output:
+//   d = great-circle distance in kilometers
+//
+// Note:
+//   This is appropriate for city-to-city / coordinate validation,
+//   such as checking whether a selected point is within 50 km of a city.
+
 function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const earthRadiusKm = 6371;
   const dLat = toRadians(bLat - aLat);
