@@ -139,7 +139,7 @@ type SolarApiResponse = {
   error?: string;
 };
 
-type EditorTool = "select" | "pan" | "delete" | "wall" | "window" | "door" | "desk";
+type EditorTool = "select" | "pan" | "measure" | "delete" | "wall" | "window" | "door" | "desk";
 
 type EditableWall = {
   id: string;
@@ -242,6 +242,7 @@ type ActiveEditorTool = EditorTool | null;
 const TOOL_OPTIONS: ToolOption[] = [
   { key: "select", label: "Select" },
   { key: "pan", label: "Pan" },
+  { key: "measure", label: "Measure" },
   { key: "delete", label: "Delete" },
 ];
 
@@ -284,6 +285,9 @@ export function HeatLoadCanvasPanel({
   const selectedEditorElementRef = useRef<SelectedEditorElement>(null);
   const draftWallStartRef = useRef<Point | null>(null);
   const draftWallEndRef = useRef<Point | null>(null);
+  const measurementStartRef = useRef<Point | null>(null);
+  const measurementEndRef = useRef<Point | null>(null);
+  const measurementCompleteRef = useRef(false);
   const dragStateRef = useRef<EditorDragState>({ kind: "idle" });
   const idCounterRef = useRef(0);
   const undoStackRef = useRef<EditorSnapshot[]>([]);
@@ -1079,6 +1083,19 @@ export function HeatLoadCanvasPanel({
         offsetRef.current.y
       );
 
+      drawMeasurementOverlay(
+        context,
+        getEditorViewport(
+          width,
+          height,
+          gridMetrics.pixelsPerMeter,
+          offsetRef.current.x,
+          offsetRef.current.y
+        ),
+        measurementStartRef.current,
+        measurementEndRef.current
+      );
+
       drawRulers(
         context,
         width,
@@ -1164,6 +1181,27 @@ export function HeatLoadCanvasPanel({
 
       if (!interaction.insideViewport) {
         dragStateRef.current = { kind: "idle" };
+        return;
+      }
+
+      if (tool === "measure") {
+        if (!interaction.worldPoint) {
+          return;
+        }
+
+        if (!measurementStartRef.current || measurementCompleteRef.current) {
+          measurementStartRef.current = interaction.worldPoint;
+          measurementEndRef.current = interaction.worldPoint;
+          measurementCompleteRef.current = false;
+        } else {
+          measurementEndRef.current = interaction.worldPoint;
+          measurementCompleteRef.current = true;
+        }
+
+        selectedEditorElementRef.current = null;
+        dragStateRef.current = { kind: "idle" };
+        refreshEditorUi();
+        redrawCanvas();
         return;
       }
 
@@ -1411,6 +1449,17 @@ export function HeatLoadCanvasPanel({
       const dragState = dragStateRef.current;
 
       if (
+        editorToolRef.current === "measure" &&
+        measurementStartRef.current &&
+        !measurementCompleteRef.current &&
+        interaction.worldPoint
+      ) {
+        measurementEndRef.current = interaction.worldPoint;
+        redrawCanvas();
+        return;
+      }
+
+      if (
         editorToolRef.current === "wall" &&
         draftWallStartRef.current &&
         interaction.worldPoint
@@ -1566,6 +1615,13 @@ export function HeatLoadCanvasPanel({
           refreshEditorUi();
           redrawCanvas();
         }
+        if (measurementStartRef.current || measurementEndRef.current) {
+          measurementStartRef.current = null;
+          measurementEndRef.current = null;
+          measurementCompleteRef.current = false;
+          refreshEditorUi();
+          redrawCanvas();
+        }
         dragStateRef.current = { kind: "idle" };
       }
 
@@ -1630,6 +1686,8 @@ export function HeatLoadCanvasPanel({
   const canvasCursorClass =
     editorTool === "pan"
       ? "cursor-grab active:cursor-grabbing"
+      : editorTool === "measure"
+        ? "cursor-crosshair"
       : editorTool === "delete"
         ? "cursor-not-allowed"
         : "cursor-default";
@@ -1792,6 +1850,28 @@ function ToolboxIcon({ tool }: { tool: EditorTool }) {
         <path d="M14.1 9.5V6.9a1.4 1.4 0 112.8 0v4.7" />
         <path d="M8.5 11.1a1.7 1.7 0 00-2.8 1.9l2.2 3.7A4.4 4.4 0 0011.7 19H17a3 3 0 003-3v-2.2c0-.9-.3-1.8-1-2.4l-2.1-2" />
         <path d="M16.9 11.8V9.2a1.4 1.4 0 112.8 0v4.3" />
+      </svg>
+    );
+  }
+
+  if (tool === "measure") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M4 17 17 4" />
+        <path d="m7 14 3 3" />
+        <path d="m10 11 2 2" />
+        <path d="m13 8 3 3" />
+        <path d="M3.5 17.5 6.5 20.5" />
+        <path d="M17.5 3.5 20.5 6.5" />
       </svg>
     );
   }
@@ -2051,6 +2131,69 @@ function screenToEditorWorld(point: Point, viewport: EditorViewport): Point {
     x: (point.x - viewport.centerX) / viewport.pixelsPerMeter,
     y: (point.y - viewport.centerY) / viewport.pixelsPerMeter,
   };
+}
+
+function drawMeasurementOverlay(
+  context: CanvasRenderingContext2D,
+  viewport: EditorViewport,
+  start: Point | null,
+  end: Point | null
+) {
+  if (!start || !end) {
+    return;
+  }
+
+  const screenStart = worldToEditorScreen(start, viewport);
+  const screenEnd = worldToEditorScreen(end, viewport);
+  const distanceMeters = getDistance(start, end);
+  const label = `${formatValue(distanceMeters)} m`;
+  const midPoint = {
+    x: (screenStart.x + screenEnd.x) / 2,
+    y: (screenStart.y + screenEnd.y) / 2,
+  };
+
+  context.save();
+  context.beginPath();
+  context.rect(viewport.x, viewport.y, viewport.width, viewport.height);
+  context.clip();
+
+  context.strokeStyle = "#2563eb";
+  context.fillStyle = "#2563eb";
+  context.lineWidth = 2;
+  context.setLineDash([8, 5]);
+  context.beginPath();
+  context.moveTo(screenStart.x, screenStart.y);
+  context.lineTo(screenEnd.x, screenEnd.y);
+  context.stroke();
+  context.setLineDash([]);
+
+  [screenStart, screenEnd].forEach((point) => {
+    context.beginPath();
+    context.arc(point.x, point.y, 4, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = "#ffffff";
+    context.lineWidth = 1.5;
+    context.stroke();
+  });
+
+  context.font = "12px sans-serif";
+  const textWidth = context.measureText(label).width;
+  const labelX = midPoint.x;
+  const labelY = midPoint.y - 10;
+
+  context.fillStyle = "rgba(255, 255, 255, 0.94)";
+  context.strokeStyle = "rgba(37, 99, 235, 0.45)";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.roundRect(labelX - textWidth / 2 - 8, labelY - 10, textWidth + 16, 20, 4);
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = "#1d4ed8";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(label, labelX, labelY);
+  context.restore();
 }
 
 function getEditorSnapStep(gridMetrics: GridMetrics) {
