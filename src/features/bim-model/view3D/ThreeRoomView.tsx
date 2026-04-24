@@ -132,7 +132,7 @@ export function ThreeRoomView({
           <p className="font-semibold text-slate-900">3D controls</p>
           <p className="mt-1">Drag to orbit</p>
           <p>Scroll to zoom</p>
-          <p>Right-drag to pan</p>
+          <p>Middle/right-drag to pan</p>
         </div>
 
         {!isReady ? (

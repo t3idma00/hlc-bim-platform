@@ -1141,6 +1141,22 @@ export function HeatLoadCanvasPanel({
       const interaction = getEditorInteractionContext(event);
       const tool = editorToolRef.current;
 
+      if (event.button === 1) {
+        event.preventDefault();
+
+        if (interaction.insideViewport) {
+          dragStateRef.current = {
+            kind: "pan",
+            lastScreen: interaction.point,
+          };
+        } else {
+          dragStateRef.current = { kind: "idle" };
+        }
+
+        redrawCanvas();
+        return;
+      }
+
       if (tool === null) {
         dragStateRef.current = { kind: "idle" };
         return;
@@ -1384,6 +1400,12 @@ export function HeatLoadCanvasPanel({
       dragStateRef.current = { kind: "idle" };
     };
 
+    const handleAuxClick = (event: MouseEvent) => {
+      if (event.button === 1) {
+        event.preventDefault();
+      }
+    };
+
     const handleMouseMove = (event: MouseEvent) => {
       const interaction = getEditorInteractionContext(event);
       const dragState = dragStateRef.current;
@@ -1564,6 +1586,7 @@ export function HeatLoadCanvasPanel({
     canvas.addEventListener("wheel", handleWheel, { passive: false });
     canvas.addEventListener("mousedown", handleMouseDown);
     canvas.addEventListener("mouseup", handleMouseUp);
+    canvas.addEventListener("auxclick", handleAuxClick);
     canvas.addEventListener("mouseleave", handleMouseUp);
     canvas.addEventListener("mousemove", handleMouseMove);
 
@@ -1573,6 +1596,7 @@ export function HeatLoadCanvasPanel({
       canvas.removeEventListener("wheel", handleWheel);
       canvas.removeEventListener("mousedown", handleMouseDown);
       canvas.removeEventListener("mouseup", handleMouseUp);
+      canvas.removeEventListener("auxclick", handleAuxClick);
       canvas.removeEventListener("mouseleave", handleMouseUp);
       canvas.removeEventListener("mousemove", handleMouseMove);
     };

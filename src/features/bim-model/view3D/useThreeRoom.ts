@@ -190,6 +190,11 @@ export function useThreeRoom(
     controls.enableZoom = true;
     controls.enablePan = true;
     controls.screenSpacePanning = true;
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: THREE.MOUSE.PAN,
+    };
     controls.minPolarAngle = 0.15;
     controls.maxPolarAngle = Math.PI / 2 - 0.02;
     controls.target.set(0, 1.5, 0);
