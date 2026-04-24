@@ -411,6 +411,8 @@ function applySheetValueToFormValues(
     "1.2_thickness": "wallEastWidth",
     "1.3_thickness": "wallSouthWidth",
     "1.4_thickness": "wallWestWidth",
+    "1.6_type": "roofType",
+    "1.6_thickness": "roofThickness",
   };
 
   const formField = wallFieldMap[sheetKey];

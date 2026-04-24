@@ -1,4 +1,4 @@
-export type AssetCategory = "walls" | "doors" | "windows" | "furniture" | "lights";
+export type AssetCategory = "walls" | "roofs" | "doors" | "windows" | "furniture" | "lights";
 
 export type AssetDimensions = {
   widthMeters?: number;

@@ -78,6 +78,11 @@ const floorCellSelects: SelectOptionsByKey = {
   thickness: heatLoadLookupOptions.wallThicknesses,
 };
 
+const roofCellSelects: SelectOptionsByKey = {
+  type: heatLoadLookupOptions.roofTypes,
+  thickness: ["6", "80", "150"],
+};
+
 function buildInitialSections(): Section[] {
   return [
     {
@@ -107,7 +112,11 @@ function buildInitialSections(): Section[] {
             thickness: heatLoadLookupOptions.glassThicknesses,
           },
         },
-        { id: "1.6", values: { item: "Roof", direction: "Intermediate floor", type: "Concrete", thickness: "", uFactor: "", cltd: "", calcValue: "", heatLoad: "" } },
+        {
+          id: "1.6",
+          values: { item: "Roof", direction: "HOR", type: "Concrete Slab Roof", thickness: "150", uFactor: "", cltd: "", calcValue: "", heatLoad: "" },
+          selectOptions: roofCellSelects,
+        },
       ],
     },
     {

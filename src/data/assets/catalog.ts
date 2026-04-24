@@ -3,10 +3,11 @@ import { type AssetCategory, type AssetCatalog, type AssetDimensions, type Asset
 const MODEL_ROOT = "/models";
 const TEXTURE_ROOT = "/textures";
 
-const assetCategoryOrder: AssetCategory[] = ["walls", "doors", "windows", "furniture", "lights"];
+const assetCategoryOrder: AssetCategory[] = ["walls", "roofs", "doors", "windows", "furniture", "lights"];
 
 export const assetCategoryLabels: Record<AssetCategory, string> = {
   walls: "Walls",
+  roofs: "Roofs",
   doors: "Doors",
   windows: "Windows",
   furniture: "Furniture",
@@ -75,6 +76,44 @@ export const assetCatalog: AssetCatalog = {
       description: "Solid concrete wall type.",
       dimensions: {
         thicknessMeters: 0.2,
+      },
+    }),
+  ],
+  roofs: [
+    createAsset({
+      id: "roof-concrete-slab",
+      label: "Concrete Slab Roof",
+      category: "roofs",
+      modelFile: "concrete-slab-roof.glb",
+      textureFile: "concrete-plaster.png",
+      tags: ["roof", "concrete", "slab"],
+      description: "Flat reinforced concrete slab roof.",
+      dimensions: {
+        thicknessMeters: 0.15,
+      },
+    }),
+    createAsset({
+      id: "roof-clay",
+      label: "Clay Roof",
+      category: "roofs",
+      modelFile: "clay-roof.glb",
+      textureFile: "clay-tile.png",
+      tags: ["roof", "clay", "tile"],
+      description: "Clay tile roof assembly.",
+      dimensions: {
+        thicknessMeters: 0.08,
+      },
+    }),
+    createAsset({
+      id: "roof-asbestos",
+      label: "Asbestos Roof",
+      category: "roofs",
+      modelFile: "asbestos-roof.glb",
+      textureFile: "asbestos-sheet.png",
+      tags: ["roof", "asbestos", "sheet"],
+      description: "Corrugated asbestos sheet roof.",
+      dimensions: {
+        thicknessMeters: 0.006,
       },
     }),
   ],
@@ -265,7 +304,14 @@ export const wallTypeAssetMap = {
   "Concrete Wall": "wall-concrete",
 } as const;
 
+export const roofTypeAssetMap = {
+  "Concrete Slab Roof": "roof-concrete-slab",
+  "Clay Roof": "roof-clay",
+  "Asbestos Roof": "roof-asbestos",
+} as const;
+
 export type WallTypeLabel = keyof typeof wallTypeAssetMap;
+export type RoofTypeLabel = keyof typeof roofTypeAssetMap;
 
 export type WallPatternKind = "brick" | "block" | "concrete";
 
@@ -275,7 +321,13 @@ export type WallAppearance = {
   patternKind: WallPatternKind;
 };
 
+export type RoofAppearance = {
+  fill: string;
+  stroke: string;
+};
+
 export const wallTypeLabels = Object.keys(wallTypeAssetMap) as WallTypeLabel[];
+export const roofTypeLabels = Object.keys(roofTypeAssetMap) as RoofTypeLabel[];
 
 export const wallAppearanceByType: Record<WallTypeLabel, WallAppearance> = {
   "Brick Wall": {
@@ -295,13 +347,37 @@ export const wallAppearanceByType: Record<WallTypeLabel, WallAppearance> = {
   },
 };
 
+export const roofAppearanceByType: Record<RoofTypeLabel, RoofAppearance> = {
+  "Concrete Slab Roof": {
+    fill: "#d1d5db",
+    stroke: "#6b7280",
+  },
+  "Clay Roof": {
+    fill: "#b45309",
+    stroke: "#7c2d12",
+  },
+  "Asbestos Roof": {
+    fill: "#9ca3af",
+    stroke: "#4b5563",
+  },
+};
+
 export function getWallAssetByType(wallType: string) {
   const assetId = wallTypeAssetMap[wallType as WallTypeLabel];
   return assetId ? getAssetById(assetId) : undefined;
 }
 
+export function getRoofAssetByType(roofType: string) {
+  const assetId = roofTypeAssetMap[roofType as RoofTypeLabel];
+  return assetId ? getAssetById(assetId) : undefined;
+}
+
 export function getWallAppearanceByType(wallType: string): WallAppearance {
   return wallAppearanceByType[wallType as WallTypeLabel] ?? wallAppearanceByType["Brick Wall"];
+}
+
+export function getRoofAppearanceByType(roofType: string): RoofAppearance {
+  return roofAppearanceByType[roofType as RoofTypeLabel] ?? roofAppearanceByType["Concrete Slab Roof"];
 }
 
 export function getAssetsByCategory(category: AssetCategory) {

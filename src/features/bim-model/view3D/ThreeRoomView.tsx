@@ -10,8 +10,7 @@ type ThreeRoomViewProps = {
 };
 
 export function ThreeRoomView({ formValues, solarState }: ThreeRoomViewProps) {
-  const roomModelSignature = useMemo(() => createRoomModelSignature(formValues), [formValues]);
-  const roomModel = useMemo(() => roomToThree(formValues), [roomModelSignature]);
+  const roomModel = useMemo(() => roomToThree(formValues), [formValues]);
   const { containerRef } = useThreeRoom(roomModel, solarState);
   const isReady = roomModel !== null;
 
@@ -33,43 +32,4 @@ export function ThreeRoomView({ formValues, solarState }: ThreeRoomViewProps) {
       ) : null}
     </div>
   );
-}
-
-function createRoomModelSignature(formValues: RoomInputValues) {
-  const keys = [
-    "wallNorthLength",
-    "wallNorthWidth",
-    "wallNorthHeight",
-    "wallNorthType",
-    "wallEastLength",
-    "wallEastWidth",
-    "wallEastHeight",
-    "wallEastType",
-    "wallSouthLength",
-    "wallSouthWidth",
-    "wallSouthHeight",
-    "wallSouthType",
-    "wallWestLength",
-    "wallWestWidth",
-    "wallWestHeight",
-    "wallWestType",
-    "doorNorthWidth",
-    "doorNorthHeight",
-    "doorEastWidth",
-    "doorEastHeight",
-    "doorSouthWidth",
-    "doorSouthHeight",
-    "doorWestWidth",
-    "doorWestHeight",
-    "windowNorthWidth",
-    "windowNorthHeight",
-    "windowEastWidth",
-    "windowEastHeight",
-    "windowSouthWidth",
-    "windowSouthHeight",
-    "windowWestWidth",
-    "windowWestHeight",
-  ] as const;
-
-  return keys.map((key) => formValues[key] ?? "").join("|");
 }

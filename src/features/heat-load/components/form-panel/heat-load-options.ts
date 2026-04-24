@@ -3,6 +3,7 @@
 export const heatLoadLookupOptions = {
   directions: ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest", "HOR"],
   wallTypes: ["Brick Wall", "Cement block Wall", "Concrete Wall"],
+  roofTypes: ["Concrete Slab Roof", "Clay Roof", "Asbestos Roof"],
   glassSolarTypes: [
     "Single Glass Clear",
     "Single Glass Heat Absorbing",

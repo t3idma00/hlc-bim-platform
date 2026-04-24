@@ -104,6 +104,8 @@ export const initialFormValues: FormValues = {
   doorWestLength: "",
   doorWestWidth: "",
   doorWestHeight: "",
+  roofType: "Concrete Slab Roof",
+  roofThickness: "150",
   outsideCondition: "",
   dryBulbTemp: "",
   wetBulbTemp: "",

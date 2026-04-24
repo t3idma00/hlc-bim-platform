@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWallAssetByType } from "@/data/assets";
+import { getRoofAppearanceByType, getRoofAssetByType, getWallAssetByType } from "@/data/assets";
 import {
   createWallSurfaceTextureSet,
   type WallSurfaceTextureSet,
@@ -8,6 +8,7 @@ import {
 const DEFAULT_HEIGHT_METERS = 3;
 const DEFAULT_WALL_THICKNESS_METERS = 0.2;
 const DEFAULT_FLOOR_THICKNESS_METERS = 0.08;
+const DEFAULT_ROOF_THICKNESS_METERS = 0.15;
 const DEFAULT_DOOR_HEIGHT_METERS = 2.1;
 const DEFAULT_WINDOW_HEIGHT_METERS = 1.2;
 const DEFAULT_WINDOW_SILL_HEIGHT_METERS = 0.9;
@@ -34,6 +35,11 @@ type WallSpec = {
   wallThickness: number;
   wallLength: number;
   isVisible: boolean;
+};
+
+type RoofSpec = {
+  roofType: string;
+  thickness: number;
 };
 
 type WallOpeningKind = "door" | "window";
@@ -77,6 +83,8 @@ export function roomToThree(formValues: RoomInputValues): ThreeRoomModel | null 
   group.userData.dimensions = dimensions;
 
   group.add(createFloorMesh(dimensions, wallSpecs));
+  group.add(createCeilingMesh(dimensions));
+  group.add(createRoofMesh(dimensions, getRoofSpec(formValues)));
 
   visibleWallSpecs.forEach((spec) => {
     group.add(createWallAssembly(spec, dimensions, formValues));
@@ -236,6 +244,360 @@ function createFloorMesh(dimensions: RoomDimensions, wallSpecs: WallSpec[]) {
   floor.add(lines);
 
   return floor;
+}
+
+function createCeilingMesh(dimensions: RoomDimensions) {
+  const ceilingThickness = 0.035;
+  const geometry = new THREE.BoxGeometry(dimensions.width, ceilingThickness, dimensions.depth);
+  const material = new THREE.MeshStandardMaterial({
+    color: "#f8fafc",
+    roughness: 0.88,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+
+  const ceiling = new THREE.Mesh(geometry, material);
+  ceiling.name = "room-ceiling";
+  ceiling.position.set(0, dimensions.height - ceilingThickness / 2, 0);
+  ceiling.receiveShadow = true;
+  ceiling.userData = {
+    purpose: "conditioned-room-ceiling",
+    thicknessMeters: ceilingThickness,
+  };
+
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry, 1),
+    new THREE.LineBasicMaterial({ color: "#cbd5e1" })
+  );
+  edges.name = "room-ceiling-edges";
+  ceiling.add(edges);
+
+  return ceiling;
+}
+
+function createRoofMesh(dimensions: RoomDimensions, roofSpec: RoofSpec) {
+  if (roofSpec.roofType === "Clay Roof") {
+    return createClayTileRoof(dimensions, roofSpec);
+  }
+
+  if (roofSpec.roofType === "Asbestos Roof") {
+    return createCorrugatedAsbestosRoof(dimensions, roofSpec);
+  }
+
+  return createConcreteSlabRoof(dimensions, roofSpec);
+}
+
+function createConcreteSlabRoof(dimensions: RoomDimensions, roofSpec: RoofSpec) {
+  const appearance = getRoofAppearanceByType(roofSpec.roofType);
+  const roofThickness = roofSpec.thickness;
+  const overhang = 0.08;
+  const roofWidth = dimensions.width + overhang * 2;
+  const roofDepth = dimensions.depth + overhang * 2;
+  const geometry = new THREE.BoxGeometry(roofWidth, roofThickness, roofDepth);
+  const material = new THREE.MeshStandardMaterial({
+    color: appearance.fill,
+    roughness: 0.92,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+
+  const roof = new THREE.Mesh(geometry, material);
+  roof.name = "room-roof";
+  roof.position.set(0, dimensions.height + roofThickness / 2, 0);
+  roof.castShadow = true;
+  roof.receiveShadow = true;
+  roof.userData = {
+    roofType: roofSpec.roofType,
+    thicknessMeters: roofThickness,
+  };
+
+  const seamMaterial = new THREE.LineBasicMaterial({ color: "#9ca3af" });
+  const seamGroup = new THREE.Group();
+  seamGroup.name = "concrete-roof-seams";
+  const topY = roofThickness / 2 + 0.004;
+  const seamSpacing = 1.2;
+
+  for (let x = -roofWidth / 2 + seamSpacing; x < roofWidth / 2; x += seamSpacing) {
+    const seam = createLineSegment(
+      new THREE.Vector3(x, topY, -roofDepth / 2),
+      new THREE.Vector3(x, topY, roofDepth / 2),
+      seamMaterial
+    );
+    seamGroup.add(seam);
+  }
+
+  for (let z = -roofDepth / 2 + seamSpacing; z < roofDepth / 2; z += seamSpacing) {
+    const seam = createLineSegment(
+      new THREE.Vector3(-roofWidth / 2, topY, z),
+      new THREE.Vector3(roofWidth / 2, topY, z),
+      seamMaterial
+    );
+    seamGroup.add(seam);
+  }
+
+  roof.add(seamGroup);
+
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry, 1),
+    new THREE.LineBasicMaterial({ color: appearance.stroke })
+  );
+  edges.name = "room-roof-edges";
+  roof.add(edges);
+
+  return roof;
+}
+
+function createClayTileRoof(dimensions: RoomDimensions, roofSpec: RoofSpec) {
+  const group = new THREE.Group();
+  group.name = "room-roof";
+  group.userData = {
+    roofType: roofSpec.roofType,
+    thicknessMeters: roofSpec.thickness,
+  };
+
+  const overhang = 0.3;
+  const halfSpan = dimensions.width / 2 + overhang;
+  const roofDepth = dimensions.depth + overhang * 2;
+  const rise = Math.max(dimensions.width * 0.18, 0.55);
+  const slopeLength = Math.hypot(halfSpan, rise);
+  const angle = Math.atan2(rise, halfSpan);
+  const roofThickness = Math.max(roofSpec.thickness, 0.06);
+  const sideMaterial = new THREE.MeshStandardMaterial({
+    color: "#b45309",
+    roughness: 0.86,
+    metalness: 0,
+    side: THREE.DoubleSide,
+  });
+  const tileMaterial = new THREE.MeshStandardMaterial({
+    color: "#c2410c",
+    roughness: 0.9,
+    metalness: 0,
+  });
+
+  const leftSide = createClayRoofSide({
+    sideSign: -1,
+    baseHeight: dimensions.height,
+    halfSpan,
+    roofDepth,
+    rise,
+    slopeLength,
+    angle,
+    roofThickness,
+    sideMaterial,
+    tileMaterial,
+  });
+  const rightSide = createClayRoofSide({
+    sideSign: 1,
+    baseHeight: dimensions.height,
+    halfSpan,
+    roofDepth,
+    rise,
+    slopeLength,
+    angle,
+    roofThickness,
+    sideMaterial,
+    tileMaterial,
+  });
+  group.add(leftSide, rightSide);
+
+  const ridge = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, roofDepth, 16),
+    new THREE.MeshStandardMaterial({ color: "#7c2d12", roughness: 0.82 })
+  );
+  ridge.name = "clay-roof-ridge-cap";
+  ridge.rotation.x = Math.PI / 2;
+  ridge.position.set(0, dimensions.height + rise + 0.035, 0);
+  ridge.castShadow = true;
+  ridge.receiveShadow = true;
+  group.add(ridge);
+
+  return group;
+}
+
+function createClayRoofSide({
+  sideSign,
+  baseHeight,
+  halfSpan,
+  roofDepth,
+  rise,
+  slopeLength,
+  angle,
+  roofThickness,
+  sideMaterial,
+  tileMaterial,
+}: {
+  sideSign: -1 | 1;
+  baseHeight: number;
+  halfSpan: number;
+  roofDepth: number;
+  rise: number;
+  slopeLength: number;
+  angle: number;
+  roofThickness: number;
+  sideMaterial: THREE.MeshStandardMaterial;
+  tileMaterial: THREE.MeshStandardMaterial;
+}) {
+  const side = new THREE.Group();
+  side.position.set(sideSign * halfSpan / 2, baseHeight + rise / 2, 0);
+  side.rotation.z = sideSign === 1 ? -angle : angle;
+
+  const panel = new THREE.Mesh(
+    new THREE.BoxGeometry(slopeLength, roofThickness, roofDepth),
+    sideMaterial.clone()
+  );
+  panel.name = sideSign === 1 ? "clay-roof-right-plane" : "clay-roof-left-plane";
+  panel.castShadow = true;
+  panel.receiveShadow = true;
+  side.add(panel);
+
+  const rowSpacing = 0.32;
+  const tileRadius = 0.035;
+  for (let x = -slopeLength / 2 + rowSpacing; x < slopeLength / 2; x += rowSpacing) {
+    const tileRow = new THREE.Mesh(
+      new THREE.CylinderGeometry(tileRadius, tileRadius, roofDepth + 0.04, 10),
+      tileMaterial.clone()
+    );
+    tileRow.name = "clay-roof-tile-row";
+    tileRow.rotation.x = Math.PI / 2;
+    tileRow.position.set(x, roofThickness / 2 + tileRadius * 0.35, 0);
+    tileRow.castShadow = true;
+    tileRow.receiveShadow = true;
+    side.add(tileRow);
+  }
+
+  return side;
+}
+
+function createCorrugatedAsbestosRoof(dimensions: RoomDimensions, roofSpec: RoofSpec) {
+  const appearance = getRoofAppearanceByType(roofSpec.roofType);
+  const group = new THREE.Group();
+  group.name = "room-roof";
+  group.userData = {
+    roofType: roofSpec.roofType,
+    thicknessMeters: roofSpec.thickness,
+  };
+
+  const overhang = 0.3;
+  const halfSpan = dimensions.width / 2 + overhang;
+  const roofDepth = dimensions.depth + overhang * 2;
+  const rise = Math.max(dimensions.width * 0.18, 0.55);
+  const slopeLength = Math.hypot(halfSpan, rise);
+  const angle = Math.atan2(rise, halfSpan);
+  const roofThickness = Math.max(roofSpec.thickness, 0.03);
+  const sheetMaterial = new THREE.MeshStandardMaterial({
+    color: appearance.fill,
+    roughness: 0.95,
+    metalness: 0.02,
+    side: THREE.DoubleSide,
+  });
+  const ridgeMaterial = new THREE.MeshStandardMaterial({
+    color: "#cbd5e1",
+    roughness: 0.96,
+    metalness: 0.04,
+  });
+  const leftSide = createCorrugatedRoofSide({
+    sideSign: -1,
+    baseHeight: dimensions.height,
+    halfSpan,
+    roofDepth,
+    rise,
+    slopeLength,
+    angle,
+    roofThickness,
+    sheetMaterial,
+    ridgeMaterial,
+  });
+  const rightSide = createCorrugatedRoofSide({
+    sideSign: 1,
+    baseHeight: dimensions.height,
+    halfSpan,
+    roofDepth,
+    rise,
+    slopeLength,
+    angle,
+    roofThickness,
+    sheetMaterial,
+    ridgeMaterial,
+  });
+  group.add(leftSide, rightSide);
+
+  const ridgeCap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.07, 0.07, roofDepth, 14),
+    ridgeMaterial.clone()
+  );
+  ridgeCap.name = "asbestos-roof-ridge-cap";
+  ridgeCap.rotation.x = Math.PI / 2;
+  ridgeCap.position.set(0, dimensions.height + rise + 0.03, 0);
+  ridgeCap.castShadow = true;
+  ridgeCap.receiveShadow = true;
+  group.add(ridgeCap);
+
+  return group;
+}
+
+function createCorrugatedRoofSide({
+  sideSign,
+  baseHeight,
+  halfSpan,
+  roofDepth,
+  rise,
+  slopeLength,
+  angle,
+  roofThickness,
+  sheetMaterial,
+  ridgeMaterial,
+}: {
+  sideSign: -1 | 1;
+  baseHeight: number;
+  halfSpan: number;
+  roofDepth: number;
+  rise: number;
+  slopeLength: number;
+  angle: number;
+  roofThickness: number;
+  sheetMaterial: THREE.MeshStandardMaterial;
+  ridgeMaterial: THREE.MeshStandardMaterial;
+}) {
+  const side = new THREE.Group();
+  side.position.set(sideSign * halfSpan / 2, baseHeight + rise / 2, 0);
+  side.rotation.z = sideSign === 1 ? -angle : angle;
+
+  const sheet = new THREE.Mesh(
+    new THREE.BoxGeometry(slopeLength, roofThickness, roofDepth),
+    sheetMaterial.clone()
+  );
+  sheet.name = sideSign === 1 ? "asbestos-roof-right-sheet" : "asbestos-roof-left-sheet";
+  sheet.castShadow = true;
+  sheet.receiveShadow = true;
+  side.add(sheet);
+
+  const ridgeSpacing = 0.28;
+  const ridgeRadius = 0.028;
+  for (let x = -slopeLength / 2 + ridgeSpacing / 2; x < slopeLength / 2; x += ridgeSpacing) {
+    const corrugation = new THREE.Mesh(
+      new THREE.CylinderGeometry(ridgeRadius, ridgeRadius, roofDepth + 0.04, 10),
+      ridgeMaterial.clone()
+    );
+    corrugation.name = "asbestos-roof-corrugation";
+    corrugation.rotation.x = Math.PI / 2;
+    corrugation.position.set(x, roofThickness / 2 + ridgeRadius * 0.45, 0);
+    corrugation.castShadow = true;
+    corrugation.receiveShadow = true;
+    side.add(corrugation);
+  }
+
+  return side;
+}
+
+function createLineSegment(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  material: THREE.LineBasicMaterial
+) {
+  return new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([start, end]),
+    material
+  );
 }
 
 function createWallSurfaceMaterial(textureSet: WallSurfaceTextureSet) {
@@ -834,6 +1196,15 @@ function getRoomDimensions(formValues: RoomInputValues): RoomDimensions | null {
   };
 }
 
+function getRoofSpec(formValues: RoomInputValues): RoofSpec {
+  const roofType = formValues.roofType || "Concrete Slab Roof";
+
+  return {
+    roofType,
+    thickness: parseRoofThicknessMeters(formValues.roofThickness, roofType),
+  };
+}
+
 function parseLengthMeters(value: string | undefined, fallback = 0) {
   return parsePositiveNumber(value, fallback);
 }
@@ -848,6 +1219,18 @@ function parseWallThicknessMeters(value: string | undefined, wallType?: string) 
   const assetThickness = getWallAssetByType(wallType ?? "")?.dimensions?.thicknessMeters;
 
   return assetThickness ?? DEFAULT_WALL_THICKNESS_METERS;
+}
+
+function parseRoofThicknessMeters(value: string | undefined, roofType?: string) {
+  const parsed = parsePositiveNumber(value, 0);
+
+  if (parsed > 0) {
+    return parsed > 2 ? parsed / 1000 : parsed;
+  }
+
+  const assetThickness = getRoofAssetByType(roofType ?? "")?.dimensions?.thicknessMeters;
+
+  return assetThickness ?? DEFAULT_ROOF_THICKNESS_METERS;
 }
 
 function clampOpeningHeight(
