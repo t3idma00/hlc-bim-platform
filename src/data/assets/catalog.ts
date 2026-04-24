@@ -204,6 +204,54 @@ export const assetCatalog: AssetCatalog = {
         thicknessMeters: 0.04,
       },
     }),
+    createAsset({
+      id: "glass-single-clear",
+      label: "Single Glass Clear",
+      category: "windows",
+      modelFile: "single-glass-clear.glb",
+      textureFile: "glass-clear.png",
+      tags: ["window", "glass", "single", "clear"],
+      description: "Single clear glass pane.",
+      dimensions: {
+        thicknessMeters: 0.006,
+      },
+    }),
+    createAsset({
+      id: "glass-single-heat-absorbing",
+      label: "Single Glass Heat Absorbing",
+      category: "windows",
+      modelFile: "single-glass-heat-absorbing.glb",
+      textureFile: "glass-tinted.png",
+      tags: ["window", "glass", "single", "heat-absorbing"],
+      description: "Single heat-absorbing tinted glass pane.",
+      dimensions: {
+        thicknessMeters: 0.006,
+      },
+    }),
+    createAsset({
+      id: "glass-insulating-clear",
+      label: "Insulating Glass Clear out Clear In",
+      category: "windows",
+      modelFile: "insulating-glass-clear.glb",
+      textureFile: "glass-clear.png",
+      tags: ["window", "glass", "insulating", "clear"],
+      description: "Insulating double glass with clear outer and inner panes.",
+      dimensions: {
+        thicknessMeters: 0.024,
+      },
+    }),
+    createAsset({
+      id: "glass-insulating-heat-absorbing",
+      label: "Insulating Glass Heat Absorbing out Clear In",
+      category: "windows",
+      modelFile: "insulating-glass-heat-absorbing.glb",
+      textureFile: "glass-tinted.png",
+      tags: ["window", "glass", "insulating", "heat-absorbing"],
+      description: "Insulating double glass with heat-absorbing outer pane and clear inner pane.",
+      dimensions: {
+        thicknessMeters: 0.024,
+      },
+    }),
   ],
   furniture: [
     createAsset({
@@ -310,8 +358,16 @@ export const roofTypeAssetMap = {
   "Asbestos Roof": "roof-asbestos",
 } as const;
 
+export const windowGlassTypeAssetMap = {
+  "Single Glass Clear": "glass-single-clear",
+  "Single Glass Heat Absorbing": "glass-single-heat-absorbing",
+  "Insulating Glass Clear out Clear In": "glass-insulating-clear",
+  "Insulating Glass Heat Absorbing out Clear In": "glass-insulating-heat-absorbing",
+} as const;
+
 export type WallTypeLabel = keyof typeof wallTypeAssetMap;
 export type RoofTypeLabel = keyof typeof roofTypeAssetMap;
+export type WindowGlassTypeLabel = keyof typeof windowGlassTypeAssetMap;
 
 export type WallPatternKind = "brick" | "block" | "concrete";
 
@@ -326,8 +382,18 @@ export type RoofAppearance = {
   stroke: string;
 };
 
+export type WindowGlassAppearance = {
+  color: string;
+  opacity: number;
+  roughness: number;
+  metalness: number;
+  paneCount: 1 | 2;
+  tintColor: string;
+};
+
 export const wallTypeLabels = Object.keys(wallTypeAssetMap) as WallTypeLabel[];
 export const roofTypeLabels = Object.keys(roofTypeAssetMap) as RoofTypeLabel[];
+export const windowGlassTypeLabels = Object.keys(windowGlassTypeAssetMap) as WindowGlassTypeLabel[];
 
 export const wallAppearanceByType: Record<WallTypeLabel, WallAppearance> = {
   "Brick Wall": {
@@ -362,6 +428,41 @@ export const roofAppearanceByType: Record<RoofTypeLabel, RoofAppearance> = {
   },
 };
 
+export const windowGlassAppearanceByType: Record<WindowGlassTypeLabel, WindowGlassAppearance> = {
+  "Single Glass Clear": {
+    color: "#dbeafe",
+    opacity: 0.38,
+    roughness: 0.03,
+    metalness: 0.02,
+    paneCount: 1,
+    tintColor: "#eff6ff",
+  },
+  "Single Glass Heat Absorbing": {
+    color: "#38bdf8",
+    opacity: 0.5,
+    roughness: 0.08,
+    metalness: 0.04,
+    paneCount: 1,
+    tintColor: "#0369a1",
+  },
+  "Insulating Glass Clear out Clear In": {
+    color: "#bfdbfe",
+    opacity: 0.34,
+    roughness: 0.04,
+    metalness: 0.03,
+    paneCount: 2,
+    tintColor: "#eff6ff",
+  },
+  "Insulating Glass Heat Absorbing out Clear In": {
+    color: "#0ea5e9",
+    opacity: 0.46,
+    roughness: 0.07,
+    metalness: 0.04,
+    paneCount: 2,
+    tintColor: "#075985",
+  },
+};
+
 export function getWallAssetByType(wallType: string) {
   const assetId = wallTypeAssetMap[wallType as WallTypeLabel];
   return assetId ? getAssetById(assetId) : undefined;
@@ -372,12 +473,21 @@ export function getRoofAssetByType(roofType: string) {
   return assetId ? getAssetById(assetId) : undefined;
 }
 
+export function getWindowGlassAssetByType(windowGlassType: string) {
+  const assetId = windowGlassTypeAssetMap[windowGlassType as WindowGlassTypeLabel];
+  return assetId ? getAssetById(assetId) : undefined;
+}
+
 export function getWallAppearanceByType(wallType: string): WallAppearance {
   return wallAppearanceByType[wallType as WallTypeLabel] ?? wallAppearanceByType["Brick Wall"];
 }
 
 export function getRoofAppearanceByType(roofType: string): RoofAppearance {
   return roofAppearanceByType[roofType as RoofTypeLabel] ?? roofAppearanceByType["Concrete Slab Roof"];
+}
+
+export function getWindowGlassAppearanceByType(windowGlassType: string): WindowGlassAppearance {
+  return windowGlassAppearanceByType[windowGlassType as WindowGlassTypeLabel] ?? windowGlassAppearanceByType["Single Glass Clear"];
 }
 
 export function getAssetsByCategory(category: AssetCategory) {

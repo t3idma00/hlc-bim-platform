@@ -258,6 +258,7 @@ export default function HeatLoadWorkspace() {
           ) : (
             <HeatLoad3DPanel
               formValues={projectData.formValues}
+              sheetValues={projectData.sheetValues}
               activeView={activeView}
               onViewChange={setActiveView}
             />

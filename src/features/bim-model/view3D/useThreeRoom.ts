@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -8,7 +8,20 @@ import { type ThreeRoomModel } from "../converters/roomToThree";
 
 type UseThreeRoomResult = {
   containerRef: RefObject<HTMLDivElement | null>;
+  controls: ThreeRoomControls;
 };
+
+export type ThreeRoomCameraPreset = "default" | "top" | "front" | "side";
+
+export type ThreeRoomControls = {
+  resetCamera: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  setCameraPreset: (preset: ThreeRoomCameraPreset) => void;
+  setRoofAndCeilingVisible: (visible: boolean) => void;
+};
+
+export type ThreeRoomTool = "orbit" | "select";
 
 export type SolarSnapshotLike = {
   azimuth: number;
@@ -24,7 +37,8 @@ export type SolarStateLike = {
 
 export function useThreeRoom(
   roomModel: ThreeRoomModel | null,
-  solarState?: SolarStateLike
+  solarState?: SolarStateLike,
+  activeTool: ThreeRoomTool = "orbit"
 ): UseThreeRoomResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -33,8 +47,109 @@ export function useThreeRoom(
   const roomGroupRef = useRef<THREE.Group | null>(null);
   const axesHelperRef = useRef<THREE.Group | null>(null);
   const sunHelperRef = useRef<THREE.Group | null>(null);
+  const selectionHelperRef = useRef<THREE.BoxHelper | null>(null);
+  const activeToolRef = useRef<ThreeRoomTool>("orbit");
+  const roofAndCeilingVisibleRef = useRef(false);
   const frameRequestRef = useRef<number | null>(null);
   const framedOnceRef = useRef(false);
+  const lastDimensionsRef = useRef({
+    width: 6,
+    depth: 6,
+    height: 3,
+  });
+
+  const frameCamera = useCallback((preset: ThreeRoomCameraPreset = "default") => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+
+    if (!camera || !controls) {
+      return;
+    }
+
+    const dimensions = lastDimensionsRef.current;
+    const sizeReference = Math.max(dimensions.width, dimensions.depth, dimensions.height, 3);
+    const cameraDistance = Math.max(sizeReference * 1.6, 8);
+    const targetY = dimensions.height / 2;
+
+    controls.target.set(0, targetY, 0);
+
+    if (preset === "top") {
+      camera.position.set(0, Math.max(sizeReference * 2.3, 9), 0.01);
+    } else if (preset === "front") {
+      camera.position.set(0, targetY + sizeReference * 0.28, Math.max(sizeReference * 2, 9));
+    } else if (preset === "side") {
+      camera.position.set(Math.max(sizeReference * 2, 9), targetY + sizeReference * 0.28, 0);
+    } else {
+      camera.position.set(cameraDistance, cameraDistance * 0.75, cameraDistance);
+    }
+
+    camera.near = 0.1;
+    camera.far = Math.max(sizeReference * 20, 500);
+    camera.updateProjectionMatrix();
+    controls.update();
+  }, []);
+
+  const zoomCameraBy = useCallback((factor: number) => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+
+    if (!camera || !controls) {
+      return;
+    }
+
+    const offset = camera.position.clone().sub(controls.target);
+    const nextDistance = THREE.MathUtils.clamp(
+      offset.length() * factor,
+      controls.minDistance,
+      controls.maxDistance
+    );
+
+    offset.setLength(nextDistance);
+    camera.position.copy(controls.target).add(offset);
+    controls.update();
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    const scene = sceneRef.current;
+    const selectionHelper = selectionHelperRef.current;
+
+    if (scene && selectionHelper) {
+      scene.remove(selectionHelper);
+      selectionHelper.geometry.dispose();
+      const material = selectionHelper.material;
+      if (Array.isArray(material)) {
+        material.forEach((entry) => entry.dispose());
+      } else {
+        material.dispose();
+      }
+    }
+
+    selectionHelperRef.current = null;
+  }, []);
+
+  const setRoofAndCeilingVisible = useCallback((visible: boolean) => {
+    roofAndCeilingVisibleRef.current = visible;
+
+    const roomGroup = roomGroupRef.current;
+    if (!roomGroup) {
+      return;
+    }
+
+    roomGroup.traverse((node) => {
+      if (node.name === "room-roof" || node.name === "room-ceiling") {
+        node.visible = visible;
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+
+    const controls = controlsRef.current;
+    if (controls) {
+      controls.enabled = activeTool !== "select";
+    }
+  }, [activeTool]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -122,6 +237,7 @@ export function useThreeRoom(
 
     const animate = () => {
       frameRequestRef.current = window.requestAnimationFrame(animate);
+      selectionHelperRef.current?.update();
       controls.update();
       renderer.render(scene, camera);
     };
@@ -137,6 +253,7 @@ export function useThreeRoom(
       resizeObserver?.disconnect();
       window.removeEventListener("resize", handleResize);
       controls.dispose();
+      clearSelection();
       disposeObject3D(roomGroupRef.current);
       disposeObject3D(axesHelperRef.current);
       disposeObject3D(sunHelperRef.current);
@@ -154,7 +271,62 @@ export function useThreeRoom(
       cameraRef.current = null;
       controlsRef.current = null;
     };
-  }, []);
+  }, [clearSelection]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+
+    if (!container || !scene || !camera) {
+      return;
+    }
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (activeToolRef.current !== "select") {
+        return;
+      }
+
+      const roomGroup = roomGroupRef.current;
+      if (!roomGroup) {
+        return;
+      }
+
+      const bounds = container.getBoundingClientRect();
+      pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+      pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+
+      const intersections = raycaster.intersectObject(roomGroup, true);
+      const selectedObject = intersections.find((intersection) => {
+        const mesh = intersection.object as THREE.Mesh;
+        return Boolean(mesh.geometry);
+      })?.object;
+
+      clearSelection();
+
+      if (!selectedObject) {
+        return;
+      }
+
+      const helper = new THREE.BoxHelper(selectedObject, 0x2563eb);
+      helper.name = "selected-object-helper";
+      helper.renderOrder = 1500;
+      helper.material.depthTest = false;
+      helper.material.depthWrite = false;
+      scene.add(helper);
+      selectionHelperRef.current = helper;
+    };
+
+    container.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      container.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [clearSelection]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -170,6 +342,8 @@ export function useThreeRoom(
       disposeObject3D(roomGroupRef.current);
       roomGroupRef.current = null;
     }
+
+    clearSelection();
 
     if (axesHelperRef.current) {
       scene.remove(axesHelperRef.current);
@@ -188,6 +362,7 @@ export function useThreeRoom(
       depth: 6,
       height: 3,
     };
+    lastDimensionsRef.current = fallbackDimensions;
     const sizeReference = Math.max(
       fallbackDimensions.width,
       fallbackDimensions.depth,
@@ -211,6 +386,7 @@ export function useThreeRoom(
 
     scene.add(roomModel.group);
     roomGroupRef.current = roomModel.group;
+    setRoofAndCeilingVisible(roofAndCeilingVisibleRef.current);
 
     controls.target.set(0, roomModel.dimensions.height / 2, 0);
     controls.minDistance = Math.max(sizeReference * 0.45, 1.5);
@@ -223,7 +399,7 @@ export function useThreeRoom(
     }
 
     controls.update();
-  }, [roomModel]);
+  }, [clearSelection, roomModel]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -254,7 +430,16 @@ export function useThreeRoom(
     sunHelperRef.current = sunHelper;
   }, [roomModel, solarState]);
 
-  return { containerRef };
+  return {
+    containerRef,
+    controls: {
+      resetCamera: () => frameCamera("default"),
+      zoomIn: () => zoomCameraBy(0.82),
+      zoomOut: () => zoomCameraBy(1.18),
+      setCameraPreset: frameCamera,
+      setRoofAndCeilingVisible,
+    },
+  };
 }
 
 function createFloorAxisHelper(dimensions: {

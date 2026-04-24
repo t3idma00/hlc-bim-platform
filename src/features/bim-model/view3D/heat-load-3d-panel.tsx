@@ -21,10 +21,12 @@ const MIN_ORBIT_TILT = -1.2;
 const MAX_ORBIT_TILT = -0.08;
 
 type CanvasFormValues = Record<string, string>;
+type SheetValues = Record<string, string>;
 type WallDirection = "North" | "East" | "South" | "West";
 
 type HeatLoad3DPanelProps = {
   formValues: CanvasFormValues;
+  sheetValues?: SheetValues;
   activeView: WorkspaceView;
   onViewChange: (view: WorkspaceView) => void;
 };
@@ -273,6 +275,7 @@ function eraseWallOpening(
 
 export function HeatLoad3DPanel({
   formValues,
+  sheetValues = {},
   activeView,
   onViewChange,
 }: HeatLoad3DPanelProps) {
@@ -411,7 +414,11 @@ export function HeatLoad3DPanel({
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
         <div className="relative flex h-full w-full flex-1 overflow-hidden border border-rose-100 bg-[radial-gradient(circle_at_top,_#fff1f2,_#ffffff_55%,_#ffe4e6)]">
-          <ThreeRoomView formValues={formValues} solarState={solarState} />
+          <ThreeRoomView
+            formValues={formValues}
+            sheetValues={sheetValues}
+            solarState={solarState}
+          />
         </div>
       </div>
 

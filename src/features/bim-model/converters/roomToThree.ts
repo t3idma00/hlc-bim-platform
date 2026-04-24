@@ -1,5 +1,10 @@
 import * as THREE from "three";
-import { getRoofAppearanceByType, getRoofAssetByType, getWallAssetByType } from "@/data/assets";
+import {
+  getRoofAppearanceByType,
+  getRoofAssetByType,
+  getWallAssetByType,
+  getWindowGlassAppearanceByType,
+} from "@/data/assets";
 import {
   createWallSurfaceTextureSet,
   type WallSurfaceTextureSet,
@@ -14,6 +19,7 @@ const DEFAULT_WINDOW_HEIGHT_METERS = 1.2;
 const DEFAULT_WINDOW_SILL_HEIGHT_METERS = 0.9;
 
 export type RoomInputValues = Record<string, string>;
+export type SheetValues = Record<string, string>;
 
 export type WallDirection = "North" | "East" | "South" | "West";
 
@@ -50,6 +56,7 @@ type WallOpening = {
   widthMeters: number;
   bottomMeters: number;
   heightMeters: number;
+  glassType?: string;
 };
 
 type WallFeatureSpan = {
@@ -69,7 +76,10 @@ type SceneObjectPlacement = {
   rotationRadians: number;
 };
 
-export function roomToThree(formValues: RoomInputValues): ThreeRoomModel | null {
+export function roomToThree(
+  formValues: RoomInputValues,
+  sheetValues: SheetValues = {}
+): ThreeRoomModel | null {
   const dimensions = getRoomDimensions(formValues);
 
   if (!dimensions) {
@@ -87,7 +97,7 @@ export function roomToThree(formValues: RoomInputValues): ThreeRoomModel | null 
   group.add(createRoofMesh(dimensions, getRoofSpec(formValues)));
 
   visibleWallSpecs.forEach((spec) => {
-    group.add(createWallAssembly(spec, dimensions, formValues));
+    group.add(createWallAssembly(spec, dimensions, formValues, sheetValues));
   });
 
   group.add(createCornerFillers(visibleWallSpecs, dimensions));
@@ -615,10 +625,17 @@ function createWallSurfaceMaterial(textureSet: WallSurfaceTextureSet) {
 function createWallAssembly(
   spec: WallSpec,
   dimensions: RoomDimensions,
-  formValues: RoomInputValues
+  formValues: RoomInputValues,
+  sheetValues: SheetValues
 ) {
   const { direction, wallType, wallThickness, wallLength } = spec;
-  const openings = buildWallOpenings(direction, wallLength, dimensions.height, formValues);
+  const openings = buildWallOpenings(
+    direction,
+    wallLength,
+    dimensions.height,
+    formValues,
+    sheetValues
+  );
   const wallShape = createWallShape(wallLength, dimensions.height, openings);
   const wallGeometry = new THREE.ExtrudeGeometry(wallShape, {
     depth: wallThickness,
@@ -824,12 +841,16 @@ function createDoorAssembly(opening: WallOpening, wallThickness: number) {
 function createWindowAssembly(opening: WallOpening, wallThickness: number) {
   const group = new THREE.Group();
   group.name = "window-assembly";
+  group.userData = {
+    glassType: opening.glassType ?? "Single Glass Clear",
+  };
 
   const frameThickness = clamp(Math.min(opening.widthMeters * 0.1, 0.08), 0.035, 0.08);
   const frameDepth = Math.min(wallThickness * 0.3, 0.045);
   const glassWidth = Math.max(opening.widthMeters - frameThickness * 1.2, 0.08);
   const glassHeight = Math.max(opening.heightMeters - frameThickness * 1.2, 0.08);
   const glassDepth = Math.min(frameDepth * 0.35, 0.02);
+  const glassAppearance = getWindowGlassAppearanceByType(opening.glassType ?? "Single Glass Clear");
 
   const frameMaterial = new THREE.MeshStandardMaterial({
     color: "#cbd5e1",
@@ -837,12 +858,16 @@ function createWindowAssembly(opening: WallOpening, wallThickness: number) {
     metalness: 0.02,
     side: THREE.DoubleSide,
   });
-  const glassMaterial = new THREE.MeshStandardMaterial({
-    color: "#bfe3ff",
-    roughness: 0.1,
-    metalness: 0.02,
+  const glassMaterial = new THREE.MeshPhysicalMaterial({
+    color: glassAppearance.color,
+    roughness: glassAppearance.roughness,
+    metalness: glassAppearance.metalness,
     transparent: true,
-    opacity: 0.45,
+    opacity: glassAppearance.opacity,
+    transmission: 0.42,
+    thickness: glassDepth,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.05,
     side: THREE.DoubleSide,
   });
 
@@ -859,6 +884,7 @@ function createWindowAssembly(opening: WallOpening, wallThickness: number) {
   );
   glass.position.z = 0;
   glass.receiveShadow = true;
+  glass.name = "window-glass-pane";
 
   const mullion = new THREE.Mesh(
     new THREE.BoxGeometry(Math.max(frameThickness * 0.35, 0.02), glassHeight, glassDepth),
@@ -872,6 +898,47 @@ function createWindowAssembly(opening: WallOpening, wallThickness: number) {
 
   group.add(frame);
   group.add(glass);
+
+  if (glassAppearance.paneCount === 2) {
+    const secondGlass = glass.clone();
+    secondGlass.name = "window-inner-insulating-pane";
+    secondGlass.material = glassMaterial.clone();
+    secondGlass.position.z = -Math.max(glassDepth * 2.2, 0.018);
+    group.add(secondGlass);
+
+    const spacer = createRectFrameGroup(
+      glassWidth + frameThickness * 0.18,
+      glassHeight + frameThickness * 0.18,
+      0.012,
+      Math.max(frameThickness * 0.18, 0.012),
+      new THREE.MeshStandardMaterial({
+        color: "#64748b",
+        roughness: 0.5,
+        metalness: 0.12,
+        side: THREE.DoubleSide,
+      })
+    );
+    spacer.name = "window-insulating-spacer";
+    spacer.position.z = -Math.max(glassDepth * 1.1, 0.009);
+    spacer.receiveShadow = true;
+    group.add(spacer);
+  }
+
+  if (opening.glassType?.includes("Heat Absorbing")) {
+    const tintFilm = new THREE.Mesh(
+      new THREE.BoxGeometry(glassWidth * 0.92, glassHeight * 0.92, Math.max(glassDepth * 0.18, 0.003)),
+      new THREE.MeshBasicMaterial({
+        color: glassAppearance.tintColor,
+        transparent: true,
+        opacity: 0.18,
+        side: THREE.DoubleSide,
+      })
+    );
+    tintFilm.name = "window-heat-absorbing-tint";
+    tintFilm.position.z = glassDepth / 2 + 0.004;
+    group.add(tintFilm);
+  }
+
   if (glassWidth > frameThickness * 2) {
     group.add(mullion);
   }
@@ -984,10 +1051,11 @@ function buildWallOpenings(
   direction: WallDirection,
   wallLength: number,
   wallHeight: number,
-  formValues: RoomInputValues
+  formValues: RoomInputValues,
+  sheetValues: SheetValues
 ) {
   const door = getDoorInput(formValues, direction);
-  const window = getWindowInput(formValues, direction);
+  const window = getWindowInput(formValues, sheetValues, direction);
   const spans = resolveWallFeatureSpans(wallLength, door.width, window.width);
   const openings: WallOpening[] = [];
 
@@ -1019,6 +1087,7 @@ function buildWallOpenings(
       widthMeters: spans.window.widthMeters,
       bottomMeters: getWindowBottomOffset(wallHeight, windowHeight),
       heightMeters: windowHeight,
+      glassType: window.glassType,
     });
   }
 
@@ -1104,13 +1173,18 @@ function getDoorInput(formValues: RoomInputValues, direction: WallDirection) {
   };
 }
 
-function getWindowInput(formValues: RoomInputValues, direction: WallDirection) {
+function getWindowInput(
+  formValues: RoomInputValues,
+  sheetValues: SheetValues,
+  direction: WallDirection
+) {
   return {
     width: parseLengthMeters(formValues[getWindowWidthFieldName(direction)]),
     height: parseLengthMeters(
       formValues[getWindowHeightFieldName(direction)],
       DEFAULT_WINDOW_HEIGHT_METERS
     ),
+    glassType: getGlassTypeForDirection(sheetValues, direction),
   };
 }
 
@@ -1149,6 +1223,28 @@ function getWindowWidthFieldName(direction: WallDirection) {
 
 function getWindowHeightFieldName(direction: WallDirection) {
   return `window${direction}Height`;
+}
+
+function getGlassTypeForDirection(
+  sheetValues: SheetValues,
+  direction: WallDirection
+) {
+  const glassRows = [
+    { id: "2.1", defaultDirection: "East" },
+    { id: "2.2", defaultDirection: "East" },
+    { id: "2.3", defaultDirection: "South" },
+    { id: "2.4", defaultDirection: "West" },
+    { id: "2.5", defaultDirection: "HOR" },
+  ];
+
+  const matchingRow = glassRows.find((row) => {
+    const rowDirection = sheetValues[`${row.id}_direction`] || row.defaultDirection;
+    return rowDirection === direction;
+  });
+
+  return matchingRow
+    ? sheetValues[`${matchingRow.id}_type`] || "Single Glass Clear"
+    : "Single Glass Clear";
 }
 
 function getRoomDimensions(formValues: RoomInputValues): RoomDimensions | null {
