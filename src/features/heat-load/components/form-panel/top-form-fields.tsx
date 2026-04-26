@@ -104,3 +104,33 @@ export function TopStaticField({
     </div>
   );
 }
+
+export function TopSelectField({
+  ariaLabel,
+  name,
+  value,
+  options,
+  onValueChange,
+}: {
+  ariaLabel: string;
+  name: string;
+  value: string;
+  options: string[];
+  onValueChange: (name: string, value: string) => void;
+}) {
+  return (
+    <select
+      aria-label={ariaLabel}
+      name={name}
+      value={value}
+      onChange={(event) => onValueChange(name, event.target.value)}
+      className="flex min-h-[30px] h-full w-full items-center bg-[#fff4f7] px-2 py-2 text-left text-[10px] font-semibold leading-snug text-slate-900 outline-none cursor-pointer"
+    >
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
+  );
+}

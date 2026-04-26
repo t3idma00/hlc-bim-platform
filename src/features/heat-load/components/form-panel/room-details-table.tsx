@@ -1,4 +1,4 @@
-import { DirectionDimensionCell, TopStaticField } from "./top-form-fields";
+import { DirectionDimensionCell, TopSelectField } from "./top-form-fields";
 
 type SurfaceType = "walls" | "windows" | "doors";
 type FormValues = Record<string, string>;
@@ -6,6 +6,7 @@ type FormValues = Record<string, string>;
 type RoomRow = {
   name: string;
   defaultDirection: string;
+  options: string[];
 };
 
 const surfaceTabs: { key: SurfaceType; label: string }[] = [
@@ -14,24 +15,31 @@ const surfaceTabs: { key: SurfaceType; label: string }[] = [
   { key: "doors", label: "Doors" },
 ];
 
+const orientationOptions = {
+  north: ["North", "North East"],
+  east: ["East", "South East"],
+  south: ["South", "South West"],
+  west: ["West", "North West"],
+};
+
 const roomRowsBySurface: Record<SurfaceType, RoomRow[]> = {
   walls: [
-    { name: "wallNorth", defaultDirection: "North" },
-    { name: "wallEast", defaultDirection: "East" },
-    { name: "wallSouth", defaultDirection: "South" },
-    { name: "wallWest", defaultDirection: "West" },
+    { name: "wallNorth", defaultDirection: "North", options: orientationOptions.north },
+    { name: "wallEast", defaultDirection: "East", options: orientationOptions.east },
+    { name: "wallSouth", defaultDirection: "South", options: orientationOptions.south },
+    { name: "wallWest", defaultDirection: "West", options: orientationOptions.west },
   ],
   windows: [
-    { name: "windowNorth", defaultDirection: "North" },
-    { name: "windowEast", defaultDirection: "East" },
-    { name: "windowSouth", defaultDirection: "South" },
-    { name: "windowWest", defaultDirection: "West" },
+    { name: "windowNorth", defaultDirection: "North", options: orientationOptions.north },
+    { name: "windowEast", defaultDirection: "East", options: orientationOptions.east },
+    { name: "windowSouth", defaultDirection: "South", options: orientationOptions.south },
+    { name: "windowWest", defaultDirection: "West", options: orientationOptions.west },
   ],
   doors: [
-    { name: "doorNorth", defaultDirection: "North" },
-    { name: "doorEast", defaultDirection: "East" },
-    { name: "doorSouth", defaultDirection: "South" },
-    { name: "doorWest", defaultDirection: "West" },
+    { name: "doorNorth", defaultDirection: "North", options: orientationOptions.north },
+    { name: "doorEast", defaultDirection: "East", options: orientationOptions.east },
+    { name: "doorSouth", defaultDirection: "South", options: orientationOptions.south },
+    { name: "doorWest", defaultDirection: "West", options: orientationOptions.west },
   ],
 };
 
@@ -90,9 +98,12 @@ export function RoomDetailsRow({
   return (
     <>
       <td className="border border-slate-300 bg-[#fff4f7] p-0">
-        <TopStaticField
+        <TopSelectField
           ariaLabel={`${roomRow.defaultDirection} direction`}
-          value={roomRow.defaultDirection}
+          name={`${roomRow.name}Direction`}
+          value={values[`${roomRow.name}Direction`] ?? roomRow.defaultDirection}
+          options={roomRow.options}
+          onValueChange={onFieldChange}
         />
       </td>
       <td className="border border-slate-300 bg-white p-0">
