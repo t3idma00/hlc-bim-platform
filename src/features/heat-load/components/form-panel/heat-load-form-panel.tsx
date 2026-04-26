@@ -119,7 +119,7 @@ export const initialFormValues: FormValues = {
   indoorConditionValue: "",
 };
 
-// Helper functions (from main branch - better version)
+// Helper functions 
 function computePercentile(values: number[], percentile: number): number {
   if (!values.length) {
     return 0;
@@ -185,7 +185,7 @@ export function HeatLoadFormPanel({
   const previousOutdoorConditionType = useRef(formValues.conditionType);
   const previousIndoorConditionType = useRef(formValues.indoorConditionType);
 
-  // All your useEffect hooks (they are almost identical, I kept the better versions)
+  // useEffect hooks
   useEffect(() => {
     async function loadCountries() {
       setCountryLoading(true);
@@ -618,8 +618,8 @@ export function HeatLoadFormPanel({
               </tbody>
             </table>
 
-            {/* ✅ Your Save/Load Feature - restored from your branch */}
             <HeatLoadSheet 
+              formValues={formValues}
               sheetValues={sheetValues} 
               onSheetChange={onSheetChange} 
             />

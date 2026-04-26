@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { type User } from "@supabase/supabase-js";
 import { HeatLoadCanvasPanel } from "../../bim-model/view2D";
 import { HeatLoad3DPanel } from "../../bim-model/view3D";
@@ -35,9 +35,45 @@ export default function HeatLoadWorkspace() {
   const [loadingProjects, setLoadingProjects] = useState(false);
 
   // Edit Modal
+  // Edit Modal
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
+
+  // Resize Logic
+  const [leftWidthPercent, setLeftWidthPercent] = useState(40);
+  const containerRef = useRef<HTMLElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleMouseDown = useCallback(() => setIsDragging(true), []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const newPercent = ((e.clientX - rect.left) / rect.width) * 100;
+      if (newPercent > 20 && newPercent < 80) {
+        setLeftWidthPercent(newPercent);
+      }
+    };
+
+    const handleMouseUp = () => setIsDragging(false);
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "auto";
+    };
+  }, [isDragging]);
 
   // Auth listener
   useEffect(() => {
@@ -240,29 +276,44 @@ export default function HeatLoadWorkspace() {
           </div>
         </header>
 
-        <main className="grid min-h-0 flex-1 overflow-hidden xl:grid-cols-[40%_60%]">
-          <HeatLoadFormPanel
-            formValues={projectData.formValues}
-            sheetValues={projectData.sheetValues}
-            onFieldChange={handleFormChange}
-            onSheetChange={handleSheetChange}
-          />
-
-          {activeView === "2d" ? (
-            <HeatLoadCanvasPanel
-              formValues={projectData.formValues}
-              activeView={activeView}
-              onViewChange={setActiveView}
-              onFieldChange={handleFormChange}
-            />
-          ) : (
-            <HeatLoad3DPanel
+        <main ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden relative">
+          {/* Left Panel */}
+          <div style={{ width: `${leftWidthPercent}%` }} className="flex-shrink-0 flex flex-col h-full overflow-hidden">
+            <HeatLoadFormPanel
               formValues={projectData.formValues}
               sheetValues={projectData.sheetValues}
-              activeView={activeView}
-              onViewChange={setActiveView}
+              onFieldChange={handleFormChange}
+              onSheetChange={handleSheetChange}
             />
-          )}
+          </div>
+
+          {/* Draggable Divider */}
+          <div
+            onMouseDown={handleMouseDown}
+            className="w-2 cursor-ew-resize bg-rose-100 hover:bg-[#be123c] active:bg-[#9f1239] transition-colors z-10 flex-shrink-0 flex flex-col items-center justify-center group shadow-sm"
+            title="Drag to resize panels"
+          >
+            <div className="h-8 w-[2px] bg-rose-400 group-hover:bg-white rounded-full"></div>
+          </div>
+
+          {/* Right Panel */}
+          <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+            {activeView === "2d" ? (
+              <HeatLoadCanvasPanel
+                formValues={projectData.formValues}
+                activeView={activeView}
+                onViewChange={setActiveView}
+                onFieldChange={handleFormChange}
+              />
+            ) : (
+              <HeatLoad3DPanel
+                formValues={projectData.formValues}
+                sheetValues={projectData.sheetValues}
+                activeView={activeView}
+                onViewChange={setActiveView}
+              />
+            )}
+          </div>
         </main>
 
         <footer className="border-t border-rose-100 bg-[#fffafb] px-5 py-2 text-center text-xs text-rose-600">

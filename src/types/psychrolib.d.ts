@@ -6,6 +6,8 @@ declare module "psychrolib" {
     SetUnitSystem(unitSystem: number): void;
     GetTWetBulbFromRelHum(dryBulbTemp: number, relativeHumidity: number, pressure: number): number;
     GetRelHumFromTWetBulb(dryBulbTemp: number, wetBulbTemp: number, pressure: number): number;
+    GetHumRatioFromRelHum(dryBulbTemp: number, relativeHumidity: number, pressure: number): number;
+    GetHumRatioFromTWetBulb(dryBulbTemp: number, wetBulbTemp: number, pressure: number): number;
   }
 
   const psychrolib: PsychrolibApi;

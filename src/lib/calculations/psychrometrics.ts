@@ -53,3 +53,53 @@ export function calculateRelativeHumidityFromWetBulb(
     return null;
   }
 }
+
+/**
+ * Calculate humidity ratio (kg water / kg dry air) from dry-bulb temperature
+ * and relative humidity (%). Returns null on invalid input.
+ */
+export function getHumidityRatioFromRelHum(
+  dryBulbTempCelsius: number,
+  relativeHumidityPercent: number,
+  pressurePa = STANDARD_ATMOSPHERIC_PRESSURE_PA
+): number | null {
+  if (!isFiniteNumber(dryBulbTempCelsius) || !isFiniteNumber(relativeHumidityPercent) || !isFiniteNumber(pressurePa)) {
+    return null;
+  }
+
+  if (relativeHumidityPercent < 0 || relativeHumidityPercent > 100) {
+    return null;
+  }
+
+  try {
+    ensureSiUnitSystem();
+    return psychrolib.GetHumRatioFromRelHum(dryBulbTempCelsius, relativeHumidityPercent / 100, pressurePa);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Calculate humidity ratio (kg water / kg dry air) from dry-bulb temperature
+ * and wet-bulb temperature (°C). Returns null on invalid input.
+ */
+export function getHumidityRatioFromWetBulb(
+  dryBulbTempCelsius: number,
+  wetBulbTempCelsius: number,
+  pressurePa = STANDARD_ATMOSPHERIC_PRESSURE_PA
+): number | null {
+  if (!isFiniteNumber(dryBulbTempCelsius) || !isFiniteNumber(wetBulbTempCelsius) || !isFiniteNumber(pressurePa)) {
+    return null;
+  }
+
+  if (wetBulbTempCelsius > dryBulbTempCelsius) {
+    return null;
+  }
+
+  try {
+    ensureSiUnitSystem();
+    return psychrolib.GetHumRatioFromTWetBulb(dryBulbTempCelsius, wetBulbTempCelsius, pressurePa);
+  } catch {
+    return null;
+  }
+}

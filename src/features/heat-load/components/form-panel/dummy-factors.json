@@ -1,0 +1,104 @@
+{
+  "uFactors": {
+    "Brick Wall": 2.50,
+    "Cement block Wall": 2.80,
+    "Concrete Wall": 3.20,
+    "Concrete Slab Roof": 3.20,
+    "Clay Roof": 2.50,
+    "Asbestos Roof": 3.00,
+    "Single glass": 5.80,
+    "Single Glass Clear": 5.80,
+    "Single Glass Heat Absorbing": 5.80,
+    "Insulating Glass Clear out Clear In": 3.00,
+    "Insulating Glass Heat Absorbing out Clear In": 3.00,
+    "Glass only (Centre of Glass)": 5.80,
+    "OperableWood/Vinyl": 2.50,
+    "Fixed Wood/Vinyl": 2.40,
+    "default": 2.00
+  },
+  "cltd": {
+    "Brick Wall": 12.00,
+    "Cement block Wall": 12.00,
+    "Concrete Wall": 12.00,
+    "Concrete Slab Roof": 15.00,
+    "Clay Roof": 15.00,
+    "Asbestos Roof": 15.00,
+    "Single glass": 8.00,
+    "Single Glass Clear": 8.00,
+    "Single Glass Heat Absorbing": 8.00,
+    "Insulating Glass Clear out Clear In": 8.00,
+    "Insulating Glass Heat Absorbing out Clear In": 8.00,
+    "Glass only (Centre of Glass)": 8.00,
+    "OperableWood/Vinyl": 10.00,
+    "Fixed Wood/Vinyl": 10.00,
+    "default": 10.00
+  },
+  "glassFactors": {
+    "shading": {
+      "No shading": 0.80,
+      "Venetian Blinds Medium": 0.60,
+      "Venetian Blinds Light": 0.65,
+      "Opaque Dark": 0.40,
+      "Opaque White": 0.50,
+      "Translucent": 0.55,
+      "default": 0.80
+    },
+    "typeAdjustments": {
+      "Absorbing": -0.10,
+      "Insulating": -0.20
+    },
+    "defaultShg": 150.00,
+    "defaultClf": 0.85
+  },
+  "internalGains": {
+    "items": {
+      "People": 115.00,
+      "Motor power (Name plate)": 400.00,
+      "compact fluorescent lamp": 20.00,
+      "Appliance etc.": 150.00,
+      "Additional heat gain": 100.00,
+      "default": 100.00
+    }
+  },
+  "ventilation": {
+    "applications": {
+      "Pharmacy": { "sensible": 500.00, "latent": 200.00 },
+      "Classrooms (age 9 plus)": { "sensible": 400.00, "latent": 250.00 },
+      "Lecture classroom": { "sensible": 450.00, "latent": 250.00 },
+      "Wood/metal shop": { "sensible": 600.00, "latent": 300.00 },
+      "Computer lab": { "sensible": 500.00, "latent": 150.00 },
+      "Music/theater/dance": { "sensible": 550.00, "latent": 350.00 },
+      "Restaurant dining rooms": { "sensible": 450.00, "latent": 300.00 },
+      "Cafeteria/fast food dining": { "sensible": 400.00, "latent": 250.00 },
+      "Bars, cocktail lounges": { "sensible": 500.00, "latent": 400.00 },
+      "Conference/meeting": { "sensible": 400.00, "latent": 200.00 },
+      "Corridors": { "sensible": 200.00, "latent": 100.00 },
+      "Storage room": { "sensible": 150.00, "latent": 50.00 },
+      "Bed room, living Room": { "sensible": 300.00, "latent": 150.00 }
+    },
+    "default": { "sensible": 300.00, "latent": 150.00 }
+  },
+  "infiltration": {
+    "windowCrackRate": 1.3,
+    "residentialDoorRate": 11.0,
+    "nonresidentialDoorRate": 17.0,
+    "airDensityCp": 1.2,
+    "latentConstant": 3000
+  },
+  "ventilationRates": {
+    "Pharmacy": { "perPerson": 2.5, "perArea": 0.9 },
+    "Classrooms (age 9 plus)": { "perPerson": 5.0, "perArea": 0.6 },
+    "Lecture classroom": { "perPerson": 3.8, "perArea": 0.3 },
+    "Wood/metal shop": { "perPerson": 5.0, "perArea": 0.9 },
+    "Computer lab": { "perPerson": 5.0, "perArea": 0.6 },
+    "Music/theater/dance": { "perPerson": 5.0, "perArea": 0.3 },
+    "Restaurant dining rooms": { "perPerson": 3.8, "perArea": 0.9 },
+    "Cafeteria/fast food dining": { "perPerson": 3.8, "perArea": 0.9 },
+    "Bars, cocktail lounges": { "perPerson": 3.8, "perArea": 0.9 },
+    "Conference/meeting": { "perPerson": 2.5, "perArea": 0.3 },
+    "Corridors": { "perPerson": 0.0, "perArea": 0.3 },
+    "Storage room": { "perPerson": 0.0, "perArea": 0.6 },
+    "Bed room, living Room": { "perPerson": 2.5, "perArea": 0.3 },
+    "default": { "perPerson": 2.5, "perArea": 0.6 }
+  }
+}
