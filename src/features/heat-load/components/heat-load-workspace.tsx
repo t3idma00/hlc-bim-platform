@@ -13,11 +13,19 @@ import type { Project, ProjectData } from "@/types";
 
 export default function HeatLoadWorkspace() {
   const [projectData, setProjectData] = useState<ProjectData>({
-    version: "1.1",
+    version: "1.2",
     lastSaved: new Date().toISOString(),
-    formValues: initialFormValues,
-    sheetValues: {},
+    rooms: [
+      {
+        id: "room-1",
+        name: "Room 1",
+        formValues: initialFormValues,
+        sheetValues: {},
+      }
+    ],
   });
+
+  const [activeRoomId, setActiveRoomId] = useState<string>("room-1");
 
   const [activeView, setActiveView] = useState<WorkspaceView>("2d");
   const [user, setUser] = useState<User | null>(null);
@@ -97,16 +105,46 @@ export default function HeatLoadWorkspace() {
   const handleFormChange = (name: string, value: string) => {
     setProjectData((prev) => ({
       ...prev,
-      formValues: { ...prev.formValues, [name]: value },
+      rooms: prev.rooms.map((room) =>
+        room.id === activeRoomId
+          ? { ...room, formValues: { ...room.formValues, [name]: value } }
+          : room
+      ),
     }));
   };
 
   const handleSheetChange = (name: string, value: string) => {
     setProjectData((prev) => ({
       ...prev,
-      sheetValues: { ...prev.sheetValues, [name]: value },
-      formValues: applySheetValueToFormValues(prev.formValues, name, value),
+      rooms: prev.rooms.map((room) => {
+        if (room.id === activeRoomId) {
+          return {
+            ...room,
+            sheetValues: { ...room.sheetValues, [name]: value },
+            formValues: applySheetValueToFormValues(room.formValues, name, value),
+          };
+        }
+        return room;
+      }),
     }));
+  };
+
+  const handleAddRoom = () => {
+    const newRoomId = `room-${Date.now()}`;
+    const newRoomName = `Room ${projectData.rooms.length + 1}`;
+    setProjectData((prev) => ({
+      ...prev,
+      rooms: [
+        ...prev.rooms,
+        {
+          id: newRoomId,
+          name: newRoomName,
+          formValues: initialFormValues,
+          sheetValues: {},
+        },
+      ],
+    }));
+    setActiveRoomId(newRoomId);
   };
 
   const handleLogout = async () => {
@@ -123,10 +161,11 @@ export default function HeatLoadWorkspace() {
     setSaveMessage(null);
 
     const dataToSave: ProjectData = {
-      version: "1.1",
+      version: "1.2",
       lastSaved: new Date().toISOString(),
-      formValues: projectData.formValues,
-      sheetValues: projectData.sheetValues,
+      rooms: projectData.rooms,
+      formValues: projectData.rooms[0].formValues,
+      sheetValues: projectData.rooms[0].sheetValues,
     };
 
     const formData = new FormData();
@@ -176,12 +215,24 @@ export default function HeatLoadWorkspace() {
   const loadProject = (project: Project) => {
     const saved = project.data || {};
 
+    let rooms = saved.rooms;
+    if (!rooms || rooms.length === 0) {
+      rooms = [
+        {
+          id: "room-1",
+          name: "Room 1",
+          formValues: saved.formValues || initialFormValues,
+          sheetValues: saved.sheetValues || {},
+        },
+      ];
+    }
+
     setProjectData({
-      version: saved.version || "1.1",
+      version: "1.2",
       lastSaved: saved.lastSaved || new Date().toISOString(),
-      formValues: saved.formValues || initialFormValues,
-      sheetValues: saved.sheetValues || {},
+      rooms,
     });
+    setActiveRoomId(rooms[0].id);
 
     setShowProjectsModal(false);
     setSaveMessage({ type: "success", text: `Loaded: ${project.name}` });
@@ -279,9 +330,33 @@ export default function HeatLoadWorkspace() {
         <main ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden relative">
           {/* Left Panel */}
           <div style={{ width: `${leftWidthPercent}%` }} className="flex-shrink-0 flex flex-col h-full overflow-hidden">
+            {/* Room Tabs */}
+            <div className="flex border-b border-rose-200 bg-[#fff8fa] overflow-x-auto min-h-[40px] items-end px-2">
+              {projectData.rooms.map((room) => (
+                <button
+                  key={room.id}
+                  onClick={() => setActiveRoomId(room.id)}
+                  className={`px-4 py-2 text-[10px] font-bold uppercase tracking-[0.05em] whitespace-nowrap transition-all rounded-t-lg -mb-px ${
+                    activeRoomId === room.id
+                      ? "bg-white text-[#9f1239] border border-b-0 border-rose-200 shadow-[0_-2px_4px_rgba(0,0,0,0.02)]"
+                      : "text-slate-500 hover:text-slate-800 hover:bg-rose-50 border border-transparent"
+                  }`}
+                >
+                  {room.name}
+                </button>
+              ))}
+              <button
+              
+                onClick={handleAddRoom}
+                className="px-4 py-2 text-[10px] font-bold uppercase tracking-[0.05em] text-rose-600 hover:bg-rose-50 hover:text-rose-800 whitespace-nowrap transition-colors rounded-t-lg border border-transparent"
+              >
+                + Add Room
+              </button>
+            </div>
+
             <HeatLoadFormPanel
-              formValues={projectData.formValues}
-              sheetValues={projectData.sheetValues}
+              formValues={projectData.rooms.find((r) => r.id === activeRoomId)?.formValues || initialFormValues}
+              sheetValues={projectData.rooms.find((r) => r.id === activeRoomId)?.sheetValues || {}}
               onFieldChange={handleFormChange}
               onSheetChange={handleSheetChange}
             />
@@ -300,15 +375,15 @@ export default function HeatLoadWorkspace() {
           <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
             {activeView === "2d" ? (
               <HeatLoadCanvasPanel
-                formValues={projectData.formValues}
+                formValues={projectData.rooms.find((r) => r.id === activeRoomId)?.formValues || initialFormValues}
                 activeView={activeView}
                 onViewChange={setActiveView}
                 onFieldChange={handleFormChange}
               />
             ) : (
               <HeatLoad3DPanel
-                formValues={projectData.formValues}
-                sheetValues={projectData.sheetValues}
+                formValues={projectData.rooms.find((r) => r.id === activeRoomId)?.formValues || initialFormValues}
+                sheetValues={projectData.rooms.find((r) => r.id === activeRoomId)?.sheetValues || {}}
                 activeView={activeView}
                 onViewChange={setActiveView}
               />
