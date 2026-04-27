@@ -9,7 +9,16 @@ import { HeatLoadFormPanel, initialFormValues, type FormValues } from "./form-pa
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/actions/auth";
 import { saveProject, getUserProjects } from "@/actions/projects";
-import type { Project, ProjectData } from "@/types";
+import type { Project, ProjectData, RoomWall } from "@/types";
+
+const ROOM_WALLS: RoomWall[] = ["North", "East", "South", "West"];
+
+const OPPOSITE_ROOM_WALL: Record<RoomWall, RoomWall> = {
+  North: "South",
+  East: "West",
+  South: "North",
+  West: "East",
+};
 
 export default function HeatLoadWorkspace() {
   const [projectData, setProjectData] = useState<ProjectData>({
@@ -21,6 +30,7 @@ export default function HeatLoadWorkspace() {
         name: "Room 1",
         formValues: initialFormValues,
         sheetValues: {},
+        placement: { x: 0, y: 0, rotation: 0 },
       }
     ],
   });
@@ -41,6 +51,12 @@ export default function HeatLoadWorkspace() {
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+
+  // Add Room Modal
+  const [showAddRoomModal, setShowAddRoomModal] = useState(false);
+  const [addRoomTargetRoomId, setAddRoomTargetRoomId] = useState("room-1");
+  const [addRoomTargetWall, setAddRoomTargetWall] = useState<RoomWall>("East");
+  const [addRoomOffset, setAddRoomOffset] = useState("0");
 
   // Edit Modal
   // Edit Modal
@@ -130,8 +146,27 @@ export default function HeatLoadWorkspace() {
   };
 
   const handleAddRoom = () => {
+    const placedRooms = resolveRoomPlacements(projectData.rooms);
+    const defaultTargetRoom = placedRooms.find((room) => room.id === activeRoomId) ?? placedRooms.at(-1);
+
+    if (defaultTargetRoom) {
+      setAddRoomTargetRoomId(defaultTargetRoom.id);
+    }
+
+    setAddRoomTargetWall("East");
+    setAddRoomOffset("0");
+    setShowAddRoomModal(true);
+  };
+
+  const handleConfirmAddRoom = () => {
     const newRoomId = `room-${Date.now()}`;
     const newRoomName = `Room ${projectData.rooms.length + 1}`;
+    const placedRooms = resolveRoomPlacements(projectData.rooms);
+    const targetRoom =
+      placedRooms.find((room) => room.id === addRoomTargetRoomId) ?? placedRooms.at(-1);
+    const ownWall = OPPOSITE_ROOM_WALL[addRoomTargetWall];
+    const offsetMeters = parseSignedRoomNumber(addRoomOffset);
+
     setProjectData((prev) => ({
       ...prev,
       rooms: [
@@ -139,12 +174,27 @@ export default function HeatLoadWorkspace() {
         {
           id: newRoomId,
           name: newRoomName,
-          formValues: initialFormValues,
+          formValues: createRoomFormValuesForSharedWall(
+            targetRoom?.formValues,
+            addRoomTargetWall
+          ),
           sheetValues: {},
+          placement: {
+            x: 0,
+            y: 0,
+            rotation: 0,
+            attachToRoomId: targetRoom?.id,
+            targetWall: addRoomTargetWall,
+            ownWall,
+            targetAnchor: addRoomTargetWall,
+            ownAnchor: ownWall,
+            offsetMeters,
+          },
         },
       ],
     }));
     setActiveRoomId(newRoomId);
+    setShowAddRoomModal(false);
   };
 
   const handleLogout = async () => {
@@ -163,7 +213,7 @@ export default function HeatLoadWorkspace() {
     const dataToSave: ProjectData = {
       version: "1.2",
       lastSaved: new Date().toISOString(),
-      rooms: projectData.rooms,
+      rooms: resolveRoomPlacements(projectData.rooms),
       formValues: projectData.rooms[0].formValues,
       sheetValues: projectData.rooms[0].sheetValues,
     };
@@ -230,7 +280,7 @@ export default function HeatLoadWorkspace() {
     setProjectData({
       version: "1.2",
       lastSaved: saved.lastSaved || new Date().toISOString(),
-      rooms,
+      rooms: resolveRoomPlacements(rooms),
     });
     setActiveRoomId(rooms[0].id);
 
@@ -275,6 +325,8 @@ export default function HeatLoadWorkspace() {
       alert("Failed to update project name");
     }
   };
+
+  const placedRooms = resolveRoomPlacements(projectData.rooms);
 
   return (
     <div className="h-screen overflow-hidden bg-[#fff4f6] text-slate-900">
@@ -376,6 +428,8 @@ export default function HeatLoadWorkspace() {
             {activeView === "2d" ? (
               <HeatLoadCanvasPanel
                 formValues={projectData.rooms.find((r) => r.id === activeRoomId)?.formValues || initialFormValues}
+                rooms={placedRooms}
+                activeRoomId={activeRoomId}
                 activeView={activeView}
                 onViewChange={setActiveView}
                 onFieldChange={handleFormChange}
@@ -397,6 +451,80 @@ export default function HeatLoadWorkspace() {
       </div>
 
       {/* ====================== MODALS ====================== */}
+
+      {/* Add Room Modal */}
+      {showAddRoomModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md mx-4 shadow-xl">
+            <h2 className="text-2xl font-semibold mb-2">Add Room</h2>
+            <p className="text-slate-600 mb-6">Select which wall this room should share.</p>
+
+            <div className="space-y-4">
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">Attach to</span>
+                <select
+                  value={addRoomTargetRoomId}
+                  onChange={(event) => setAddRoomTargetRoomId(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#be123c]"
+                >
+                  {placedRooms.map((room) => (
+                    <option key={room.id} value={room.id}>
+                      {room.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">Shared wall on existing room</span>
+                <select
+                  value={addRoomTargetWall}
+                  onChange={(event) => setAddRoomTargetWall(event.target.value as RoomWall)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#be123c]"
+                >
+                  {ROOM_WALLS.map((wall) => (
+                    <option key={wall} value={wall}>
+                      {wall}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-slate-700">
+                New room shared wall:{" "}
+                <span className="font-semibold text-[#9f1239]">
+                  {OPPOSITE_ROOM_WALL[addRoomTargetWall]}
+                </span>
+              </div>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">Offset along wall (m)</span>
+                <input
+                  type="text"
+                  value={addRoomOffset}
+                  onChange={(event) => setAddRoomOffset(event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#be123c]"
+                />
+              </label>
+            </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setShowAddRoomModal(false)}
+                className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmAddRoom}
+                className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239]"
+              >
+                Add Room
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Save Project Modal */}
       {showSaveModal && (
@@ -522,6 +650,215 @@ export default function HeatLoadWorkspace() {
       )}
     </div>
   );
+}
+
+function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"] {
+  const placedRooms: ProjectData["rooms"] = [];
+  let cursorX = 0;
+
+  rooms.forEach((room, index) => {
+    if (index === 0 || !room.placement?.attachToRoomId) {
+      const placement = {
+        x: room.placement?.x ?? cursorX,
+        y: room.placement?.y ?? 0,
+        rotation: room.placement?.rotation ?? 0,
+        attachToRoomId: room.placement?.attachToRoomId,
+        targetWall: getPlacementWall(room.placement?.targetWall ?? room.placement?.targetAnchor),
+        ownWall: getPlacementWall(room.placement?.ownWall ?? room.placement?.ownAnchor),
+        targetAnchor: room.placement?.targetAnchor,
+        ownAnchor: room.placement?.ownAnchor,
+        offsetMeters: room.placement?.offsetMeters,
+      };
+
+      placedRooms.push({
+        ...room,
+        placement,
+      });
+      cursorX = Math.max(
+        cursorX,
+        placement.x + getRoomPlanWidth(room.formValues) + getRoomPlanWallThickness(room.formValues, "East")
+      );
+      return;
+    }
+
+    const previousRoom = placedRooms[index - 1];
+    const targetRoom =
+      placedRooms.find((placedRoom) => placedRoom.id === room.placement?.attachToRoomId) ??
+      previousRoom;
+    const targetWall = getPlacementWall(
+      room.placement?.targetWall ?? room.placement?.targetAnchor,
+      "East"
+    );
+    const ownWall = getPlacementWall(
+      room.placement?.ownWall ?? room.placement?.ownAnchor,
+      OPPOSITE_ROOM_WALL[targetWall]
+    );
+    const offsetMeters = Number.isFinite(room.placement?.offsetMeters)
+      ? room.placement?.offsetMeters ?? 0
+      : 0;
+    const attachedPosition = targetRoom
+      ? getAttachedRoomPosition(targetRoom, room.formValues, targetWall, offsetMeters)
+      : { x: cursorX, y: 0 };
+    const placement = {
+      ...(room.placement ?? {}),
+      x: attachedPosition.x,
+      y: attachedPosition.y,
+      rotation: room.placement?.rotation ?? 0,
+      attachToRoomId: targetRoom?.id,
+      targetWall,
+      ownWall,
+      targetAnchor: targetWall,
+      ownAnchor: ownWall,
+      offsetMeters,
+    };
+
+    placedRooms.push({
+      ...room,
+      placement,
+    });
+    cursorX = Math.max(
+      cursorX,
+      placement.x + getRoomPlanWidth(room.formValues) + getRoomPlanWallThickness(room.formValues, "East")
+    );
+  });
+
+  return placedRooms;
+}
+
+function getRoomPlanWidth(formValues: FormValues | undefined) {
+  if (!formValues) {
+    return 6;
+  }
+
+  const north = parsePositiveRoomNumber(formValues.wallNorthLength);
+  const south = parsePositiveRoomNumber(formValues.wallSouthLength);
+
+  return Math.max(north, south, 5);
+}
+
+function getRoomPlanDepth(formValues: FormValues | undefined) {
+  if (!formValues) {
+    return 6;
+  }
+
+  const east = parsePositiveRoomNumber(formValues.wallEastLength);
+  const west = parsePositiveRoomNumber(formValues.wallWestLength);
+
+  return Math.max(east, west, 5);
+}
+
+function getRoomPlanWallThickness(formValues: FormValues | undefined, wall: RoomWall) {
+  return parseWallThicknessMeters(formValues?.[getWallWidthFieldName(wall)], 0.2);
+}
+
+function getAttachedRoomPosition(
+  targetRoom: ProjectData["rooms"][number],
+  formValues: FormValues,
+  targetWall: RoomWall,
+  offsetMeters: number
+) {
+  const targetPlacement = targetRoom.placement ?? { x: 0, y: 0 };
+  const targetWidth = getRoomPlanWidth(targetRoom.formValues);
+  const targetDepth = getRoomPlanDepth(targetRoom.formValues);
+  const targetWallThickness = getRoomPlanWallThickness(targetRoom.formValues, targetWall);
+  const roomWidth = getRoomPlanWidth(formValues);
+  const roomDepth = getRoomPlanDepth(formValues);
+
+  switch (targetWall) {
+    case "North":
+      return {
+        x: targetPlacement.x + offsetMeters,
+        y: targetPlacement.y - targetWallThickness - roomDepth,
+      };
+    case "East":
+      return {
+        x: targetPlacement.x + targetWidth + targetWallThickness,
+        y: targetPlacement.y + offsetMeters,
+      };
+    case "South":
+      return {
+        x: targetPlacement.x + offsetMeters,
+        y: targetPlacement.y + targetDepth + targetWallThickness,
+      };
+    case "West":
+      return {
+        x: targetPlacement.x - targetWallThickness - roomWidth,
+        y: targetPlacement.y + offsetMeters,
+      };
+  }
+}
+
+function getPlacementWall(value: string | undefined, fallback: RoomWall = "East"): RoomWall {
+  return ROOM_WALLS.includes(value as RoomWall) ? (value as RoomWall) : fallback;
+}
+
+function parseWallThicknessMeters(value: string | undefined, fallback: number) {
+  const parsed = parsePositiveRoomNumber(value);
+
+  if (parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed > 20 ? parsed / 1000 : parsed;
+}
+
+function parsePositiveRoomNumber(value: string | undefined) {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed = Number(value.replace(",", "."));
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function parseSignedRoomNumber(value: string | undefined) {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed = Number(value.replace(",", "."));
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function createRoomFormValuesForSharedWall(
+  targetFormValues: FormValues | undefined,
+  targetWall: RoomWall
+) {
+  if (!targetFormValues) {
+    return initialFormValues;
+  }
+
+  const ownWall = OPPOSITE_ROOM_WALL[targetWall];
+  const nextFormValues: FormValues = {
+    ...initialFormValues,
+    wallNorthType: targetFormValues.wallNorthType ?? initialFormValues.wallNorthType,
+    wallEastType: targetFormValues.wallEastType ?? initialFormValues.wallEastType,
+    wallSouthType: targetFormValues.wallSouthType ?? initialFormValues.wallSouthType,
+    wallWestType: targetFormValues.wallWestType ?? initialFormValues.wallWestType,
+    wallNorthWidth: targetFormValues.wallNorthWidth ?? initialFormValues.wallNorthWidth,
+    wallEastWidth: targetFormValues.wallEastWidth ?? initialFormValues.wallEastWidth,
+    wallSouthWidth: targetFormValues.wallSouthWidth ?? initialFormValues.wallSouthWidth,
+    wallWestWidth: targetFormValues.wallWestWidth ?? initialFormValues.wallWestWidth,
+    roofType: targetFormValues.roofType ?? initialFormValues.roofType,
+    roofThickness: targetFormValues.roofThickness ?? initialFormValues.roofThickness,
+  };
+
+  nextFormValues[getWallTypeFieldName(ownWall)] =
+    targetFormValues[getWallTypeFieldName(targetWall)] ?? nextFormValues[getWallTypeFieldName(ownWall)];
+  nextFormValues[getWallWidthFieldName(ownWall)] =
+    targetFormValues[getWallWidthFieldName(targetWall)] ?? nextFormValues[getWallWidthFieldName(ownWall)];
+
+  return nextFormValues;
+}
+
+function getWallTypeFieldName(wall: RoomWall) {
+  return `wall${wall}Type`;
+}
+
+function getWallWidthFieldName(wall: RoomWall) {
+  return `wall${wall}Width`;
 }
 
 function applySheetValueToFormValues(

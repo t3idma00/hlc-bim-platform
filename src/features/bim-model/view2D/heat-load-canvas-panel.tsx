@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getWallAppearanceByType, type WallAppearance, type WallPatternKind } from "@/data/assets";
+import type { RoomData } from "@/types";
 import { createBucketedIsoString, fetchCachedJson } from "@/lib/client-fetch-cache";
 import { CompassOverlay, getCompassMarkerPosition } from "../shared/CompassOverlay";
 import {
@@ -23,6 +24,7 @@ const EDITOR_OPENING_EDGE_INSET = 0.2;
 const wallPatternCache: Partial<Record<WallPatternKind, CanvasPattern | null>> = {};
 
 type CanvasFormValues = Record<string, string>;
+type CanvasRoom = Pick<RoomData, "id" | "name" | "formValues" | "placement">;
 type Point = { x: number; y: number };
 type WallDirection = "North" | "East" | "South" | "West";
 
@@ -253,11 +255,15 @@ const EDITOR_DESK_DEPTH_METERS = 0.7;
 
 export function HeatLoadCanvasPanel({
   formValues,
+  rooms,
+  activeRoomId,
   activeView,
   onViewChange,
   onFieldChange,
 }: {
   formValues: CanvasFormValues;
+  rooms?: CanvasRoom[];
+  activeRoomId?: string;
   activeView: WorkspaceView;
   onViewChange: (view: WorkspaceView) => void;
   onFieldChange: (name: string, value: string) => void;
@@ -841,36 +847,56 @@ export function HeatLoadCanvasPanel({
       const drawY = RULER_SIZE;
       const drawWidth = width - LEFT_RULER_SIZE;
       const drawHeight = height - RULER_SIZE;
-      const wallChainResult = buildWallChains(formValues);
-      const visibleSegments = wallChainResult.chains.flatMap((chain) => chain.segments);
-      const pendingDoors = new Map<WallDirection, DoorInput>();
-      const pendingWindows = new Map<WallDirection, WindowInput>();
-      getRawDoorInputs(formValues).forEach((door) => {
-        if (door.width > 0) {
-          pendingDoors.set(door.direction, door);
-        }
-      });
-      getRawWindowInputs(formValues).forEach((window) => {
-        if (window.width > 0) {
-          pendingWindows.set(window.direction, window);
-        }
-      });
-      const laidOutChains = layoutChains(
-        wallChainResult.chains
-          .map((chain) => {
-            const geometry = buildChainGeometry(chain);
+      const roomsToRender: CanvasRoom[] =
+        rooms && rooms.length > 0
+          ? rooms
+          : [
+              {
+                id: "active-room",
+                name: "Room",
+                formValues,
+                placement: { x: 0, y: 0 },
+              },
+            ];
+      const roomPlans = roomsToRender
+        .map((room, roomIndex) => {
+          const wallChainResult = buildWallChains(room.formValues);
+          const laidOutChains = layoutChains(
+            wallChainResult.chains
+              .map((chain) => {
+                const geometry = buildChainGeometry(chain);
 
-            if (!geometry) {
-              return null;
-            }
+                if (!geometry) {
+                  return null;
+                }
 
-            return {
-              chain,
-              geometry,
-            };
-          })
-          .filter((value): value is { chain: WallChain; geometry: ChainGeometry } => value !== null)
-      );
+                return {
+                  chain,
+                  geometry,
+                };
+              })
+              .filter((value): value is { chain: WallChain; geometry: ChainGeometry } => value !== null)
+          );
+          const roomOffset = {
+            x: room.placement?.x ?? roomIndex * 7,
+            y: room.placement?.y ?? 0,
+          };
+          const points = laidOutChains.items.flatMap((item) =>
+            getGeometryPoints(item.geometry).map((point) =>
+              addPoints(addPoints(point, item.offset), roomOffset)
+            )
+          );
+
+          return {
+            room,
+            wallChainResult,
+            laidOutChains,
+            roomOffset,
+            points,
+            isActive: activeRoomId ? room.id === activeRoomId : roomIndex === 0,
+          };
+        })
+        .filter((plan) => plan.points.length > 0);
 
       context.save();
       context.beginPath();
@@ -890,7 +916,7 @@ export function HeatLoadCanvasPanel({
         editorObjectsRef.current.length > 0 ||
         draftWallStartRef.current !== null;
 
-      if (hasEditorContent) {
+      if (hasEditorContent && (!rooms || rooms.length === 0)) {
         drawEditorPlan(
           context,
           editorViewport,
@@ -905,7 +931,7 @@ export function HeatLoadCanvasPanel({
         return;
       }
 
-      if (visibleSegments.length === 0) {
+      if (roomPlans.length === 0) {
         context.fillStyle = "#64748b";
         context.font = "14px sans-serif";
         context.textAlign = "center";
@@ -919,7 +945,7 @@ export function HeatLoadCanvasPanel({
         return;
       }
 
-      const bounds = laidOutChains.bounds;
+      const bounds = getPointsBounds(roomPlans.flatMap((plan) => plan.points));
       const planWidth = Math.max(bounds.maxX - bounds.minX, 1);
       const planHeight = Math.max(bounds.maxY - bounds.minY, 1);
 
@@ -927,108 +953,120 @@ export function HeatLoadCanvasPanel({
         drawX + (drawWidth - planWidth * pixelsPerMeter) / 2 - bounds.minX * pixelsPerMeter + offsetX;
       const originY =
         drawY + (drawHeight - planHeight * pixelsPerMeter) / 2 - bounds.minY * pixelsPerMeter + offsetY;
+      const drawnSharedWalls = new Set<string>();
 
-      laidOutChains.items.forEach((item) => {
-        if (item.geometry.closed) {
-          const translatedOuter = item.geometry.outerPoints.map((point) =>
-            translatePoint(addPoints(point, item.offset), originX, originY, pixelsPerMeter)
-          );
-          const translatedInner = item.geometry.innerPoints.map((point) =>
-            translatePoint(addPoints(point, item.offset), originX, originY, pixelsPerMeter)
-          );
-
-          context.beginPath();
-          addClosedPath(context, translatedOuter);
-          addClosedPath(context, translatedInner);
-          context.fillStyle = "#0f172b";
-          context.fill("evenodd");
-
-          context.beginPath();
-          addClosedPath(context, translatedInner);
-          context.fillStyle = "rgba(190, 18, 60, 0.08)";
-          context.fill();
-        } else {
-          const translatedPolygon = item.geometry.polygonPoints.map((point) =>
-            translatePoint(addPoints(point, item.offset), originX, originY, pixelsPerMeter)
-          );
-
-          context.beginPath();
-          addClosedPath(context, translatedPolygon);
-          context.fillStyle = "#0f172b";
-          context.fill();
-        }
-
-        item.chain.segments.forEach((segment) => {
-          const start = translatePoint(addPoints(segment.start, item.offset), originX, originY, pixelsPerMeter);
-          const end = translatePoint(addPoints(segment.end, item.offset), originX, originY, pixelsPerMeter);
-          const appearance = getWallAppearanceForDirection(segment.direction, formValues);
-
-          drawWallTypeSurface(
-            context,
-            segment,
-            start,
-            end,
-            pixelsPerMeter,
-            appearance
-          );
-
-          const door = pendingDoors.get(segment.direction);
-          const window = pendingWindows.get(segment.direction);
-
-          if (door || window) {
-            drawCenteredWallFeatures(
-              context,
-              segment,
-              start,
-              end,
-              pixelsPerMeter,
-              door?.width ?? 0,
-              window?.width ?? 0
-            );
-            if (door) {
-              pendingDoors.delete(segment.direction);
-            }
-            if (window) {
-              pendingWindows.delete(segment.direction);
-            }
+      roomPlans.forEach((plan) => {
+        const pendingDoors = new Map<WallDirection, DoorInput>();
+        const pendingWindows = new Map<WallDirection, WindowInput>();
+        getRawDoorInputs(plan.room.formValues).forEach((door) => {
+          if (door.width > 0) {
+            pendingDoors.set(door.direction, door);
           }
-
-          drawSegmentDimension(
-            context,
-            segment.direction,
-            start,
-            end,
-            segment.length,
-            segment.thickness * pixelsPerMeter,
-          );
+        });
+        getRawWindowInputs(plan.room.formValues).forEach((window) => {
+          if (window.width > 0) {
+            pendingWindows.set(window.direction, window);
+          }
         });
 
-        if (wallChainResult.hasFullLoopInput && !item.chain.closed) {
-          const lastSegment = item.chain.segments[item.chain.segments.length - 1];
-          const firstSegment = item.chain.segments[0];
+        plan.laidOutChains.items.forEach((item) => {
+          const totalOffset = addPoints(item.offset, plan.roomOffset);
 
-          const lastPoint = translatePoint(
-            addPoints(lastSegment.end, item.offset),
-            originX,
-            originY,
-            pixelsPerMeter
-          );
-          const firstPoint = translatePoint(
-            addPoints(firstSegment.start, item.offset),
-            originX,
-            originY,
-            pixelsPerMeter
-          );
+          item.chain.segments.forEach((segment) => {
+            const worldStart = addPoints(segment.start, totalOffset);
+            const worldEnd = addPoints(segment.end, totalOffset);
+            const wallKey = getSharedWallKey(segment, worldStart, worldEnd);
 
-          context.setLineDash([8, 6]);
-          context.lineWidth = 2;
-          context.strokeStyle = "#be123c";
-          context.beginPath();
-          context.moveTo(lastPoint.x, lastPoint.y);
-          context.lineTo(firstPoint.x, firstPoint.y);
-          context.stroke();
-          context.setLineDash([]);
-        }
+            if (drawnSharedWalls.has(wallKey)) {
+              return;
+            }
+
+            drawnSharedWalls.add(wallKey);
+
+            const start = translatePoint(worldStart, originX, originY, pixelsPerMeter);
+            const end = translatePoint(worldEnd, originX, originY, pixelsPerMeter);
+            drawPlainWallSurface(context, segment, start, end, pixelsPerMeter);
+
+            const door = pendingDoors.get(segment.direction);
+            const window = pendingWindows.get(segment.direction);
+
+            if (door || window) {
+              drawCenteredWallFeatures(
+                context,
+                segment,
+                start,
+                end,
+                pixelsPerMeter,
+                door?.width ?? 0,
+                window?.width ?? 0
+              );
+              if (door) {
+                pendingDoors.delete(segment.direction);
+              }
+              if (window) {
+                pendingWindows.delete(segment.direction);
+              }
+            }
+
+            drawSegmentDimension(
+              context,
+              segment.direction,
+              start,
+              end,
+              segment.length,
+              segment.thickness * pixelsPerMeter,
+            );
+          });
+
+          if (plan.wallChainResult.hasFullLoopInput && !item.chain.closed) {
+            const lastSegment = item.chain.segments[item.chain.segments.length - 1];
+            const firstSegment = item.chain.segments[0];
+
+            const lastPoint = translatePoint(
+              addPoints(lastSegment.end, totalOffset),
+              originX,
+              originY,
+              pixelsPerMeter
+            );
+            const firstPoint = translatePoint(
+              addPoints(firstSegment.start, totalOffset),
+              originX,
+              originY,
+              pixelsPerMeter
+            );
+
+            context.setLineDash([8, 6]);
+            context.lineWidth = 2;
+            context.strokeStyle = "#be123c";
+            context.beginPath();
+            context.moveTo(lastPoint.x, lastPoint.y);
+            context.lineTo(firstPoint.x, firstPoint.y);
+            context.stroke();
+            context.setLineDash([]);
+          }
+        });
+
+        const roomBounds = getPointsBounds(plan.points);
+        const labelPoint = translatePoint(
+          {
+            x: roomBounds.minX + (roomBounds.maxX - roomBounds.minX) / 2,
+            y: roomBounds.minY + (roomBounds.maxY - roomBounds.minY) / 2,
+          },
+          originX,
+          originY,
+          pixelsPerMeter
+        );
+
+        context.save();
+        context.font = "12px sans-serif";
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        const metrics = context.measureText(plan.room.name);
+        context.fillStyle = "rgba(255, 255, 255, 0.84)";
+        context.fillRect(labelPoint.x - metrics.width / 2 - 6, labelPoint.y - 9, metrics.width + 12, 18);
+        context.fillStyle = plan.isActive ? "#9f1239" : "#475569";
+        context.fillText(plan.room.name, labelPoint.x, labelPoint.y);
+        context.restore();
       });
 
       if (solarState.status === "ready" && solarState.snapshot.altitude > 0) {
@@ -1661,6 +1699,8 @@ export function HeatLoadCanvasPanel({
     editorRevision,
     editorTool,
     formValues,
+    rooms,
+    activeRoomId,
     redoEditorChange,
     scale,
     solarState,
@@ -3392,6 +3432,24 @@ function addPoints(first: Point, second: Point): Point {
   };
 }
 
+function getSharedWallKey(segment: WallSegment, start: Point, end: Point) {
+  const exteriorNormal = normalizeVector(getExteriorNormal(segment.direction));
+  const outerStart = addPoints(start, scalePoint(exteriorNormal, segment.thickness));
+  const outerEnd = addPoints(end, scalePoint(exteriorNormal, segment.thickness));
+  const bounds = getPointsBounds([start, end, outerStart, outerEnd]);
+
+  return [
+    roundToSharedWallPrecision(bounds.minX),
+    roundToSharedWallPrecision(bounds.minY),
+    roundToSharedWallPrecision(bounds.maxX),
+    roundToSharedWallPrecision(bounds.maxY),
+  ].join("|");
+}
+
+function roundToSharedWallPrecision(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
 function scalePoint(point: Point, scalar: number): Point {
   return {
     x: point.x * scalar,
@@ -3650,6 +3708,26 @@ function drawWallTypeSurface(
   context.strokeStyle = appearance.stroke;
   context.lineWidth = 1.1;
   context.stroke();
+  context.restore();
+}
+
+function drawPlainWallSurface(
+  context: CanvasRenderingContext2D,
+  segment: WallSegment,
+  start: Point,
+  end: Point,
+  pixelsPerMeter: number
+) {
+  const exteriorNormal = normalizeVector(getExteriorNormal(segment.direction));
+  const wallThicknessPx = Math.max(segment.thickness * pixelsPerMeter, 8);
+  const outerStart = addPoints(start, scalePoint(exteriorNormal, wallThicknessPx));
+  const outerEnd = addPoints(end, scalePoint(exteriorNormal, wallThicknessPx));
+
+  context.save();
+  context.beginPath();
+  addClosedPath(context, [start, end, outerEnd, outerStart]);
+  context.fillStyle = "#0f172b";
+  context.fill();
   context.restore();
 }
 

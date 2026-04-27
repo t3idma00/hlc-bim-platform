@@ -4,11 +4,26 @@ export type FormValues = Record<string, string>;
 
 export type SheetValues = Record<string, string>;
 
+export type RoomWall = "North" | "East" | "South" | "West";
+
+export type RoomPlacement = {
+  x: number;
+  y: number;
+  rotation?: number;
+  targetWall?: RoomWall;
+  ownWall?: RoomWall;
+  offsetMeters?: number;
+  attachToRoomId?: string;
+  targetAnchor?: string;
+  ownAnchor?: string;
+};
+
 export type RoomData = {
   id: string;
   name: string;
   formValues: FormValues;
   sheetValues: SheetValues;
+  placement?: RoomPlacement;
 };
 
 export type ProjectData = {
