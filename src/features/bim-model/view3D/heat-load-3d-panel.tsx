@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { RoomData } from "@/types";
 import { getWallAppearanceByType, type WallPatternKind } from "@/data/assets";
 import { createBucketedIsoString, fetchCachedJson } from "@/lib/client-fetch-cache";
 import {
@@ -27,6 +28,8 @@ type WallDirection = "North" | "East" | "South" | "West";
 type HeatLoad3DPanelProps = {
   formValues: CanvasFormValues;
   sheetValues?: SheetValues;
+  rooms?: Pick<RoomData, "id" | "name" | "formValues" | "sheetValues" | "placement">[];
+  activeRoomId?: string;
   activeView: WorkspaceView;
   onViewChange: (view: WorkspaceView) => void;
 };
@@ -276,6 +279,8 @@ function eraseWallOpening(
 export function HeatLoad3DPanel({
   formValues,
   sheetValues = {},
+  rooms,
+  activeRoomId,
   activeView,
   onViewChange,
 }: HeatLoad3DPanelProps) {
@@ -418,6 +423,8 @@ export function HeatLoad3DPanel({
             formValues={formValues}
             sheetValues={sheetValues}
             solarState={solarState}
+            rooms={rooms}
+            activeRoomId={activeRoomId}
           />
         </div>
       </div>

@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import * as THREE from "three";
 import { roomToThree, type RoomInputValues } from "../converters/roomToThree";
+import type { RoomData } from "@/types";
 import {
   useThreeRoom,
   type SolarStateLike,
@@ -15,18 +17,22 @@ type ThreeRoomViewProps = {
   formValues: RoomInputValues;
   sheetValues?: SheetValues;
   solarState?: SolarStateLike;
+  rooms?: Pick<RoomData, "id" | "name" | "formValues" | "sheetValues" | "placement">[];
+  activeRoomId?: string;
 };
 
 export function ThreeRoomView({
   formValues,
   sheetValues = {},
   solarState,
+  rooms,
+  activeRoomId,
 }: ThreeRoomViewProps) {
   const [activeTool, setActiveTool] = useState<ThreeRoomTool>("orbit");
   const [roofAndCeilingVisible, setRoofAndCeilingVisible] = useState(false);
   const roomModel = useMemo(
-    () => roomToThree(formValues, sheetValues),
-    [formValues, sheetValues]
+    () => buildCombinedRoomModel(rooms, activeRoomId) ?? roomToThree(formValues, sheetValues),
+    [activeRoomId, formValues, rooms, sheetValues]
   );
   const { containerRef, controls } = useThreeRoom(roomModel, solarState, activeTool);
   const isReady = roomModel !== null;
@@ -143,6 +149,81 @@ export function ThreeRoomView({
       </div>
     </div>
   );
+}
+
+function buildCombinedRoomModel(
+  rooms: ThreeRoomViewProps["rooms"],
+  activeRoomId?: string
+) {
+  if (!rooms || rooms.length === 0) {
+    return null;
+  }
+
+  const combinedGroup = new THREE.Group();
+  combinedGroup.name = "three-room-root";
+
+  const roomModels = rooms
+    .map((room) => {
+      const model = roomToThree(room.formValues, room.sheetValues ?? {});
+
+      if (!model) {
+        return null;
+      }
+
+      const roomGroup = new THREE.Group();
+      roomGroup.name = `room-instance-${room.id}`;
+      roomGroup.userData = {
+        roomId: room.id,
+        roomName: room.name,
+        isActiveRoom: room.id === activeRoomId,
+      };
+
+      const originX = room.placement?.x ?? 0;
+      const originY = room.placement?.y ?? 0;
+      roomGroup.position.set(
+        originX + model.dimensions.width / 2,
+        0,
+        -(originY + model.dimensions.depth / 2)
+      );
+      roomGroup.add(model.group);
+
+      return {
+        room,
+        roomGroup,
+        model,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  if (roomModels.length === 0) {
+    return null;
+  }
+
+  roomModels.forEach(({ roomGroup }) => {
+    combinedGroup.add(roomGroup);
+  });
+
+  const bounds = new THREE.Box3().setFromObject(combinedGroup);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  bounds.getSize(size);
+  bounds.getCenter(center);
+
+  combinedGroup.position.sub(center);
+
+  const dimensions = {
+    width: Math.max(size.x, 0.1),
+    depth: Math.max(size.z, 0.1),
+    height: Math.max(size.y, 0.1),
+    wallThickness: roomModels[0]?.model.dimensions.wallThickness ?? 0.2,
+  };
+
+  combinedGroup.userData.dimensions = dimensions;
+
+  return {
+    group: combinedGroup,
+    dimensions,
+  };
 }
 
 function ThreeToolbarIcon({

@@ -45,6 +45,7 @@ export function useThreeRoom(
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const roomGroupRef = useRef<THREE.Group | null>(null);
+  const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const axesHelperRef = useRef<THREE.Group | null>(null);
   const sunHelperRef = useRef<THREE.Group | null>(null);
   const selectionHelperRef = useRef<THREE.BoxHelper | null>(null);
@@ -222,6 +223,7 @@ export function useThreeRoom(
     const gridHelper = new THREE.GridHelper(60, 60, 0xcbd5e1, 0xe2e8f0);
     gridHelper.position.y = -0.04;
     scene.add(gridHelper);
+    gridHelperRef.current = gridHelper;
 
     const handleResize = () => {
       const nextWidth = Math.max(container.clientWidth, 1);
@@ -260,12 +262,13 @@ export function useThreeRoom(
       controls.dispose();
       clearSelection();
       disposeObject3D(roomGroupRef.current);
+      disposeObject3D(gridHelperRef.current);
       disposeObject3D(axesHelperRef.current);
       disposeObject3D(sunHelperRef.current);
       roomGroupRef.current = null;
+      gridHelperRef.current = null;
       axesHelperRef.current = null;
       sunHelperRef.current = null;
-      disposeObject3D(gridHelper);
       scene.clear();
       renderer.dispose();
       if (renderer.domElement.parentElement === container) {
@@ -337,6 +340,7 @@ export function useThreeRoom(
     const scene = sceneRef.current;
     const camera = cameraRef.current;
     const controls = controlsRef.current;
+    const gridHelper = gridHelperRef.current;
 
     if (!scene || !camera || !controls) {
       return;
@@ -382,6 +386,9 @@ export function useThreeRoom(
     axesHelperRef.current = axesHelper;
 
     if (!roomModel) {
+      if (gridHelper) {
+        gridHelper.visible = true;
+      }
       controls.target.set(0, 0.6, 0);
       controls.minDistance = Math.max(sizeReference * 0.45, 1.5);
       controls.maxDistance = Math.max(sizeReference * 7, 30);
@@ -391,6 +398,9 @@ export function useThreeRoom(
 
     scene.add(roomModel.group);
     roomGroupRef.current = roomModel.group;
+    if (gridHelper) {
+      gridHelper.visible = false;
+    }
     setRoofAndCeilingVisible(roofAndCeilingVisibleRef.current);
 
     controls.target.set(0, roomModel.dimensions.height / 2, 0);
