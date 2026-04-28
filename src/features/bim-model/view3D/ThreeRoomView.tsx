@@ -30,10 +30,15 @@ export function ThreeRoomView({
 }: ThreeRoomViewProps) {
   const [activeTool, setActiveTool] = useState<ThreeRoomTool>("orbit");
   const [roofAndCeilingVisible, setRoofAndCeilingVisible] = useState(false);
-  const roomModel = useMemo(
-    () => buildCombinedRoomModel(rooms, activeRoomId) ?? roomToThree(formValues, sheetValues),
-    [activeRoomId, formValues, rooms, sheetValues]
-  );
+  const roomModel = useMemo(() => {
+    const combinedModel = buildCombinedRoomModel(rooms, activeRoomId);
+    if (combinedModel) {
+      return combinedModel;
+    }
+
+    const singleRoomModel = roomToThree(formValues, sheetValues);
+    return singleRoomModel ? normalizeModelToGround(singleRoomModel) : null;
+  }, [activeRoomId, formValues, rooms, sheetValues]);
   const { containerRef, controls } = useThreeRoom(roomModel, solarState, activeTool);
   const isReady = roomModel !== null;
   const viewTools: Array<{
@@ -209,7 +214,9 @@ function buildCombinedRoomModel(
   bounds.getSize(size);
   bounds.getCenter(center);
 
-  combinedGroup.position.sub(center);
+  combinedGroup.position.x -= center.x;
+  combinedGroup.position.z -= center.z;
+  combinedGroup.position.y -= bounds.min.y;
 
   const dimensions = {
     width: Math.max(size.x, 0.1),
@@ -220,10 +227,20 @@ function buildCombinedRoomModel(
 
   combinedGroup.userData.dimensions = dimensions;
 
-  return {
+  return normalizeModelToGround({
     group: combinedGroup,
     dimensions,
-  };
+  });
+}
+
+function normalizeModelToGround<T extends { group: THREE.Group }>(model: T): T {
+  const bounds = new THREE.Box3().setFromObject(model.group);
+
+  if (Number.isFinite(bounds.min.y)) {
+    model.group.position.y -= bounds.min.y;
+  }
+
+  return model;
 }
 
 function ThreeToolbarIcon({

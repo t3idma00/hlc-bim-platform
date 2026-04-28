@@ -35,6 +35,9 @@ export type SolarStateLike = {
   message: string;
 };
 
+const ROOM_GRID_OFFSET_Y = -0.081;
+const EMPTY_SCENE_GRID_OFFSET_Y = -0.04;
+
 export function useThreeRoom(
   roomModel: ThreeRoomModel | null,
   solarState?: SolarStateLike,
@@ -46,6 +49,9 @@ export function useThreeRoom(
   const controlsRef = useRef<OrbitControls | null>(null);
   const roomGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
+  const directionalLightRef = useRef<THREE.DirectionalLight | null>(null);
+  const directionalLightTargetRef = useRef<THREE.Object3D | null>(null);
   const axesHelperRef = useRef<THREE.Group | null>(null);
   const sunHelperRef = useRef<THREE.Group | null>(null);
   const selectionHelperRef = useRef<THREE.BoxHelper | null>(null);
@@ -219,9 +225,12 @@ export function useThreeRoom(
     directionalLight.shadow.camera.updateProjectionMatrix();
     directionalLight.target.position.set(0, 1.2, 0);
     scene.add(ambientLight, directionalLight, directionalLight.target);
+    ambientLightRef.current = ambientLight;
+    directionalLightRef.current = directionalLight;
+    directionalLightTargetRef.current = directionalLight.target;
 
     const gridHelper = new THREE.GridHelper(60, 60, 0xcbd5e1, 0xe2e8f0);
-    gridHelper.position.y = -0.04;
+    gridHelper.position.y = EMPTY_SCENE_GRID_OFFSET_Y;
     scene.add(gridHelper);
     gridHelperRef.current = gridHelper;
 
@@ -267,6 +276,9 @@ export function useThreeRoom(
       disposeObject3D(sunHelperRef.current);
       roomGroupRef.current = null;
       gridHelperRef.current = null;
+      ambientLightRef.current = null;
+      directionalLightRef.current = null;
+      directionalLightTargetRef.current = null;
       axesHelperRef.current = null;
       sunHelperRef.current = null;
       scene.clear();
@@ -388,6 +400,7 @@ export function useThreeRoom(
     if (!roomModel) {
       if (gridHelper) {
         gridHelper.visible = true;
+        gridHelper.position.y = EMPTY_SCENE_GRID_OFFSET_Y;
       }
       controls.target.set(0, 0.6, 0);
       controls.minDistance = Math.max(sizeReference * 0.45, 1.5);
@@ -399,7 +412,8 @@ export function useThreeRoom(
     scene.add(roomModel.group);
     roomGroupRef.current = roomModel.group;
     if (gridHelper) {
-      gridHelper.visible = false;
+      gridHelper.visible = true;
+      gridHelper.position.y = ROOM_GRID_OFFSET_Y;
     }
     setRoofAndCeilingVisible(roofAndCeilingVisibleRef.current);
 
@@ -418,8 +432,11 @@ export function useThreeRoom(
 
   useEffect(() => {
     const scene = sceneRef.current;
+    const ambientLight = ambientLightRef.current;
+    const directionalLight = directionalLightRef.current;
+    const directionalLightTarget = directionalLightTargetRef.current;
 
-    if (!scene) {
+    if (!scene || !ambientLight || !directionalLight || !directionalLightTarget) {
       return;
     }
 
@@ -429,16 +446,26 @@ export function useThreeRoom(
       sunHelperRef.current = null;
     }
 
-    if (!solarState || solarState.status !== "ready" || !solarState.snapshot || solarState.snapshot.altitude <= 0) {
-      return;
-    }
-
     const sceneDimensions = roomModel?.dimensions ?? {
       width: 6,
       depth: 6,
       height: 3,
       wallThickness: 0.2,
     };
+
+    if (!solarState || solarState.status !== "ready" || !solarState.snapshot || solarState.snapshot.altitude <= 0) {
+      applyDefaultLighting(directionalLight, directionalLightTarget, ambientLight, sceneDimensions);
+      return;
+    }
+
+    applySolarLighting(
+      directionalLight,
+      directionalLightTarget,
+      ambientLight,
+      solarState.snapshot,
+      sceneDimensions
+    );
+
     const sunHelper = createSunHelper(solarState.snapshot, sceneDimensions);
 
     scene.add(sunHelper);
@@ -455,6 +482,79 @@ export function useThreeRoom(
       setRoofAndCeilingVisible,
     },
   };
+}
+
+function applyDefaultLighting(
+  directionalLight: THREE.DirectionalLight,
+  directionalLightTarget: THREE.Object3D,
+  ambientLight: THREE.AmbientLight,
+  sceneDimensions: {
+    width: number;
+    depth: number;
+    height: number;
+  }
+) {
+  const sizeReference = Math.max(
+    sceneDimensions.width,
+    sceneDimensions.depth,
+    sceneDimensions.height,
+    6
+  );
+
+  ambientLight.intensity = 1.1;
+  directionalLight.intensity = 2.1;
+  directionalLight.position.set(sizeReference * 1.2, sizeReference * 1.8, sizeReference * 1.4);
+  directionalLightTarget.position.set(0, sceneDimensions.height * 0.4, 0);
+  updateShadowCamera(directionalLight, sceneDimensions);
+}
+
+function applySolarLighting(
+  directionalLight: THREE.DirectionalLight,
+  directionalLightTarget: THREE.Object3D,
+  ambientLight: THREE.AmbientLight,
+  snapshot: SolarSnapshotLike,
+  sceneDimensions: {
+    width: number;
+    depth: number;
+    height: number;
+  }
+) {
+  const sceneScale = Math.max(
+    sceneDimensions.width,
+    sceneDimensions.depth,
+    sceneDimensions.height,
+    6
+  );
+  const sunWorldPosition = getSunWorldPosition(snapshot, sceneScale);
+  const altitudeFactor = THREE.MathUtils.clamp(snapshot.altitude / 90, 0, 1);
+
+  ambientLight.intensity = THREE.MathUtils.lerp(0.75, 0.28, altitudeFactor);
+  directionalLight.intensity = THREE.MathUtils.lerp(0.9, 2.4, altitudeFactor);
+  directionalLight.position.set(sunWorldPosition.x, sunWorldPosition.y, sunWorldPosition.z);
+  directionalLightTarget.position.set(0, sceneDimensions.height * 0.35, 0);
+  updateShadowCamera(directionalLight, sceneDimensions);
+}
+
+function updateShadowCamera(
+  directionalLight: THREE.DirectionalLight,
+  sceneDimensions: {
+    width: number;
+    depth: number;
+    height: number;
+  }
+) {
+  const shadowCamera = directionalLight.shadow.camera as THREE.OrthographicCamera;
+  const shadowSpan =
+    Math.max(sceneDimensions.width, sceneDimensions.depth, sceneDimensions.height, 6) * 1.25;
+
+  shadowCamera.near = 0.5;
+  shadowCamera.far = Math.max(shadowSpan * 4, 40);
+  shadowCamera.left = -shadowSpan;
+  shadowCamera.right = shadowSpan;
+  shadowCamera.top = shadowSpan;
+  shadowCamera.bottom = -shadowSpan;
+  shadowCamera.updateProjectionMatrix();
+  directionalLight.shadow.mapSize.set(2048, 2048);
 }
 
 function createFloorAxisHelper(dimensions: {
