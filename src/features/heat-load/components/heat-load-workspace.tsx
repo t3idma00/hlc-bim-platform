@@ -456,8 +456,6 @@ export default function HeatLoadWorkspace() {
               <HeatLoad3DPanel
                 formValues={projectData.rooms.find((r) => r.id === activeRoomId)?.formValues || initialFormValues}
                 sheetValues={projectData.rooms.find((r) => r.id === activeRoomId)?.sheetValues || {}}
-                rooms={placedRooms}
-                activeRoomId={activeRoomId}
                 activeView={activeView}
                 onViewChange={setActiveView}
               />
