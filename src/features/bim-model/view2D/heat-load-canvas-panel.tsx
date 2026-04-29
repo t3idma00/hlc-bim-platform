@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { getWallAppearanceByType, type WallAppearance, type WallPatternKind } from "@/data/assets";
 import type { RoomData } from "@/types";
 import { createBucketedIsoString, fetchCachedJson } from "@/lib/client-fetch-cache";
+import { formatLengthDisplay, normalizeUnitSystem, type UnitSystem } from "@/lib/units";
 import { CompassOverlay, getCompassMarkerPosition } from "../shared/CompassOverlay";
 import {
   WorkspaceViewToggle,
@@ -270,6 +271,7 @@ export function HeatLoadCanvasPanel({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const unitSystem = normalizeUnitSystem(formValues.unitSystem);
   const [scale, setScale] = useState(1);
   const [solarState, setSolarState] = useState<SolarState>({
     status: "loading",
@@ -684,7 +686,8 @@ export function HeatLoadCanvasPanel({
       height: number,
       gridMetrics: GridMetrics,
       offsetX: number,
-      offsetY: number
+      offsetY: number,
+      unitSystem: UnitSystem
     ) {
       context.fillStyle = "#e0efff";
       context.fillRect(0, 0, width, RULER_SIZE);
@@ -731,7 +734,7 @@ export function HeatLoadCanvasPanel({
 
         if (showLabel) {
           const value = roundToPrecision((indexX / 4) * gridMetrics.gridStepMeters);
-          context.fillText(formatAxisValue(value), x + 2, 10);
+          context.fillText(formatAxisValue(value, unitSystem), x + 2, 10);
         }
 
         indexX++;
@@ -763,7 +766,7 @@ export function HeatLoadCanvasPanel({
           context.save();
           context.translate(10, y);
           context.rotate(-Math.PI / 2);
-          context.fillText(formatAxisValue(value), 0, 0);
+          context.fillText(formatAxisValue(value, unitSystem), 0, 0);
           context.restore();
         }
 
@@ -925,7 +928,8 @@ export function HeatLoadCanvasPanel({
           editorObjectsRef.current,
           selectedEditorElementRef.current,
           draftWallStartRef.current,
-          draftWallEndRef.current
+          draftWallEndRef.current,
+          unitSystem
         );
         context.restore();
         return;
@@ -1015,6 +1019,7 @@ export function HeatLoadCanvasPanel({
               end,
               segment.length,
               segment.thickness * pixelsPerMeter,
+              unitSystem
             );
           });
 
@@ -1131,7 +1136,8 @@ export function HeatLoadCanvasPanel({
           offsetRef.current.y
         ),
         measurementStartRef.current,
-        measurementEndRef.current
+        measurementEndRef.current,
+        unitSystem
       );
 
       drawRulers(
@@ -1140,7 +1146,8 @@ export function HeatLoadCanvasPanel({
         height,
         gridMetrics,
         offsetRef.current.x,
-        offsetRef.current.y
+        offsetRef.current.y,
+        unitSystem
       );
     }
 
@@ -1704,6 +1711,7 @@ export function HeatLoadCanvasPanel({
     redoEditorChange,
     scale,
     solarState,
+    unitSystem,
     undoEditorChange,
   ]);
 
@@ -1716,7 +1724,8 @@ export function HeatLoadCanvasPanel({
     editorWalls,
     editorOpenings,
     editorObjectsRef.current,
-    draftWallStartRef.current
+    draftWallStartRef.current,
+    unitSystem
   );
   const sunSummary = getSunSummary(solarState);
   const compassMarker =
@@ -2177,7 +2186,8 @@ function drawMeasurementOverlay(
   context: CanvasRenderingContext2D,
   viewport: EditorViewport,
   start: Point | null,
-  end: Point | null
+  end: Point | null,
+  unitSystem: UnitSystem
 ) {
   if (!start || !end) {
     return;
@@ -2186,7 +2196,7 @@ function drawMeasurementOverlay(
   const screenStart = worldToEditorScreen(start, viewport);
   const screenEnd = worldToEditorScreen(end, viewport);
   const distanceMeters = getDistance(start, end);
-  const label = `${formatValue(distanceMeters)} m`;
+  const label = formatLengthDisplay(distanceMeters, unitSystem);
   const midPoint = {
     x: (screenStart.x + screenEnd.x) / 2,
     y: (screenStart.y + screenEnd.y) / 2,
@@ -2417,7 +2427,8 @@ function drawEditorPlan(
   objects: EditableObject[],
   selectedElement: SelectedEditorElement,
   draftWallStart: Point | null,
-  draftWallEnd: Point | null
+  draftWallEnd: Point | null,
+  unitSystem: UnitSystem
 ) {
   const origin = worldToEditorScreen({ x: 0, y: 0 }, viewport);
 
@@ -2445,7 +2456,8 @@ function drawEditorPlan(
       wall,
       viewport,
       openingsByWall.get(wall.id) ?? [],
-      selectedElement
+      selectedElement,
+      unitSystem
     );
   });
 
@@ -2485,7 +2497,8 @@ function drawEditorPlan(
         start,
         end,
         getEditorWallLength(previewWall),
-        Math.max(DEFAULT_WALL_THICKNESS * viewport.pixelsPerMeter, 8)
+        Math.max(DEFAULT_WALL_THICKNESS * viewport.pixelsPerMeter, 8),
+        unitSystem
       );
     }
   }
@@ -2550,7 +2563,8 @@ function drawEditorWall(
   wall: EditableWall,
   viewport: EditorViewport,
   openings: EditableOpening[],
-  selectedElement: SelectedEditorElement
+  selectedElement: SelectedEditorElement,
+  unitSystem: UnitSystem
 ) {
   const start = worldToEditorScreen(wall.start, viewport);
   const end = worldToEditorScreen(wall.end, viewport);
@@ -2608,7 +2622,8 @@ function drawEditorWall(
     start,
     end,
     getEditorWallLength(wall),
-    wallThicknessPx
+    wallThicknessPx,
+    unitSystem
   );
 
   if (isSelected) {
@@ -2901,7 +2916,8 @@ function getCanvasSummary(
   editorWalls: EditableWall[],
   editorOpenings: EditableOpening[],
   editorObjects: EditableObject[],
-  draftWallStart: Point | null
+  draftWallStart: Point | null,
+  unitSystem: UnitSystem
 ) {
   if (
     editorWalls.length === 0 &&
@@ -2909,7 +2925,7 @@ function getCanvasSummary(
     editorObjects.length === 0 &&
     !draftWallStart
   ) {
-    return getWallSummary(formValues);
+    return getWallSummary(formValues, unitSystem);
   }
 
   const wallLabel = editorWalls.length === 1 ? "wall" : "walls";
@@ -3473,6 +3489,7 @@ function drawSegmentDimension(
   end: Point,
   value: number,
   wallThicknessPx: number,
+  unitSystem: UnitSystem,
 ) {
   const exteriorNormal = getExteriorNormal(direction);
   const offsetDistance = wallThicknessPx + DIMENSION_GAP;
@@ -3485,7 +3502,7 @@ function drawSegmentDimension(
   const midX = (dimensionStart.x + dimensionEnd.x) / 2;
   const midY = (dimensionStart.y + dimensionEnd.y) / 2;
   const isHorizontal = direction === "North" || direction === "South";
-  const label = `${formatValue(value)} m`;
+  const label = formatLengthDisplay(value, unitSystem);
 
   context.save();
   context.strokeStyle = "#be123c";
@@ -3987,14 +4004,14 @@ function drawSunOverlay(
   context.restore();
 }
 
-function getWallSummary(formValues: CanvasFormValues) {
+function getWallSummary(formValues: CanvasFormValues, unitSystem: UnitSystem) {
   const visibleSegments = getRawWallInputs(formValues).filter((wall) => wall.length > 0);
 
   if (visibleSegments.length === 0) {
     return "No walls drawn yet";
   }
 
-  return `Walls: ${visibleSegments.map((segment) => `${formatValue(segment.length)}m`).join(" | ")}`;
+  return `Walls: ${visibleSegments.map((segment) => formatLengthDisplay(segment.length, unitSystem)).join(" | ")}`;
 }
 
 function getSunSummary(solarState: SolarState) {
@@ -4051,12 +4068,8 @@ function getDistance(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function formatValue(value: number) {
-  return Number.isInteger(value) ? value.toString() : value.toFixed(2);
-}
-
-function formatAxisValue(value: number) {
-  return Number(roundToPrecision(value).toFixed(2)).toString();
+function formatAxisValue(value: number, unitSystem: UnitSystem) {
+  return formatLengthDisplay(roundToPrecision(value), unitSystem);
 }
 
 function roundToPrecision(value: number) {

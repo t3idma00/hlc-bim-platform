@@ -20,6 +20,24 @@ const OPPOSITE_ROOM_WALL: Record<RoomWall, RoomWall> = {
   West: "East",
 };
 
+const LEGACY_PROJECT_FALLBACK: ProjectData = {
+  version: "1.1",
+  rooms: [
+    {
+      id: "room-1",
+      name: "Room 1",
+      formValues: initialFormValues,
+      sheetValues: {},
+    },
+  ],
+  formValues: initialFormValues,
+  sheetValues: {},
+};
+
+type ProjectRecord = Omit<Project, "data"> & {
+  data?: ProjectData | null;
+};
+
 export default function HeatLoadWorkspace() {
   const [projectData, setProjectData] = useState<ProjectData>({
     version: "1.2",
@@ -39,7 +57,7 @@ export default function HeatLoadWorkspace() {
 
   const [activeView, setActiveView] = useState<WorkspaceView>("2d");
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
 
   // Save Modal
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -241,15 +259,15 @@ export default function HeatLoadWorkspace() {
     setSaveMessage(null);
 
     try {
-      const rawProjects = await getUserProjects();
+      const rawProjects = (await getUserProjects()) as ProjectRecord[];
 
-      const mappedProjects: Project[] = rawProjects.map((p: any) => ({
+      const mappedProjects: Project[] = rawProjects.map((p) => ({
         id: p.id,
         user_id: p.user_id,
         name: p.name,
         created_at: p.created_at,
         updated_at: p.updated_at,
-        data: p.data || { version: "1.1", formValues: initialFormValues, sheetValues: {} },
+        data: p.data || LEGACY_PROJECT_FALLBACK,
       }));
 
       setProjects(mappedProjects);
@@ -871,10 +889,18 @@ function applySheetValueToFormValues(
     "1.2_type": "wallEastType",
     "1.3_type": "wallSouthType",
     "1.4_type": "wallWestType",
+    "1.1_direction": "wallNorthDirection",
+    "1.2_direction": "wallEastDirection",
+    "1.3_direction": "wallSouthDirection",
+    "1.4_direction": "wallWestDirection",
     "1.1_thickness": "wallNorthWidth",
     "1.2_thickness": "wallEastWidth",
     "1.3_thickness": "wallSouthWidth",
     "1.4_thickness": "wallWestWidth",
+    "2.1_direction": "windowNorthDirection",
+    "2.2_direction": "windowEastDirection",
+    "2.3_direction": "windowSouthDirection",
+    "2.4_direction": "windowWestDirection",
     "1.6_type": "roofType",
     "1.6_thickness": "roofThickness",
   };

@@ -8,6 +8,7 @@ import {
   type WorkspaceView,
 } from "../workspace-view-toggle";
 import { ThreeRoomView } from "./ThreeRoomView";
+import { formatLengthDisplay, normalizeUnitSystem, type UnitSystem } from "@/lib/units";
 
 const DEFAULT_HEIGHT = 3;
 const DEFAULT_WALL_THICKNESS = 0.2;
@@ -285,6 +286,7 @@ export function HeatLoad3DPanel({
     message: "Locating live sun...",
   });
   const roomDimensions = getRoomDimensions(formValues);
+  const unitSystem = normalizeUnitSystem(formValues.unitSystem);
   const sunSummary = getLiveSunSummary(solarState);
 
   useEffect(() => {
@@ -426,7 +428,7 @@ export function HeatLoad3DPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
           <span>Mode: 3D Orbit View</span>
           <span>Camera: Orbit Controls</span>
-          <span>{getRoomSummary(roomDimensions)}</span>
+          <span>{getRoomSummary(roomDimensions, unitSystem)}</span>
           <span>{sunSummary.bar}</span>
           <span>Walls: Solid</span>
         </div>
@@ -445,6 +447,7 @@ export function LegacyHeatLoad3DPanel({
   const rotationRef = useRef(INITIAL_ROTATION);
   const isDragging = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
+  const unitSystem = normalizeUnitSystem(formValues.unitSystem);
   const [zoom, setZoom] = useState(1);
   const [solarState, setSolarState] = useState<SolarState>({
     status: "loading",
@@ -584,7 +587,8 @@ export function LegacyHeatLoad3DPanel({
         rotationRef.current.x,
         rotationRef.current.y,
         zoom,
-        solarState
+        solarState,
+        unitSystem
       );
     };
 
@@ -633,7 +637,8 @@ export function LegacyHeatLoad3DPanel({
         rotationRef.current.x,
         rotationRef.current.y,
         zoom,
-        solarState
+        solarState,
+        unitSystem
       );
     };
 
@@ -653,7 +658,7 @@ export function LegacyHeatLoad3DPanel({
       canvas.removeEventListener("mouseleave", handleMouseUp);
       canvas.removeEventListener("mousemove", handleMouseMove);
     };
-  }, [formValues, roomDimensions, zoom, solarState]);
+  }, [formValues, roomDimensions, zoom, solarState, unitSystem]);
 
   const sunSummary = getSunSummary(solarState);
 
@@ -694,7 +699,7 @@ export function LegacyHeatLoad3DPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
           <span>Mode: 3D Orbit View</span>
           <span>Zoom: {Math.round(zoom * 100)}%</span>
-          <span>{getRoomSummary(roomDimensions)}</span>
+          <span>{getRoomSummary(roomDimensions, unitSystem)}</span>
           <span>{sunSummary}</span>
         </div>
       </div>
@@ -711,7 +716,8 @@ function drawScene(
   rotationX: number,
   rotationY: number,
   zoom: number,
-  solarState: SolarState
+  solarState: SolarState,
+  unitSystem: UnitSystem
 ) {
   context.clearRect(0, 0, width, height);
 
@@ -925,7 +931,7 @@ function drawScene(
     }
   });
 
-  drawDimensionChip(context, width, height, roomDimensions);
+  drawDimensionChip(context, width, height, roomDimensions, unitSystem);
 }
 
 function drawBackdrop(
@@ -1673,9 +1679,13 @@ function drawDimensionChip(
   context: CanvasRenderingContext2D,
   width: number,
   height: number,
-  roomDimensions: RoomDimensions
+  roomDimensions: RoomDimensions,
+  unitSystem: UnitSystem
 ) {
-  const label = `${formatValue(roomDimensions.width)}m x ${formatValue(roomDimensions.depth)}m x ${formatValue(roomDimensions.height)}m`;
+  const label = `${formatLengthDisplay(roomDimensions.width, unitSystem)} x ${formatLengthDisplay(
+    roomDimensions.depth,
+    unitSystem,
+  )} x ${formatLengthDisplay(roomDimensions.height, unitSystem)}`;
   const paddingX = 14;
   const paddingY = 10;
 
@@ -2336,14 +2346,15 @@ function getRoomDimensions(formValues: CanvasFormValues): RoomDimensions | null 
   };
 }
 
-function getRoomSummary(roomDimensions: RoomDimensions | null) {
+function getRoomSummary(roomDimensions: RoomDimensions | null, unitSystem: UnitSystem) {
   if (!roomDimensions) {
     return "No room volume to preview yet";
   }
 
-  return `Room: ${formatValue(roomDimensions.width)}m x ${formatValue(
-    roomDimensions.depth
-  )}m x ${formatValue(roomDimensions.height)}m`;
+  return `Room: ${formatLengthDisplay(roomDimensions.width, unitSystem)} x ${formatLengthDisplay(
+    roomDimensions.depth,
+    unitSystem,
+  )} x ${formatLengthDisplay(roomDimensions.height, unitSystem)}`;
 }
 
 function parsePositiveNumber(value: string | undefined, fallback = 0) {
@@ -2366,10 +2377,6 @@ function parseWallThicknessMeters(value: string | undefined, fallback = 0) {
   }
 
   return parsed;
-}
-
-function formatValue(value: number) {
-  return Number.isInteger(value) ? value.toString() : value.toFixed(2);
 }
 
 function clamp(value: number, min: number, max: number) {

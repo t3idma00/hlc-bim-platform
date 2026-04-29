@@ -6,9 +6,9 @@ import { HeatLoadSheet } from "./heat-load-sheet";
 import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
 import { fetchCachedJson } from "@/lib/client-fetch-cache";
 import { calculateRelativeHumidityFromWetBulb, calculateWetBulbFromRelativeHumidity } from "@/lib/calculations";
+import { normalizeUnitSystem, unitLabel, type UnitSystem } from "@/lib/units";
 
 type SurfaceType = "walls" | "windows" | "doors";
-type UnitSystem = "si" | "imperial";
 
 export type FormValues = Record<string, string>;
 type SheetValues = Record<string, string>;
@@ -44,6 +44,15 @@ type SolarDetailsResponse = {
     relativeHumidity?: number | null;
     wetBulbTemp?: number | null;
   };
+  solarIntensity?: {
+    dni?: number | null;
+    dhi?: number | null;
+    ghi?: number | null;
+  };
+  solarPosition?: {
+    zenith?: number | null;
+    azimuth?: number | null;
+  };
 };
 
 const topSectionRows = [0, 1, 2, 3];
@@ -52,6 +61,7 @@ export const initialFormValues: FormValues = {
   selectedCountry: "",
   selectedCountryCode: "",
   selectedCity: "",
+  unitSystem: "si",
   wallNorthDirection: "North",
   wallNorthLength: "",
   wallNorthWidth: "",
@@ -117,6 +127,11 @@ export const initialFormValues: FormValues = {
   conditionValue: "",
   indoorConditionType: "Relative Humidity",
   indoorConditionValue: "",
+  solarDni: "",
+  solarDhi: "",
+  solarGhi: "",
+  solarZenith: "",
+  solarAzimuth: "",
 };
 
 // Helper functions 
@@ -173,7 +188,7 @@ export function HeatLoadFormPanel({
   onSheetChange,
 }: Props) {
   const [surfaceType, setSurfaceType] = useState<SurfaceType>("walls");
-  const [unitSystem, setUnitSystem] = useState<UnitSystem>("si");
+  const unitSystem = normalizeUnitSystem(formValues.unitSystem);
   const [countryOptions, setCountryOptions] = useState<CountryOption[]>([]);
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [countryLoading, setCountryLoading] = useState(false);
@@ -268,6 +283,12 @@ export function HeatLoadFormPanel({
     onFieldChange("selectedCountry", nextCountry);
     const matched = countryOptions.find((item) => item.name === nextCountry);
     onFieldChange("selectedCountryCode", matched?.iso2 ?? "");
+  }
+
+  function handleUnitSystemChange(nextUnitSystem: UnitSystem) {
+    if (nextUnitSystem !== unitSystem) {
+      onFieldChange("unitSystem", nextUnitSystem);
+    }
   }
 
   useEffect(() => {
@@ -377,6 +398,22 @@ export function HeatLoadFormPanel({
           onFieldChange("conditionValue", "");
           onFieldChange("wetBulbTemp", "");
         }
+
+        // Persist solar intensity + sun position for downstream SHG computation.
+        const intensity = solarDetailsPayload.solarIntensity;
+        const position = solarDetailsPayload.solarPosition;
+        const writeNum = (key: string, val: number | null | undefined) => {
+          if (typeof val === "number" && Number.isFinite(val)) {
+            onFieldChange(key, val.toFixed(3));
+          } else {
+            onFieldChange(key, "");
+          }
+        };
+        writeNum("solarDni", intensity?.dni);
+        writeNum("solarDhi", intensity?.dhi);
+        writeNum("solarGhi", intensity?.ghi);
+        writeNum("solarZenith", position?.zenith);
+        writeNum("solarAzimuth", position?.azimuth);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to auto-fill design temperatures.";
         setDesignTempError(message);
@@ -525,14 +562,14 @@ export function HeatLoadFormPanel({
             <div className="inline-flex overflow-hidden border border-rose-200 bg-white text-[10px] font-semibold text-slate-900">
               <button
                 type="button"
-                onClick={() => setUnitSystem("si")}
+                onClick={() => handleUnitSystemChange("si")}
                 className={`px-3 py-1.5 ${unitSystem === "si" ? "bg-[#fff4f7] text-[#9f1239]" : "bg-white text-slate-700"}`}
               >
                 SI Unit
               </button>
               <button
                 type="button"
-                onClick={() => setUnitSystem("imperial")}
+                onClick={() => handleUnitSystemChange("imperial")}
                 className={`border-l border-rose-200 px-3 py-1.5 ${
                   unitSystem === "imperial" ? "bg-[#fff4f7] text-[#9f1239]" : "bg-white text-slate-700"
                 }`}
@@ -541,6 +578,9 @@ export function HeatLoadFormPanel({
               </button>
             </div>
           </div>
+          <p className="mt-2 text-[10px] font-semibold text-slate-600">
+            Units: {unitLabel(unitSystem, "length")}, {unitLabel(unitSystem, "area")}, {unitLabel(unitSystem, "temperature")}, {unitLabel(unitSystem, "heat")}
+          </p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
@@ -606,11 +646,13 @@ export function HeatLoadFormPanel({
                       surfaceType={surfaceType}
                       rowIndex={rowIndex}
                       values={formValues}
+                      unitSystem={unitSystem}
                       onFieldChange={onFieldChange}
                     />
                     <DesignConditionsRow 
                       rowIndex={rowIndex} 
                       values={formValues} 
+                      unitSystem={unitSystem}
                       onFieldChange={onFieldChange} 
                     />
                   </tr>
@@ -621,6 +663,7 @@ export function HeatLoadFormPanel({
             <HeatLoadSheet 
               formValues={formValues}
               sheetValues={sheetValues} 
+              unitSystem={unitSystem}
               onSheetChange={onSheetChange} 
             />
           </div>

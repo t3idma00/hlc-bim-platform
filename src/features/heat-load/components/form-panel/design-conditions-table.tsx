@@ -1,3 +1,10 @@
+import {
+  formatUnitValue,
+  toCanonicalUnitValue,
+  unitLabel,
+  type UnitSystem,
+} from "@/lib/units";
+
 type FormValues = Record<string, string>;
 
 type ConditionRow =
@@ -73,13 +80,17 @@ export function DesignConditionsHeader() {
 export function DesignConditionsRow({
   rowIndex,
   values,
+  unitSystem,
   onFieldChange,
 }: {
   rowIndex: number;
   values: FormValues;
+  unitSystem: UnitSystem;
   onFieldChange: (name: string, value: string) => void;
 }) {
   const conditionRow = conditionRows[rowIndex];
+  const temperatureLabel = unitLabel(unitSystem, "temperature");
+  const temperatureDeltaLabel = unitLabel(unitSystem, "temperatureDelta");
 
   if (conditionRow.kind === "outdoorDryBulb") {
     const selectValue = values[conditionRow.percentageName] ?? conditionRow.percentageOptions[0];
@@ -88,7 +99,7 @@ export function DesignConditionsRow({
     return (
       <>
         <th className="border border-slate-300 bg-[#fff4f7] px-1 py-2 text-left text-[10px] font-semibold text-slate-900">
-          {conditionRow.label}
+          {conditionRow.label} ({temperatureLabel})
         </th>
         <td className="border border-slate-300 bg-white p-0">
           <div className="grid min-h-[30px] grid-cols-[minmax(0,1fr)_46px_58px] items-stretch">
@@ -96,8 +107,8 @@ export function DesignConditionsRow({
               aria-label="Outdoor dry bulb temperature"
               name={conditionRow.dryBulbName}
               type="text"
-              value={values[conditionRow.dryBulbName] ?? ""}
-              onChange={(event) => onFieldChange(conditionRow.dryBulbName, event.target.value)}
+              value={formatUnitValue(values[conditionRow.dryBulbName], unitSystem, "temperature")}
+              onChange={(event) => onFieldChange(conditionRow.dryBulbName, toCanonicalUnitValue(event.target.value, unitSystem, "temperature"))}
               className="h-full min-h-[30px] min-w-0 w-full bg-transparent px-1 text-right text-[10px] leading-snug text-slate-900 outline-none"
             />
             <div className="border-l border-slate-200">
@@ -137,10 +148,14 @@ export function DesignConditionsRow({
   }
 
   if (conditionRow.kind === "typeValue") {
+    const selectedType = values[conditionRow.typeName] ?? conditionRow.defaultType;
+    const isWetBulb = selectedType === "Wet bulb temperature";
+    const valueLabel = isWetBulb ? ` (${temperatureLabel})` : " (%)";
+
     return (
       <>
         <th className="border border-slate-300 bg-[#fff4f7] px-1 py-2 text-left text-[10px] font-semibold text-slate-900">
-          {conditionRow.label}
+          {conditionRow.label}{valueLabel}
         </th>
         <td className="border border-slate-300 bg-white p-0">
           <div className="grid min-h-[30px] grid-cols-[120px_minmax(0,1fr)] items-stretch">
@@ -148,7 +163,7 @@ export function DesignConditionsRow({
               <select
                 aria-label={conditionRow.label}
                 name={conditionRow.typeName}
-                value={values[conditionRow.typeName] ?? conditionRow.defaultType}
+                value={selectedType}
                 onChange={(event) => onFieldChange(conditionRow.typeName, event.target.value)}
                 className="h-full min-h-[30px] w-full bg-transparent px-0 text-[9px] font-semibold text-slate-900 outline-none"
               >
@@ -163,8 +178,13 @@ export function DesignConditionsRow({
               aria-label={`${conditionRow.label} value`}
               name={conditionRow.valueName}
               type="text"
-              value={values[conditionRow.valueName] ?? ""}
-              onChange={(event) => onFieldChange(conditionRow.valueName, event.target.value)}
+              value={isWetBulb ? formatUnitValue(values[conditionRow.valueName], unitSystem, "temperature") : (values[conditionRow.valueName] ?? "")}
+              onChange={(event) =>
+                onFieldChange(
+                  conditionRow.valueName,
+                  isWetBulb ? toCanonicalUnitValue(event.target.value, unitSystem, "temperature") : event.target.value,
+                )
+              }
               className="h-full min-h-[30px] min-w-0 w-full bg-transparent px-1 text-right text-[10px] leading-snug text-slate-900 outline-none"
             />
           </div>
@@ -177,7 +197,7 @@ export function DesignConditionsRow({
     return (
       <>
         <th className="border border-slate-300 bg-[#fff4f7] px-1 py-2 text-left text-[10px] font-semibold text-slate-900">
-          {conditionRow.label}
+          {conditionRow.label} ({temperatureLabel})
         </th>
         <td className="border border-slate-300 bg-white p-0">
           <div className="grid min-h-[30px] grid-cols-[minmax(0,1fr)_96px] items-stretch">
@@ -185,15 +205,15 @@ export function DesignConditionsRow({
               aria-label="Indoor dry bulb"
               name={conditionRow.indoorDryBulbName}
               type="text"
-              value={values[conditionRow.indoorDryBulbName] ?? ""}
-              onChange={(event) => onFieldChange(conditionRow.indoorDryBulbName, event.target.value)}
+              value={formatUnitValue(values[conditionRow.indoorDryBulbName], unitSystem, "temperature")}
+              onChange={(event) => onFieldChange(conditionRow.indoorDryBulbName, toCanonicalUnitValue(event.target.value, unitSystem, "temperature"))}
               className="h-full min-h-[30px] min-w-0 w-full bg-transparent px-1 text-right text-[10px] leading-snug text-slate-900 outline-none"
             />
             <div className="border-l border-slate-200 bg-slate-50 px-1">
               <div className="flex h-full min-h-[30px] items-center justify-between text-[8px] font-semibold text-slate-700">
-                <span>ΔT dry bulb</span>
+                <span>DeltaT ({temperatureDeltaLabel})</span>
                 <span aria-label="Dry bulb temperature difference" className="text-[9px] text-slate-800">
-                  {values[conditionRow.differenceName] ?? ""}
+                  {formatUnitValue(values[conditionRow.differenceName], unitSystem, "temperatureDelta")}
                 </span>
               </div>
             </div>

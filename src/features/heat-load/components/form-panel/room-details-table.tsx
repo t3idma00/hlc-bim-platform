@@ -1,4 +1,5 @@
 import { DirectionDimensionCell, TopSelectField } from "./top-form-fields";
+import type { UnitSystem } from "@/lib/units";
 
 type SurfaceType = "walls" | "windows" | "doors";
 type FormValues = Record<string, string>;
@@ -16,10 +17,10 @@ const surfaceTabs: { key: SurfaceType; label: string }[] = [
 ];
 
 const orientationOptions = {
-  north: ["North", "North East"],
-  east: ["East", "South East"],
-  south: ["South", "South West"],
-  west: ["West", "North West"],
+  north: ["North", "Northeast"],
+  east: ["East", "Southeast"],
+  south: ["South", "Southwest"],
+  west: ["West", "Northwest"],
 };
 
 const roomRowsBySurface: Record<SurfaceType, RoomRow[]> = {
@@ -86,11 +87,13 @@ export function RoomDetailsRow({
   surfaceType,
   rowIndex,
   values,
+  unitSystem,
   onFieldChange,
 }: {
   surfaceType: SurfaceType;
   rowIndex: number;
   values: FormValues;
+  unitSystem: UnitSystem;
   onFieldChange: (name: string, value: string) => void;
 }) {
   const roomRow = roomRowsBySurface[surfaceType][rowIndex];
@@ -111,6 +114,7 @@ export function RoomDetailsRow({
           name={roomRow.name}
           surfaceType={surfaceType}
           values={values}
+          unitSystem={unitSystem}
           onFieldChange={onFieldChange}
         />
       </td>
