@@ -211,12 +211,10 @@ export default function HeatLoadWorkspace() {
     let result;
 
     if (currentProjectId) {
-      // UPDATE existing project
       formData.append("projectId", currentProjectId);
       formData.append("projectName", projectName.trim() || currentProjectName || "Untitled Project");
       result = await updateProject(formData);
     } else {
-      // SAVE AS NEW
       if (!projectName.trim()) {
         setSaveMessage({ type: "error", text: "Please enter a project name" });
         setSaving(false);
@@ -234,7 +232,7 @@ export default function HeatLoadWorkspace() {
         text: currentProjectId ? "Project updated successfully!" : "Project saved successfully!" 
       });
 
-      // === IMPORTANT: Reset to default blank workspace after successful update ===
+      // Reset to default blank workspace after successful update
       if (currentProjectId) {
         setTimeout(() => {
           setProjectData({
@@ -256,7 +254,6 @@ export default function HeatLoadWorkspace() {
           setSaveMessage(null);
         }, 1200);
       } else {
-        // For new save, just close modal
         setTimeout(() => {
           setShowSaveModal(false);
           setProjectName("");
@@ -274,7 +271,26 @@ export default function HeatLoadWorkspace() {
 
     try {
       const rawProjects = await getUserProjects();
-      setProjects(rawProjects);
+
+      const mappedProjects: Project[] = rawProjects.map((p: any) => ({
+        id: p.id,
+        user_id: p.user_id,
+        name: p.name,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        data: p.data || {
+          version: "1.2",
+          rooms: [{
+            id: "room-1",
+            name: "Room 1",
+            formValues: initialFormValues,
+            sheetValues: {},
+            placement: { x: 0, y: 0, rotation: 0 },
+          }],
+        },
+      }));
+
+      setProjects(mappedProjects);
       setShowProjectsModal(true);
     } catch (error) {
       console.error("Failed to load projects:", error);
@@ -405,7 +421,6 @@ export default function HeatLoadWorkspace() {
         </header>
 
         <main ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden relative">
-          {/* Left Panel */}
           <div style={{ width: `${leftWidthPercent}%` }} className="flex-shrink-0 flex flex-col h-full overflow-hidden">
             <div className="flex border-b border-rose-200 bg-[#fff8fa] overflow-x-auto min-h-[40px] items-end px-2">
               {projectData.rooms.map((room) => (
@@ -437,7 +452,6 @@ export default function HeatLoadWorkspace() {
             />
           </div>
 
-          {/* Draggable Divider */}
           <div
             onMouseDown={handleMouseDown}
             className="w-2 cursor-ew-resize bg-rose-100 hover:bg-[#be123c] active:bg-[#9f1239] transition-colors z-10 flex-shrink-0 flex flex-col items-center justify-center group shadow-sm"
@@ -446,7 +460,6 @@ export default function HeatLoadWorkspace() {
             <div className="h-8 w-[2px] bg-rose-400 group-hover:bg-white rounded-full"></div>
           </div>
 
-          {/* Right Panel */}
           <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
             {activeView === "2d" ? (
               <HeatLoadCanvasPanel
@@ -666,7 +679,6 @@ export default function HeatLoadWorkspace() {
 }
 
 // ==================== HELPER FUNCTIONS ====================
-// (Keep all your existing helper functions here - same as before)
 
 function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"] {
   const placedRooms: ProjectData["rooms"] = [];
@@ -717,9 +729,6 @@ function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"
 
   return placedRooms;
 }
-
-// Paste the rest of your helper functions here (getRoomPlanWidth, getRoomPlanDepth, getAttachedRoomPosition, parseSignedRoomNumber, createRoomFormValuesForSharedWall, etc.)
-// They are the same as in your current file.
 
 function getRoomPlanWidth(formValues: FormValues | undefined) {
   if (!formValues) return 6;
