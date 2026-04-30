@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { heatLoadLookupOptions } from "./heat-load-options";
 import dummyFactors from "./dummy-factors.json";
-import { getHumidityRatioFromRelHum, getHumidityRatioFromWetBulb } from "@/lib/calculations";
+import { calculateSHGF, getHumidityRatioFromRelHum, getHumidityRatioFromWetBulb } from "@/lib/calculations";
+import {
+  formatUnitValue,
+  toCanonicalUnitValue,
+  unitLabel,
+  type UnitKind,
+  type UnitSystem,
+} from "@/lib/units";
 
 type FormValues = Record<string, string>;
 
@@ -19,6 +26,7 @@ function getNum(val: string | undefined | null): number {
 type Column = {
   key: string;
   label: string;
+  unit?: UnitKind;
   align?: Align;
   wrap?: boolean;
   width?: string;
@@ -50,6 +58,7 @@ type SummaryRow = {
 type Props = {
   formValues: FormValues;
   sheetValues: SheetValues;
+  unitSystem: UnitSystem;
   onSheetChange: (key: string, value: string) => void;
 };
 
@@ -122,6 +131,13 @@ function getDummyGlassFactors(type: string, shading: string) {
 }
 
 function getDummyInternalGain(item: string, application: string): string {
+  if (item === "Motor power (Name plate)") {
+    const motorPowerKw = Number.parseFloat(application.replace(/[()]/g, ""));
+    if (Number.isFinite(motorPowerKw)) {
+      return (motorPowerKw * 1000).toFixed(2);
+    }
+  }
+
   if (!item) return dummyFactors.internalGains.items.default.toFixed(2);
   const gain = (dummyFactors.internalGains.items as Record<string, number>)[item] ?? dummyFactors.internalGains.items.default;
   return gain.toFixed(2);
@@ -144,11 +160,11 @@ function buildInitialSections(): Section[] {
         { key: "item", label: "Item", width: "8%" },
         { key: "direction", label: "Direction", wrap: true, width: "10%" },
         { key: "type", label: "Type", wrap: true, width: "24%" },
-        { key: "thickness", label: "Thickness (mm)", wrap: true, align: "center", width: "16%", editable: true },
-        { key: "uFactor", label: "U Factor", align: "right", width: "9%", editable: true },
-        { key: "cltd", label: "CLTD/TD", align: "right", width: "10%", editable: true },
-        { key: "calcValue", label: "Area in m2 / Qty", align: "right", width: "10%", editable: true },
-        { key: "heatLoad", label: "Total Heat load", align: "right", width: "9%", editable: true },
+        { key: "thickness", label: "Thickness", unit: "thickness", wrap: true, align: "center", width: "16%", editable: true },
+        { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "9%", editable: true },
+        { key: "cltd", label: "CLTD/TD", unit: "temperatureDelta", align: "right", width: "10%", editable: true },
+        { key: "calcValue", label: "Area / Qty", unit: "area", align: "right", width: "10%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "9%", editable: true },
       ],
       rows: [
         { id: "1.1", values: { item: "Wall", direction: "North", type: "Brick Wall", thickness: "215", uFactor: getDummyUFactor("Brick Wall"), cltd: getDummyCLTD("Brick Wall"), calcValue: "", heatLoad: "" }, selectOptions: wallCellSelects },
@@ -179,15 +195,15 @@ function buildInitialSections(): Section[] {
         { key: "direction", label: "Direction", width: "8%" },
         { key: "type", label: "Type", wrap: true, width: "20%" },
         { key: "shading", label: "Interior Shading type", wrap: true, width: "10%" },
-        { key: "thickness", label: "Thick.", align: "center", width: "7%" },
+        { key: "thickness", label: "Thick.", unit: "thickness", align: "center", width: "7%" },
         { key: "sc", label: "SC", align: "right", width: "8%", editable: true },
-        { key: "shg", label: "SHG", align: "right", width: "8%", editable: true },
+        { key: "shg", label: "SHG", unit: "heatFlux", align: "right", width: "8%", editable: true },
         { key: "clf", label: "CLF", align: "right", width: "8%", editable: true },
-        { key: "areaQty", label: "Area in m2 / Qty", align: "right", width: "10%", editable: true },
-        { key: "result", label: "Total Heat load", align: "right", width: "9%", editable: true },
+        { key: "areaQty", label: "Area / Qty", unit: "area", align: "right", width: "10%", editable: true },
+        { key: "result", label: "Total Heat load", unit: "heat", align: "right", width: "9%", editable: true },
       ],
       rows: [
-        { id: "2.1", values: { item: "Glass", direction: "East", type: "Single Glass Clear", shading: "No shading", thickness: "6", ...getDummyGlassFactors("Single Glass Clear", "No shading"), areaQty: "", result: "" }, selectOptions: solarGlassCellSelects },
+        { id: "2.1", values: { item: "Glass", direction: "North", type: "Single Glass Clear", shading: "No shading", thickness: "6", ...getDummyGlassFactors("Single Glass Clear", "No shading"), areaQty: "", result: "" }, selectOptions: solarGlassCellSelects },
         { id: "2.2", values: { item: "Glass", direction: "East", type: "Single Glass Clear", shading: "No shading", thickness: "6", ...getDummyGlassFactors("Single Glass Clear", "No shading"), areaQty: "", result: "" }, selectOptions: solarGlassCellSelects },
         { id: "2.3", values: { item: "Glass", direction: "South", type: "Single Glass Clear", shading: "No shading", thickness: "6", ...getDummyGlassFactors("Single Glass Clear", "No shading"), areaQty: "", result: "" }, selectOptions: solarGlassCellSelects },
         { id: "2.4", values: { item: "Glass", direction: "West", type: "Single Glass Clear", shading: "No shading", thickness: "6", ...getDummyGlassFactors("Single Glass Clear", "No shading"), areaQty: "", result: "" }, selectOptions: solarGlassCellSelects },
@@ -201,11 +217,11 @@ function buildInitialSections(): Section[] {
         { key: "item", label: "Item", width: "14%" },
         { key: "typeA", label: "Type", wrap: true, width: "14%" },
         { key: "typeB", label: "Detail", wrap: true, width: "16%" },
-        { key: "thickness", label: "Thick.", wrap: true, align: "center", width: "16%", editable: true },
-        { key: "uFactor", label: "U Factor", align: "right", width: "10%", editable: true },
-        { key: "cltd", label: "CLTD/TD", align: "right", width: "11%", editable: true },
-        { key: "calcValue", label: "Area in m2 / Qty", align: "right", width: "10%", editable: true },
-        { key: "heatLoad", label: "Total Heat load", align: "right", width: "9%", editable: true },
+        { key: "thickness", label: "Thick.", unit: "thickness", wrap: true, align: "center", width: "16%", editable: true },
+        { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "10%", editable: true },
+        { key: "cltd", label: "CLTD/TD", unit: "temperatureDelta", align: "right", width: "11%", editable: true },
+        { key: "calcValue", label: "Area / Qty", unit: "area", align: "right", width: "10%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "9%", editable: true },
       ],
       rows: [
         { id: "3.1", values: { item: "All Glasses", typeA: "Single glass", typeB: "Glass only (Centre of Glass)", thickness: "6", uFactor: getDummyUFactor("Single glass"), cltd: getDummyCLTD("Single glass"), calcValue: "", heatLoad: "" }, selectOptions: allGlassesCellSelects },
@@ -219,11 +235,11 @@ function buildInitialSections(): Section[] {
       columns: [
         { key: "componentA", label: "Component", width: "15%" },
         { key: "qty", label: "Qty", align: "right", width: "15%", editable: true },
-        { key: "crackLength", label: "Crack length", align: "right", width: "14%", editable: true },
+        { key: "crackLength", label: "Crack length", unit: "length", align: "right", width: "14%", editable: true },
         { key: "componentB", label: "Component", wrap: true, width: "19%" },
         { key: "qtySecondary", label: "QTY", align: "right", width: "9%", editable: true },
-        { key: "doorArea", label: "Door Area", align: "right", width: "11%", editable: true },
-        { key: "heatLoad", label: "Total Heat load", align: "right", width: "10%", editable: true },
+        { key: "doorArea", label: "Door Area", unit: "area", align: "right", width: "11%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "10%", editable: true },
       ],
       rows: [
         {
@@ -231,11 +247,11 @@ function buildInitialSections(): Section[] {
           values: {
             componentA: "Window",
             qty: "1",
-            crackLength: "5",
+            crackLength: "",
             componentB: "Nonresidential door",
-            qtySecondary: "2.00",
-            doorArea: "1",
-            heatLoad: "106.72",
+            qtySecondary: "1",
+            doorArea: "",
+            heatLoad: "",
           },
           selectOptions: {
             componentB: heatLoadLookupOptions.infiltrationDoorComponents,
@@ -248,17 +264,19 @@ function buildInitialSections(): Section[] {
       title: "Internal Heat",
       columns: [
         { key: "item", label: "Item", wrap: true, width: "12%" },
-        { key: "application", label: "Application", wrap: true, width: "31%" },
-        { key: "heatGain", label: "Heat gain", align: "right", width: "14%", editable: true },
-        { key: "qty", label: "QTY", align: "right", width: "19%", editable: true },
-        { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%", editable: true },
+        { key: "application", label: "Application", wrap: true, width: "26%" },
+        { key: "heatGain", label: "Heat gain", unit: "heat", align: "right", width: "12%", editable: true },
+        { key: "clf", label: "CLF", align: "right", width: "8%", editable: true },
+        { key: "qty", label: "QTY", align: "right", width: "16%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "17%", editable: true },
       ],
       rows: [
-        { id: "5.1", values: { item: "People", application: "Standing, light work or walking", heatGain: getDummyInternalGain("People", "Standing, light work or walking"), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.peopleApplications } },
-        { id: "5.2", values: { item: "Motor power (Name plate)", application: "(0.04)", heatGain: getDummyInternalGain("Motor", "(0.04)"), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.motorPowerFactors } },
-        { id: "5.3", values: { item: "compact fluorescent lamp", application: "Office", heatGain: getDummyInternalGain("lamp", "Office"), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.lampApplications } },
-        { id: "5.4", values: { item: "Appliance etc.", application: "Medium, desktop type", heatGain: getDummyInternalGain("Appliance", "Medium, desktop type"), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.applianceApplications } },
-        { id: "5.5", values: { item: "Additional heat gain", application: "Miscellaneous equipment", heatGain: "50", qty: "", heatLoad: "" } },
+        { id: "5.1", values: { item: "People (sensible)", application: "Standing, light work or walking", heatGain: getDummyInternalGain("People", "Standing, light work or walking"), clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.peopleApplications } },
+        { id: "5.2", values: { item: "People (latent)", application: "Standing, light work or walking", heatGain: "70.00", clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.peopleApplications } },
+        { id: "5.3", values: { item: "Motor power (Name plate)", application: "(0.04)", heatGain: getDummyInternalGain("Motor power (Name plate)", "(0.04)"), clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.motorPowerFactors } },
+        { id: "5.4", values: { item: "compact fluorescent lamp", application: "Office", heatGain: getDummyInternalGain("compact fluorescent lamp", "Office"), clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.lampApplications } },
+        { id: "5.5", values: { item: "Appliance etc.", application: "Medium, desktop type", heatGain: getDummyInternalGain("Appliance etc.", "Medium, desktop type"), clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.applianceApplications } },
+        { id: "5.6", values: { item: "Additional heat gain", application: "Miscellaneous equipment", heatGain: "50", clf: "1.00", qty: "", heatLoad: "" } },
       ],
     },
     {
@@ -269,11 +287,11 @@ function buildInitialSections(): Section[] {
         { key: "item", label: "Item", width: "10%" },
         { key: "quantity", label: "Quantity", align: "right", width: "8%", editable: true },
         { key: "area", label: "Area", width: "8%" },
-        { key: "areaQty", label: "Area quantity", align: "right", width: "9%", editable: true },
-        { key: "totalFlowRate", label: "Total flowrate", align: "right", width: "11%", editable: true },
-        { key: "sensible", label: "Sensible heat", align: "right", width: "8%", editable: true },
-        { key: "latent", label: "Latent heat", align: "right", width: "9%", editable: true },
-        { key: "heatLoad", label: "Total Heat load", align: "right", width: "19%", editable: true },
+        { key: "areaQty", label: "Area quantity", unit: "area", align: "right", width: "9%", editable: true },
+        { key: "totalFlowRate", label: "Total flowrate", unit: "airflow", align: "right", width: "11%", editable: true },
+        { key: "sensible", label: "Sensible heat", unit: "heat", align: "right", width: "8%", editable: true },
+        { key: "latent", label: "Latent heat", unit: "heat", align: "right", width: "9%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "19%", editable: true },
       ],
       rows: [
         {
@@ -295,6 +313,33 @@ function buildInitialSections(): Section[] {
   ];
 }
 
+function applySheetValuesToSections(sections: Section[], sheetValues: SheetValues): Section[] {
+  if (Object.keys(sheetValues).length === 0) {
+    return sections;
+  }
+
+  return sections.map((section) => ({
+    ...section,
+    rows: section.rows.map((row) => {
+      const rowPrefix = `${row.id}_`;
+      const newValues = { ...row.values };
+
+      Object.entries(sheetValues).forEach(([key, value]) => {
+        if (!key.startsWith(rowPrefix)) {
+          return;
+        }
+
+        const cellKey = key.slice(rowPrefix.length);
+        if (Object.prototype.hasOwnProperty.call(newValues, cellKey)) {
+          newValues[cellKey] = value;
+        }
+      });
+
+      return { ...row, values: newValues };
+    }),
+  }));
+}
+
 const summaryRows: SummaryRow[] = [
   { label: "Heat Load", note: "", value: "" },
   { label: "Safety factor", note: "", value: "" },
@@ -302,6 +347,30 @@ const summaryRows: SummaryRow[] = [
   { label: "Total Heat load (Btu/hr)", note: "", value: "" },
   { label: "Total Heat load (RT)", note: "", value: "" },
 ];
+
+function getColumnLabel(column: Column, unitSystem: UnitSystem): string {
+  if (!column.unit) {
+    return column.label;
+  }
+
+  return `${column.label} (${unitLabel(unitSystem, column.unit)})`;
+}
+
+function formatSheetCellValue(value: string, column: Column, unitSystem: UnitSystem): string {
+  if (!column.unit) {
+    return value;
+  }
+
+  return formatUnitValue(value, unitSystem, column.unit);
+}
+
+function parseSheetCellInput(value: string, column: Column, unitSystem: UnitSystem): string {
+  if (!column.unit) {
+    return value;
+  }
+
+  return toCanonicalUnitValue(value, unitSystem, column.unit);
+}
 
 /**
  * Compute outdoor humidity ratio from formValues.
@@ -338,8 +407,11 @@ function getIndoorHumidityRatio(formValues: FormValues): number | null {
   return getHumidityRatioFromWetBulb(tIn, condVal);
 }
 
-export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props) {
-  const [sections, setSections] = useState<Section[]>(buildInitialSections());
+export function HeatLoadSheet({ formValues, sheetValues, unitSystem, onSheetChange }: Props) {
+  const sections = useMemo(
+    () => applySheetValuesToSections(buildInitialSections(), sheetValues),
+    [sheetValues],
+  );
 
   // Derive design condition values
   const tOutdoor = getNum(formValues.dryBulbTemp);
@@ -360,6 +432,18 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
     const directions = ["North", "East", "South", "West"] as const;
     const dirMap = { North: "1.1", East: "1.2", South: "1.3", West: "1.4" } as const;
     const solarDirMap = { North: "2.1", East: "2.2", South: "2.3", West: "2.4" } as const;
+    const wallDirectionByDir = {
+      North: formValues.wallNorthDirection || "North",
+      East: formValues.wallEastDirection || "East",
+      South: formValues.wallSouthDirection || "South",
+      West: formValues.wallWestDirection || "West",
+    } as const;
+    const windowDirectionByDir = {
+      North: formValues.windowNorthDirection || "North",
+      East: formValues.windowEastDirection || "East",
+      South: formValues.windowSouthDirection || "South",
+      West: formValues.windowWestDirection || "West",
+    } as const;
 
     let totalWindowArea = 0;
     let totalWindowPerimeter = 0;
@@ -370,8 +454,6 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
     const wallEastLen = getNum(formValues.wallEastLength);
 
     directions.forEach((dir) => {
-      const prefix = dir.toLowerCase();
-
       // Wall gross area = length × height
       const wallLen = getNum(formValues[`wall${dir}Length`]);
       const wallH = getNum(formValues[`wall${dir}Height`]);
@@ -392,6 +474,9 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
 
       // Net wall area = gross wall − window − door on that face
       const netWallArea = Math.max(0, wallGrossArea - windowArea - doorArea);
+
+      setIfChanged(`${dirMap[dir]}_direction`, wallDirectionByDir[dir]);
+      setIfChanged(`${solarDirMap[dir]}_direction`, windowDirectionByDir[dir]);
 
       // Section 1: wall rows (1.1–1.4) — net wall area
       if (wallGrossArea > 0) {
@@ -415,11 +500,6 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
       setIfChanged("1.6_calcValue", roofArea.toFixed(2));
     }
 
-    // Section 3, row 3.1: all glasses transmission area
-    if (totalWindowArea > 0) {
-      setIfChanged("3.1_calcValue", totalWindowArea.toFixed(2));
-    }
-
     // Section 3, row 3.3: floor area = same as roof area
     if (roofArea > 0) {
       setIfChanged("3.3_calcValue", roofArea.toFixed(2));
@@ -427,9 +507,11 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
 
     // Section 4, row 4.1: infiltration — window crack length & door area
     if (totalWindowPerimeter > 0) {
+      setIfChanged("4.1_qty", "1");
       setIfChanged("4.1_crackLength", totalWindowPerimeter.toFixed(2));
     }
     if (totalDoorArea > 0) {
+      setIfChanged("4.1_qtySecondary", "1");
       setIfChanged("4.1_doorArea", totalDoorArea.toFixed(2));
     }
 
@@ -456,39 +538,90 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
     formValues.doorEastWidth, formValues.doorEastHeight,
     formValues.doorSouthWidth, formValues.doorSouthHeight,
     formValues.doorWestWidth, formValues.doorWestHeight,
-    onSheetChange, sheetValues,
+    formValues.wallNorthDirection, formValues.wallEastDirection,
+    formValues.wallSouthDirection, formValues.wallWestDirection,
+    formValues.windowNorthDirection, formValues.windowEastDirection,
+    formValues.windowSouthDirection, formValues.windowWestDirection,
+    formValues, onSheetChange, sheetValues,
   ]);
 
-  // Sync sheetValues into local section state
+  // ── Live SHG (W/m²) per glass direction from fetched solar data ──
+  // Uses calculateSHGF (isotropic POA) with surface tilt = 90° (vertical glass)
+  // for cardinal walls and tilt = 0° (horizontal) for the skylight row 2.5.
   useEffect(() => {
-    if (Object.keys(sheetValues).length === 0) {
-      return;
+    const dni = getNum(formValues.solarDni);
+    const dhi = getNum(formValues.solarDhi);
+    const ghi = getNum(formValues.solarGhi);
+    const zenith = getNum(formValues.solarZenith);
+    const azimuth = getNum(formValues.solarAzimuth);
+
+    const hasSolarData =
+      formValues.solarZenith !== "" &&
+      formValues.solarAzimuth !== "" &&
+      (dni > 0 || dhi > 0 || ghi > 0);
+
+    if (!hasSolarData) return;
+
+    const surfaceAzimuthByDir: Record<"North" | "East" | "South" | "West", number> = {
+      North: 0,
+      East: 90,
+      South: 180,
+      West: 270,
+    };
+    const rowByDir: Record<"North" | "East" | "South" | "West", string> = {
+      North: "2.1",
+      East: "2.2",
+      South: "2.3",
+      West: "2.4",
+    };
+
+    const updates: Record<string, string> = {};
+
+    (Object.keys(rowByDir) as Array<"North" | "East" | "South" | "West">).forEach((dir) => {
+      const result = calculateSHGF({
+        dni,
+        dhi,
+        ghi,
+        zenith,
+        azimuth,
+        surfaceTilt: 90,
+        surfaceAzimuth: surfaceAzimuthByDir[dir],
+      });
+      const key = `${rowByDir[dir]}_shg`;
+      const formatted = result.poa.toFixed(2);
+      if (sheetValues[key] !== formatted) {
+        updates[key] = formatted;
+      }
+    });
+
+    // Skylight (row 2.5) — horizontal surface
+    const skylight = calculateSHGF({
+      dni,
+      dhi,
+      ghi,
+      zenith,
+      azimuth,
+      surfaceTilt: 0,
+      surfaceAzimuth: 180,
+    });
+    const skyKey = "2.5_shg";
+    const skyFormatted = skylight.poa.toFixed(2);
+    if (sheetValues[skyKey] !== skyFormatted) {
+      updates[skyKey] = skyFormatted;
     }
 
-    setSections((prevSections) =>
-      prevSections.map((section) => ({
-        ...section,
-        rows: section.rows.map((row) => {
-          const newValues = { ...row.values };
-
-          Object.entries(sheetValues).forEach(([key, value]) => {
-            const rowPrefix = `${row.id}_`;
-
-            if (!key.startsWith(rowPrefix)) {
-              return;
-            }
-
-            const cellKey = key.slice(rowPrefix.length);
-            if (Object.prototype.hasOwnProperty.call(newValues, cellKey)) {
-              newValues[cellKey] = value;
-            }
-          });
-
-          return { ...row, values: newValues };
-        }),
-      })),
-    );
-  }, [sheetValues]);
+    if (Object.keys(updates).length > 0) {
+      Object.entries(updates).forEach(([k, v]) => onSheetChange(k, v));
+    }
+  }, [
+    formValues.solarDni,
+    formValues.solarDhi,
+    formValues.solarGhi,
+    formValues.solarZenith,
+    formValues.solarAzimuth,
+    sheetValues,
+    onSheetChange,
+  ]);
 
   // ── Calculation engine ──
   useEffect(() => {
@@ -570,16 +703,18 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
           // V̇_door = doorArea × doorRate (L/s)
           // Q_sensible = V̇_total × 1.2 × ΔT (W)
           // Q_latent   = V̇_total × 3000 × ΔW (W)
+          const windowQty = getNum(getVal(id, "qty", row.values.qty)) || 1;
           const crackLength = getNum(getVal(id, "crackLength", row.values.crackLength));
+          const doorQty = getNum(getVal(id, "qtySecondary", row.values.qtySecondary)) || 1;
           const doorArea = getNum(getVal(id, "doorArea", row.values.doorArea));
           const componentB = getVal(id, "componentB", row.values.componentB);
 
-          const windowFlow = crackLength * dummyFactors.infiltration.windowCrackRate;
+          const windowFlow = windowQty * crackLength * dummyFactors.infiltration.windowCrackRate;
 
           const doorRate = componentB.includes("Nonresidential")
             ? dummyFactors.infiltration.nonresidentialDoorRate
             : dummyFactors.infiltration.residentialDoorRate;
-          const doorFlow = doorArea * doorRate;
+          const doorFlow = doorQty * doorArea * doorRate;
 
           const totalFlow = windowFlow + doorFlow;
 
@@ -592,13 +727,18 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
             rowHeatLoad = getNum(getVal(id, "heatLoad", row.values.heatLoad));
           }
         } else if (section.number === "5") {
-          // ── Internal Heat (independent of design conditions) ──
-          // Q = HeatGain × Quantity
+          // ── Internal Heat (ASHRAE Eq. 51, 52, 53) ──
+          // People sensible / Lights / Power / Appliances: q = HeatGain × Qty × CLF
+          // People latent: q = HeatGain × Qty (no CLF — Eq. 52)
           const gain = getNum(getVal(id, "heatGain", row.values.heatGain));
           const qty = getNum(getVal(id, "qty", row.values.qty));
+          const item = getVal(id, "item", row.values.item);
+          const isLatent = item.toLowerCase().includes("latent");
+          const clfRaw = getNum(getVal(id, "clf", row.values.clf));
+          const clf = isLatent ? 1 : (clfRaw > 0 ? clfRaw : 1);
 
           if (gain !== 0 && qty !== 0) {
-            rowHeatLoad = gain * qty;
+            rowHeatLoad = gain * qty * clf;
             setVal(`${id}_heatLoad`, rowHeatLoad.toFixed(2));
           } else {
             rowHeatLoad = getNum(getVal(id, "heatLoad", row.values.heatLoad));
@@ -611,19 +751,22 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
           const application = getVal(id, "application", row.values.application);
           const peopleQty = getNum(getVal(id, "quantity", row.values.quantity));
           const areaQty = getNum(getVal(id, "areaQty", row.values.areaQty));
+          const manualFlowRate = getNum(getVal(id, "totalFlowRate", row.values.totalFlowRate));
 
           const rates = (dummyFactors.ventilationRates as Record<string, { perPerson: number; perArea: number }>)[application]
             ?? dummyFactors.ventilationRates.default;
 
-          const totalFlowRate = (peopleQty * rates.perPerson) + (areaQty * rates.perArea);
+          const calculatedFlowRate = (peopleQty * rates.perPerson) + (areaQty * rates.perArea);
+          const totalFlowRate = calculatedFlowRate > 0 ? calculatedFlowRate : manualFlowRate;
 
           if (totalFlowRate > 0) {
             setVal(`${id}_totalFlowRate`, totalFlowRate.toFixed(2));
           }
 
           if (totalFlowRate > 0 && (deltaT !== 0 || deltaW !== 0)) {
-            const qSensible = totalFlowRate * 1.2 * deltaT;
-            const qLatent = totalFlowRate * 3000 * deltaW;
+            // ASHRAE Table 27: Eq. 30 q_sensible = 1.23·Q·Δt; Eq. 32 q_latent = 3010·Q·ΔW
+            const qSensible = totalFlowRate * 1.23 * deltaT;
+            const qLatent = totalFlowRate * 3010 * deltaW;
             setVal(`${id}_sensible`, qSensible.toFixed(2));
             setVal(`${id}_latent`, qLatent.toFixed(2));
             rowHeatLoad = qSensible + qLatent;
@@ -692,25 +835,6 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
       }
     }
 
-    setSections((currentSections) =>
-      currentSections.map((section) =>
-        section.number !== sectionNumber
-          ? section
-          : {
-              ...section,
-              rows: section.rows.map((r) => {
-                if (r.id !== rowId) return r;
-                const newValues = { ...r.values };
-                Object.keys(updates).forEach((updateKey) => {
-                  const cellKey = updateKey.replace(`${rowId}_`, "");
-                  newValues[cellKey] = updates[updateKey];
-                });
-                return { ...r, values: newValues };
-              }),
-            },
-      ),
-    );
-
     Object.entries(updates).forEach(([k, v]) => {
       onSheetChange(k, v);
     });
@@ -719,10 +843,10 @@ export function HeatLoadSheet({ formValues, sheetValues, onSheetChange }: Props)
   return (
     <div className="space-y-3">
       {sections.map((section) => (
-        <SectionTable key={section.number} {...section} onCellChange={handleCellChange} />
+        <SectionTable key={section.number} {...section} unitSystem={unitSystem} onCellChange={handleCellChange} />
       ))}
 
-      <SummaryTable rows={summaryRows} sheetValues={sheetValues} onSheetChange={onSheetChange} />
+      <SummaryTable rows={summaryRows} unitSystem={unitSystem} sheetValues={sheetValues} onSheetChange={onSheetChange} />
     </div>
   );
 }
@@ -732,8 +856,10 @@ function SectionTable({
   title,
   columns,
   rows,
+  unitSystem,
   onCellChange,
 }: Section & {
+  unitSystem: UnitSystem;
   onCellChange: (sectionNumber: string, rowId: string, key: string, value: string) => void;
 }) {
   return (
@@ -755,7 +881,7 @@ function SectionTable({
           <th className={`${cellClass} bg-white text-center text-[10px] font-semibold whitespace-nowrap text-slate-900`} />
           {columns.map((column) => (
             <th key={column.key} className={`${cellClass} bg-white text-center text-[10px] font-semibold leading-tight whitespace-normal break-words text-slate-900`}>
-              {column.label}
+              {getColumnLabel(column, unitSystem)}
             </th>
           ))}
         </tr>
@@ -766,6 +892,7 @@ function SectionTable({
             <td className={`${cellClass} bg-white text-center font-medium text-slate-900`}>{row.id}</td>
             {columns.map((column) => {
               const cellValue = row.values[column.key] ?? "";
+              const displayValue = formatSheetCellValue(cellValue, column, unitSystem);
               const cellOptions = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
               const hasSelect = cellOptions.length > 0;
               const fillClass = hasSelect || !column.editable ? "bg-[#fff4f7]" : "bg-white";
@@ -778,19 +905,20 @@ function SectionTable({
                       value={cellValue}
                       align={column.align ?? "left"}
                       options={cellOptions}
+                      getOptionLabel={(option) => formatSheetCellValue(option, column, unitSystem)}
                       onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
                     />
                   ) : column.editable ? (
                     <SheetInputCell
                       ariaLabel={`${row.id} ${column.label || column.key}`}
-                      value={cellValue}
+                      value={displayValue}
                       align={column.align ?? "left"}
-                      onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
+                      onValueChange={(value) => onCellChange(number, row.id, column.key, parseSheetCellInput(value, column, unitSystem))}
                     />
                   ) : (
                     <SheetCell
                       ariaLabel={`${row.id} ${column.label || column.key}`}
-                      value={cellValue}
+                      value={displayValue}
                       align={column.align ?? "left"}
                       wrap={column.wrap}
                     />
@@ -807,10 +935,12 @@ function SectionTable({
 
 function SummaryTable({
   rows,
+  unitSystem,
   sheetValues,
   onSheetChange,
 }: {
   rows: SummaryRow[];
+  unitSystem: UnitSystem;
   sheetValues: SheetValues;
   onSheetChange: (key: string, value: string) => void;
 }) {
@@ -824,10 +954,14 @@ function SummaryTable({
       <tbody>
         {rows.map((row, index) => {
           const fieldKey = `summary_${index}`;
+          const isPrimaryHeatLoad = index === 0;
+          const label = isPrimaryHeatLoad ? `${row.label} (${unitLabel(unitSystem, "heat")})` : row.label;
+          const value = sheetValues[fieldKey] ?? row.value ?? "";
+          const displayValue = isPrimaryHeatLoad ? formatUnitValue(value, unitSystem, "heat") : value;
 
           return (
             <tr key={row.label}>
-              <th className={`${cellClass} bg-[#fff4f7] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`}>{row.label}</th>
+              <th className={`${cellClass} bg-[#fff4f7] text-left text-[11px] font-semibold whitespace-nowrap text-slate-900`}>{label}</th>
               <td className={`${cellClass} bg-white p-0`}>
                 <input
                   type="text"
@@ -839,8 +973,13 @@ function SummaryTable({
               <td className={`${cellClass} bg-white p-0`}>
                 <input
                   type="text"
-                  value={sheetValues[fieldKey] ?? row.value ?? ""}
-                  onChange={(event) => onSheetChange(fieldKey, event.target.value)}
+                  value={displayValue}
+                  onChange={(event) =>
+                    onSheetChange(
+                      fieldKey,
+                      isPrimaryHeatLoad ? toCanonicalUnitValue(event.target.value, unitSystem, "heat") : event.target.value,
+                    )
+                  }
                   className="min-h-[24px] w-full bg-transparent px-2 py-1 text-[10px] text-right text-slate-900 outline-none"
                 />
               </td>
@@ -906,12 +1045,14 @@ function SheetSelectCell({
   value,
   align = "left",
   options,
+  getOptionLabel,
   onValueChange,
 }: {
   ariaLabel: string;
   value: string;
   align?: Align;
   options: readonly string[];
+  getOptionLabel?: (option: string) => string;
   onValueChange: (value: string) => void;
 }) {
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
@@ -927,7 +1068,7 @@ function SheetSelectCell({
       >
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {getOptionLabel ? getOptionLabel(option) : option}
           </option>
         ))}
       </select>

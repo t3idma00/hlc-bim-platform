@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { getWallAppearanceByType, type WallAppearance, type WallPatternKind } from "@/data/assets";
 import type { RoomData } from "@/types";
 import { createBucketedIsoString, fetchCachedJson } from "@/lib/client-fetch-cache";
+import { formatLengthDisplay, normalizeUnitSystem, type UnitSystem } from "@/lib/units";
 import { CompassOverlay, getCompassMarkerPosition } from "../shared/CompassOverlay";
 import {
   WorkspaceViewToggle,
@@ -270,6 +271,7 @@ export function HeatLoadCanvasPanel({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const unitSystem = normalizeUnitSystem(formValues.unitSystem);
   const [scale, setScale] = useState(1);
   const [solarState, setSolarState] = useState<SolarState>({
     status: "loading",
@@ -284,7 +286,6 @@ export function HeatLoadCanvasPanel({
   });
 
   const offsetRef = useRef({ x: 0, y: 0 });
-  const activeEditorViewportRef = useRef<EditorViewport | null>(null);
   const editorToolRef = useRef<ActiveEditorTool>(null);
   const editorWallsRef = useRef<EditableWall[]>([]);
   const editorOpeningsRef = useRef<EditableOpening[]>([]);
@@ -685,7 +686,8 @@ export function HeatLoadCanvasPanel({
       height: number,
       gridMetrics: GridMetrics,
       offsetX: number,
-      offsetY: number
+      offsetY: number,
+      unitSystem: UnitSystem
     ) {
       context.fillStyle = "#e0efff";
       context.fillRect(0, 0, width, RULER_SIZE);
@@ -732,7 +734,7 @@ export function HeatLoadCanvasPanel({
 
         if (showLabel) {
           const value = roundToPrecision((indexX / 4) * gridMetrics.gridStepMeters);
-          context.fillText(formatAxisValue(value), x + 2, 10);
+          context.fillText(formatAxisValue(value, unitSystem), x + 2, 10);
         }
 
         indexX++;
@@ -764,7 +766,7 @@ export function HeatLoadCanvasPanel({
           context.save();
           context.translate(10, y);
           context.rotate(-Math.PI / 2);
-          context.fillText(formatAxisValue(value), 0, 0);
+          context.fillText(formatAxisValue(value, unitSystem), 0, 0);
           context.restore();
         }
 
@@ -918,7 +920,6 @@ export function HeatLoadCanvasPanel({
         draftWallStartRef.current !== null;
 
       if (hasEditorContent && (!rooms || rooms.length === 0)) {
-        activeEditorViewportRef.current = editorViewport;
         drawEditorPlan(
           context,
           editorViewport,
@@ -927,14 +928,14 @@ export function HeatLoadCanvasPanel({
           editorObjectsRef.current,
           selectedEditorElementRef.current,
           draftWallStartRef.current,
-          draftWallEndRef.current
+          draftWallEndRef.current,
+          unitSystem
         );
         context.restore();
         return;
       }
 
       if (roomPlans.length === 0) {
-        activeEditorViewportRef.current = null;
         context.fillStyle = "#64748b";
         context.font = "14px sans-serif";
         context.textAlign = "center";
@@ -957,23 +958,6 @@ export function HeatLoadCanvasPanel({
       const originY =
         drawY + (drawHeight - planHeight * pixelsPerMeter) / 2 - bounds.minY * pixelsPerMeter + offsetY;
       const drawnSharedWalls = new Set<string>();
-      const activePlan = roomPlans.find((plan) => plan.isActive);
-
-      if (activePlan) {
-        const localOffset = activePlan.laidOutChains.items[0]?.offset ?? { x: 0, y: 0 };
-        const interactionOffset = addPoints(localOffset, activePlan.roomOffset);
-        activeEditorViewportRef.current = {
-          x: drawX,
-          y: drawY,
-          width: drawWidth,
-          height: drawHeight,
-          centerX: originX + interactionOffset.x * pixelsPerMeter,
-          centerY: originY + interactionOffset.y * pixelsPerMeter,
-          pixelsPerMeter,
-        };
-      } else {
-        activeEditorViewportRef.current = null;
-      }
 
       roomPlans.forEach((plan) => {
         const pendingDoors = new Map<WallDirection, DoorInput>();
@@ -1035,6 +1019,7 @@ export function HeatLoadCanvasPanel({
               end,
               segment.length,
               segment.thickness * pixelsPerMeter,
+              unitSystem
             );
           });
 
@@ -1088,20 +1073,6 @@ export function HeatLoadCanvasPanel({
         context.fillText(plan.room.name, labelPoint.x, labelPoint.y);
         context.restore();
       });
-
-      const activeEditorViewport = activeEditorViewportRef.current;
-      if (activeEditorViewport) {
-        drawPlacedRoomEditorOverlay(
-          context,
-          activeEditorViewport,
-          editorWallsRef.current,
-          editorOpeningsRef.current,
-          editorObjectsRef.current,
-          selectedEditorElementRef.current,
-          draftWallStartRef.current,
-          draftWallEndRef.current
-        );
-      }
 
       if (solarState.status === "ready" && solarState.snapshot.altitude > 0) {
         const planCenter = translatePoint(
@@ -1165,7 +1136,8 @@ export function HeatLoadCanvasPanel({
           offsetRef.current.y
         ),
         measurementStartRef.current,
-        measurementEndRef.current
+        measurementEndRef.current,
+        unitSystem
       );
 
       drawRulers(
@@ -1174,7 +1146,8 @@ export function HeatLoadCanvasPanel({
         height,
         gridMetrics,
         offsetRef.current.x,
-        offsetRef.current.y
+        offsetRef.current.y,
+        unitSystem
       );
     }
 
@@ -1202,15 +1175,13 @@ export function HeatLoadCanvasPanel({
     const getEditorInteractionContext = (event: MouseEvent) => {
       const point = getCanvasPoint(event);
       const gridMetrics = getGridMetrics(scale);
-      const viewport =
-        activeEditorViewportRef.current ??
-        getEditorViewport(
-          canvas.width,
-          canvas.height,
-          gridMetrics.pixelsPerMeter,
-          offsetRef.current.x,
-          offsetRef.current.y
-        );
+      const viewport = getEditorViewport(
+        canvas.width,
+        canvas.height,
+        gridMetrics.pixelsPerMeter,
+        offsetRef.current.x,
+        offsetRef.current.y
+      );
       const insideViewport = isPointInsideViewport(point, viewport);
       const rawWorldPoint = insideViewport
         ? screenToEditorWorld(point, viewport)
@@ -1740,6 +1711,7 @@ export function HeatLoadCanvasPanel({
     redoEditorChange,
     scale,
     solarState,
+    unitSystem,
     undoEditorChange,
   ]);
 
@@ -1752,7 +1724,8 @@ export function HeatLoadCanvasPanel({
     editorWalls,
     editorOpenings,
     editorObjectsRef.current,
-    draftWallStartRef.current
+    draftWallStartRef.current,
+    unitSystem
   );
   const sunSummary = getSunSummary(solarState);
   const compassMarker =
@@ -2213,7 +2186,8 @@ function drawMeasurementOverlay(
   context: CanvasRenderingContext2D,
   viewport: EditorViewport,
   start: Point | null,
-  end: Point | null
+  end: Point | null,
+  unitSystem: UnitSystem
 ) {
   if (!start || !end) {
     return;
@@ -2222,7 +2196,7 @@ function drawMeasurementOverlay(
   const screenStart = worldToEditorScreen(start, viewport);
   const screenEnd = worldToEditorScreen(end, viewport);
   const distanceMeters = getDistance(start, end);
-  const label = `${formatValue(distanceMeters)} m`;
+  const label = formatLengthDisplay(distanceMeters, unitSystem);
   const midPoint = {
     x: (screenStart.x + screenEnd.x) / 2,
     y: (screenStart.y + screenEnd.y) / 2,
@@ -2453,7 +2427,8 @@ function drawEditorPlan(
   objects: EditableObject[],
   selectedElement: SelectedEditorElement,
   draftWallStart: Point | null,
-  draftWallEnd: Point | null
+  draftWallEnd: Point | null,
+  unitSystem: UnitSystem
 ) {
   const origin = worldToEditorScreen({ x: 0, y: 0 }, viewport);
 
@@ -2481,7 +2456,8 @@ function drawEditorPlan(
       wall,
       viewport,
       openingsByWall.get(wall.id) ?? [],
-      selectedElement
+      selectedElement,
+      unitSystem
     );
   });
 
@@ -2521,7 +2497,8 @@ function drawEditorPlan(
         start,
         end,
         getEditorWallLength(previewWall),
-        Math.max(DEFAULT_WALL_THICKNESS * viewport.pixelsPerMeter, 8)
+        Math.max(DEFAULT_WALL_THICKNESS * viewport.pixelsPerMeter, 8),
+        unitSystem
       );
     }
   }
@@ -2536,77 +2513,6 @@ function drawEditorPlan(
       viewport.x + viewport.width / 2,
       viewport.y + viewport.height / 2
     );
-  }
-
-  context.restore();
-}
-
-function drawPlacedRoomEditorOverlay(
-  context: CanvasRenderingContext2D,
-  viewport: EditorViewport,
-  walls: EditableWall[],
-  openings: EditableOpening[],
-  objects: EditableObject[],
-  selectedElement: SelectedEditorElement,
-  draftWallStart: Point | null,
-  draftWallEnd: Point | null
-) {
-  const openingsByWall = new Map<string, EditableOpening[]>();
-  openings.forEach((opening) => {
-    const items = openingsByWall.get(opening.wallId) ?? [];
-    items.push(opening);
-    openingsByWall.set(opening.wallId, items);
-  });
-
-  context.save();
-  context.beginPath();
-  context.rect(viewport.x, viewport.y, viewport.width, viewport.height);
-  context.clip();
-
-  walls.forEach((wall) => {
-    const isWallSelected =
-      selectedElement?.kind === "wall" && selectedElement.id === wall.id;
-
-    if (!isWallSelected) {
-      return;
-    }
-
-    drawEditorWall(context, wall, viewport, openingsByWall.get(wall.id) ?? [], selectedElement);
-  });
-
-  openings.forEach((opening) => {
-    const ownerWall = walls.find((wall) => wall.id === opening.wallId);
-    const isOpeningSelected =
-      selectedElement?.kind === "opening" && selectedElement.id === opening.id;
-
-    if (!ownerWall || !isOpeningSelected) {
-      return;
-    }
-
-    drawEditorOpening(context, ownerWall, opening, viewport, true);
-  });
-
-  objects.forEach((object) => {
-    drawEditorObject(context, object, viewport, selectedElement);
-  });
-
-  if (draftWallStart && draftWallEnd) {
-    const start = worldToEditorScreen(draftWallStart, viewport);
-    const end = worldToEditorScreen(draftWallEnd, viewport);
-
-    context.strokeStyle = "#0ea5e9";
-    context.lineWidth = 3;
-    context.setLineDash([8, 6]);
-    context.beginPath();
-    context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
-    context.stroke();
-    context.setLineDash([]);
-
-    context.fillStyle = "#0ea5e9";
-    context.beginPath();
-    context.arc(start.x, start.y, 5, 0, Math.PI * 2);
-    context.fill();
   }
 
   context.restore();
@@ -2657,7 +2563,8 @@ function drawEditorWall(
   wall: EditableWall,
   viewport: EditorViewport,
   openings: EditableOpening[],
-  selectedElement: SelectedEditorElement
+  selectedElement: SelectedEditorElement,
+  unitSystem: UnitSystem
 ) {
   const start = worldToEditorScreen(wall.start, viewport);
   const end = worldToEditorScreen(wall.end, viewport);
@@ -2715,7 +2622,8 @@ function drawEditorWall(
     start,
     end,
     getEditorWallLength(wall),
-    wallThicknessPx
+    wallThicknessPx,
+    unitSystem
   );
 
   if (isSelected) {
@@ -3008,7 +2916,8 @@ function getCanvasSummary(
   editorWalls: EditableWall[],
   editorOpenings: EditableOpening[],
   editorObjects: EditableObject[],
-  draftWallStart: Point | null
+  draftWallStart: Point | null,
+  unitSystem: UnitSystem
 ) {
   if (
     editorWalls.length === 0 &&
@@ -3016,7 +2925,7 @@ function getCanvasSummary(
     editorObjects.length === 0 &&
     !draftWallStart
   ) {
-    return getWallSummary(formValues);
+    return getWallSummary(formValues, unitSystem);
   }
 
   const wallLabel = editorWalls.length === 1 ? "wall" : "walls";
@@ -3580,6 +3489,7 @@ function drawSegmentDimension(
   end: Point,
   value: number,
   wallThicknessPx: number,
+  unitSystem: UnitSystem,
 ) {
   const exteriorNormal = getExteriorNormal(direction);
   const offsetDistance = wallThicknessPx + DIMENSION_GAP;
@@ -3592,7 +3502,7 @@ function drawSegmentDimension(
   const midX = (dimensionStart.x + dimensionEnd.x) / 2;
   const midY = (dimensionStart.y + dimensionEnd.y) / 2;
   const isHorizontal = direction === "North" || direction === "South";
-  const label = `${formatValue(value)} m`;
+  const label = formatLengthDisplay(value, unitSystem);
 
   context.save();
   context.strokeStyle = "#be123c";
@@ -4094,14 +4004,14 @@ function drawSunOverlay(
   context.restore();
 }
 
-function getWallSummary(formValues: CanvasFormValues) {
+function getWallSummary(formValues: CanvasFormValues, unitSystem: UnitSystem) {
   const visibleSegments = getRawWallInputs(formValues).filter((wall) => wall.length > 0);
 
   if (visibleSegments.length === 0) {
     return "No walls drawn yet";
   }
 
-  return `Walls: ${visibleSegments.map((segment) => `${formatValue(segment.length)}m`).join(" | ")}`;
+  return `Walls: ${visibleSegments.map((segment) => formatLengthDisplay(segment.length, unitSystem)).join(" | ")}`;
 }
 
 function getSunSummary(solarState: SolarState) {
@@ -4158,12 +4068,8 @@ function getDistance(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function formatValue(value: number) {
-  return Number.isInteger(value) ? value.toString() : value.toFixed(2);
-}
-
-function formatAxisValue(value: number) {
-  return Number(roundToPrecision(value).toFixed(2)).toString();
+function formatAxisValue(value: number, unitSystem: UnitSystem) {
+  return formatLengthDisplay(roundToPrecision(value), unitSystem);
 }
 
 function roundToPrecision(value: number) {
