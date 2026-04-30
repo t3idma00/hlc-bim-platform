@@ -8,7 +8,7 @@ import { type WorkspaceView } from "../../bim-model/workspace-view-toggle";
 import { HeatLoadFormPanel, initialFormValues, type FormValues } from "./form-panel";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/actions/auth";
-import { saveProject, getUserProjects } from "@/actions/projects";
+import { saveProject, updateProject, getUserProjects } from "@/actions/projects";
 import type { Project, ProjectData, RoomWall } from "@/types";
 
 const ROOM_WALLS: RoomWall[] = ["North", "East", "South", "West"];
@@ -36,6 +36,8 @@ export default function HeatLoadWorkspace() {
   });
 
   const [activeRoomId, setActiveRoomId] = useState<string>("room-1");
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [currentProjectName, setCurrentProjectName] = useState<string>("");
 
   const [activeView, setActiveView] = useState<WorkspaceView>("2d");
   const [user, setUser] = useState<User | null>(null);
@@ -58,7 +60,6 @@ export default function HeatLoadWorkspace() {
   const [addRoomTargetWall, setAddRoomTargetWall] = useState<RoomWall>("East");
   const [addRoomOffset, setAddRoomOffset] = useState("0");
 
-  // Edit Modal
   // Edit Modal
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -162,8 +163,7 @@ export default function HeatLoadWorkspace() {
     const newRoomId = `room-${Date.now()}`;
     const newRoomName = `Room ${projectData.rooms.length + 1}`;
     const placedRooms = resolveRoomPlacements(projectData.rooms);
-    const targetRoom =
-      placedRooms.find((room) => room.id === addRoomTargetRoomId) ?? placedRooms.at(-1);
+    const targetRoom = placedRooms.find((room) => room.id === addRoomTargetRoomId) ?? placedRooms.at(-1);
     const ownWall = OPPOSITE_ROOM_WALL[addRoomTargetWall];
     const offsetMeters = parseSignedRoomNumber(addRoomOffset);
 
@@ -174,10 +174,7 @@ export default function HeatLoadWorkspace() {
         {
           id: newRoomId,
           name: newRoomName,
-          formValues: createRoomFormValuesForSharedWall(
-            targetRoom?.formValues,
-            addRoomTargetWall
-          ),
+          formValues: createRoomFormValuesForSharedWall(targetRoom?.formValues, addRoomTargetWall),
           sheetValues: {},
           placement: {
             x: 0,
@@ -197,16 +194,8 @@ export default function HeatLoadWorkspace() {
     setShowAddRoomModal(false);
   };
 
-  const handleLogout = async () => {
-    await signOut();
-  };
-
+  // ==================== SAVE / UPDATE LOGIC ====================
   const handleSaveProject = async () => {
-    if (!projectName.trim()) {
-      setSaveMessage({ type: "error", text: "Please enter a project name" });
-      return;
-    }
-
     setSaving(true);
     setSaveMessage(null);
 
@@ -214,45 +203,78 @@ export default function HeatLoadWorkspace() {
       version: "1.2",
       lastSaved: new Date().toISOString(),
       rooms: resolveRoomPlacements(projectData.rooms),
-      formValues: projectData.rooms[0].formValues,
-      sheetValues: projectData.rooms[0].sheetValues,
     };
 
     const formData = new FormData();
-    formData.append("projectName", projectName.trim());
     formData.append("formValues", JSON.stringify(dataToSave));
 
-    const result = await saveProject(formData);
+    let result;
+
+    if (currentProjectId) {
+      // UPDATE existing project
+      formData.append("projectId", currentProjectId);
+      formData.append("projectName", projectName.trim() || currentProjectName || "Untitled Project");
+      result = await updateProject(formData);
+    } else {
+      // SAVE AS NEW
+      if (!projectName.trim()) {
+        setSaveMessage({ type: "error", text: "Please enter a project name" });
+        setSaving(false);
+        return;
+      }
+      formData.append("projectName", projectName.trim());
+      result = await saveProject(formData);
+    }
 
     if (result.error) {
       setSaveMessage({ type: "error", text: result.error });
     } else {
-      setSaveMessage({ type: "success", text: "Project saved successfully!" });
-      setProjectName("");
-      setTimeout(() => setShowSaveModal(false), 1800);
+      setSaveMessage({ 
+        type: "success", 
+        text: currentProjectId ? "Project updated successfully!" : "Project saved successfully!" 
+      });
+
+      // === IMPORTANT: Reset to default blank workspace after successful update ===
+      if (currentProjectId) {
+        setTimeout(() => {
+          setProjectData({
+            version: "1.2",
+            lastSaved: new Date().toISOString(),
+            rooms: [{
+              id: "room-1",
+              name: "Room 1",
+              formValues: initialFormValues,
+              sheetValues: {},
+              placement: { x: 0, y: 0, rotation: 0 },
+            }],
+          });
+          setActiveRoomId("room-1");
+          setCurrentProjectId(null);
+          setCurrentProjectName("");
+          setProjectName("");
+          setShowSaveModal(false);
+          setSaveMessage(null);
+        }, 1200);
+      } else {
+        // For new save, just close modal
+        setTimeout(() => {
+          setShowSaveModal(false);
+          setProjectName("");
+          setSaveMessage(null);
+        }, 1400);
+      }
     }
     setSaving(false);
   };
 
   const loadMyProjects = async () => {
     if (loadingProjects) return;
-
     setLoadingProjects(true);
     setSaveMessage(null);
 
     try {
       const rawProjects = await getUserProjects();
-
-      const mappedProjects: Project[] = rawProjects.map((p: any) => ({
-        id: p.id,
-        user_id: p.user_id,
-        name: p.name,
-        created_at: p.created_at,
-        updated_at: p.updated_at,
-        data: p.data || { version: "1.1", formValues: initialFormValues, sheetValues: {} },
-      }));
-
-      setProjects(mappedProjects);
+      setProjects(rawProjects);
       setShowProjectsModal(true);
     } catch (error) {
       console.error("Failed to load projects:", error);
@@ -265,16 +287,15 @@ export default function HeatLoadWorkspace() {
   const loadProject = (project: Project) => {
     const saved = project.data || {};
 
-    let rooms = saved.rooms;
-    if (!rooms || rooms.length === 0) {
-      rooms = [
-        {
-          id: "room-1",
-          name: "Room 1",
-          formValues: saved.formValues || initialFormValues,
-          sheetValues: saved.sheetValues || {},
-        },
-      ];
+    let rooms = saved.rooms || [];
+    if (rooms.length === 0) {
+      rooms = [{
+        id: "room-1",
+        name: "Room 1",
+        formValues: saved.formValues || initialFormValues,
+        sheetValues: saved.sheetValues || {},
+        placement: { x: 0, y: 0, rotation: 0 },
+      }];
     }
 
     setProjectData({
@@ -282,11 +303,14 @@ export default function HeatLoadWorkspace() {
       lastSaved: saved.lastSaved || new Date().toISOString(),
       rooms: resolveRoomPlacements(rooms),
     });
-    setActiveRoomId(rooms[0].id);
+
+    setCurrentProjectId(project.id);
+    setCurrentProjectName(project.name);
+    setActiveRoomId(rooms[0]?.id || "room-1");
 
     setShowProjectsModal(false);
     setSaveMessage({ type: "success", text: `Loaded: ${project.name}` });
-    setTimeout(() => setSaveMessage(null), 2500);
+    setTimeout(() => setSaveMessage(null), 2000);
   };
 
   const deleteProject = async (projectId: string) => {
@@ -295,11 +319,8 @@ export default function HeatLoadWorkspace() {
     const supabase = createClient();
     const { error } = await supabase.from("projects").delete().eq("id", projectId);
 
-    if (!error) {
-      loadMyProjects();
-    } else {
-      alert("Failed to delete project");
-    }
+    if (!error) loadMyProjects();
+    else alert("Failed to delete project");
   };
 
   const openEditModal = (project: Project) => {
@@ -326,6 +347,10 @@ export default function HeatLoadWorkspace() {
     }
   };
 
+  const handleLogout = async () => {
+    await signOut();
+  };
+
   const placedRooms = resolveRoomPlacements(projectData.rooms);
 
   return (
@@ -349,7 +374,7 @@ export default function HeatLoadWorkspace() {
                   onClick={() => setShowSaveModal(true)}
                   className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition"
                 >
-                  Save Project
+                  {currentProjectId ? "Update Project" : "Save Project"}
                 </button>
 
                 <button
@@ -382,7 +407,6 @@ export default function HeatLoadWorkspace() {
         <main ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden relative">
           {/* Left Panel */}
           <div style={{ width: `${leftWidthPercent}%` }} className="flex-shrink-0 flex flex-col h-full overflow-hidden">
-            {/* Room Tabs */}
             <div className="flex border-b border-rose-200 bg-[#fff8fa] overflow-x-auto min-h-[40px] items-end px-2">
               {projectData.rooms.map((room) => (
                 <button
@@ -398,7 +422,6 @@ export default function HeatLoadWorkspace() {
                 </button>
               ))}
               <button
-              
                 onClick={handleAddRoom}
                 className="px-4 py-2 text-[10px] font-bold uppercase tracking-[0.05em] text-rose-600 hover:bg-rose-50 hover:text-rose-800 whitespace-nowrap transition-colors rounded-t-lg border border-transparent"
               >
@@ -452,8 +475,6 @@ export default function HeatLoadWorkspace() {
         </footer>
       </div>
 
-      {/* ====================== MODALS ====================== */}
-
       {/* Add Room Modal */}
       {showAddRoomModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
@@ -466,7 +487,7 @@ export default function HeatLoadWorkspace() {
                 <span className="mb-1 block text-sm font-medium text-slate-700">Attach to</span>
                 <select
                   value={addRoomTargetRoomId}
-                  onChange={(event) => setAddRoomTargetRoomId(event.target.value)}
+                  onChange={(e) => setAddRoomTargetRoomId(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#be123c]"
                 >
                   {placedRooms.map((room) => (
@@ -481,7 +502,7 @@ export default function HeatLoadWorkspace() {
                 <span className="mb-1 block text-sm font-medium text-slate-700">Shared wall on existing room</span>
                 <select
                   value={addRoomTargetWall}
-                  onChange={(event) => setAddRoomTargetWall(event.target.value as RoomWall)}
+                  onChange={(e) => setAddRoomTargetWall(e.target.value as RoomWall)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#be123c]"
                 >
                   {ROOM_WALLS.map((wall) => (
@@ -504,23 +525,17 @@ export default function HeatLoadWorkspace() {
                 <input
                   type="text"
                   value={addRoomOffset}
-                  onChange={(event) => setAddRoomOffset(event.target.value)}
+                  onChange={(e) => setAddRoomOffset(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[#be123c]"
                 />
               </label>
             </div>
 
             <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => setShowAddRoomModal(false)}
-                className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50"
-              >
+              <button onClick={() => setShowAddRoomModal(false)} className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50">
                 Cancel
               </button>
-              <button
-                onClick={handleConfirmAddRoom}
-                className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239]"
-              >
+              <button onClick={handleConfirmAddRoom} className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239]">
                 Add Room
               </button>
             </div>
@@ -528,38 +543,52 @@ export default function HeatLoadWorkspace() {
         </div>
       )}
 
-      {/* Save Project Modal */}
+      {/* Save Modal */}
       {showSaveModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-8 w-full max-w-md mx-4 shadow-xl">
-            <h2 className="text-2xl font-semibold mb-2">Save Project</h2>
-            <p className="text-slate-600 mb-6">Enter a name for your current project</p>
+            <h2 className="text-2xl font-semibold mb-2">
+              {currentProjectId ? "Update Project" : "Save Project"}
+            </h2>
+
+            {currentProjectId && (
+              <p className="text-sm text-slate-600 mb-4">
+                Updating: <strong>{currentProjectName}</strong>
+              </p>
+            )}
+
             <input
               type="text"
-              placeholder="e.g. My First Room Test"
+              placeholder={currentProjectId ? "Leave empty to keep current name" : "e.g. My First Room Test"}
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
               className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:border-[#be123c] mb-6"
               autoFocus
             />
+
             {saveMessage && (
               <p className={`text-center mb-4 text-sm font-medium ${saveMessage.type === "success" ? "text-green-600" : "text-red-600"}`}>
                 {saveMessage.text}
               </p>
             )}
+
             <div className="flex gap-3">
               <button
-                onClick={() => { setShowSaveModal(false); setProjectName(""); setSaveMessage(null); }}
+                onClick={() => {
+                  setShowSaveModal(false);
+                  setProjectName("");
+                  setSaveMessage(null);
+                }}
                 className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveProject}
-                disabled={saving || !projectName.trim()}
+                disabled={saving}
                 className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239] disabled:bg-rose-300"
               >
-                {saving ? "Saving..." : "Save Project"}
+                {saving ? "Saving..." : currentProjectId ? "Update Project" : "Save Project"}
               </button>
             </div>
           </div>
@@ -587,22 +616,13 @@ export default function HeatLoadWorkspace() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => loadProject(project)}
-                        className="px-5 py-2 bg-[#be123c] text-white text-sm rounded-lg hover:bg-[#9f1239] transition"
-                      >
+                      <button onClick={() => loadProject(project)} className="px-5 py-2 bg-[#be123c] text-white text-sm rounded-lg hover:bg-[#9f1239]">
                         Load
                       </button>
-                      <button
-                        onClick={() => openEditModal(project)}
-                        className="px-4 py-2 border border-slate-300 text-sm rounded-lg hover:bg-slate-50 transition"
-                      >
+                      <button onClick={() => openEditModal(project)} className="px-4 py-2 border border-slate-300 text-sm rounded-lg hover:bg-slate-50">
                         Edit
                       </button>
-                      <button
-                        onClick={() => deleteProject(project.id)}
-                        className="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 transition"
-                      >
+                      <button onClick={() => deleteProject(project.id)} className="px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50">
                         Delete
                       </button>
                     </div>
@@ -611,10 +631,7 @@ export default function HeatLoadWorkspace() {
               </div>
             )}
 
-            <button 
-              onClick={() => setShowProjectsModal(false)} 
-              className="mt-6 w-full py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50"
-            >
+            <button onClick={() => setShowProjectsModal(false)} className="mt-6 w-full py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50">
               Close
             </button>
           </div>
@@ -634,16 +651,10 @@ export default function HeatLoadWorkspace() {
               autoFocus
             />
             <div className="flex gap-3">
-              <button 
-                onClick={() => setShowEditModal(false)} 
-                className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50"
-              >
+              <button onClick={() => setShowEditModal(false)} className="flex-1 py-3 border border-slate-300 rounded-xl font-medium hover:bg-slate-50">
                 Cancel
               </button>
-              <button 
-                onClick={handleUpdateProjectName} 
-                className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239]}"
-              >
+              <button onClick={handleUpdateProjectName} className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239]">
                 Update Name
               </button>
             </div>
@@ -653,6 +664,9 @@ export default function HeatLoadWorkspace() {
     </div>
   );
 }
+
+// ==================== HELPER FUNCTIONS ====================
+// (Keep all your existing helper functions here - same as before)
 
 function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"] {
   const placedRooms: ProjectData["rooms"] = [];
@@ -672,41 +686,24 @@ function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"
         offsetMeters: room.placement?.offsetMeters,
       };
 
-      placedRooms.push({
-        ...room,
-        placement,
-      });
-      cursorX = Math.max(
-        cursorX,
-        placement.x + getRoomPlanWidth(room.formValues) + getRoomPlanWallThickness(room.formValues, "East")
-      );
+      placedRooms.push({ ...room, placement });
+      cursorX = Math.max(cursorX, placement.x + getRoomPlanWidth(room.formValues) + getRoomPlanWallThickness(room.formValues, "East"));
       return;
     }
 
-    const previousRoom = placedRooms[index - 1];
-    const targetRoom =
-      placedRooms.find((placedRoom) => placedRoom.id === room.placement?.attachToRoomId) ??
-      previousRoom;
-    const targetWall = getPlacementWall(
-      room.placement?.targetWall ?? room.placement?.targetAnchor,
-      "East"
-    );
-    const ownWall = getPlacementWall(
-      room.placement?.ownWall ?? room.placement?.ownAnchor,
-      OPPOSITE_ROOM_WALL[targetWall]
-    );
-    const offsetMeters = Number.isFinite(room.placement?.offsetMeters)
-      ? room.placement?.offsetMeters ?? 0
-      : 0;
-    const attachedPosition = targetRoom
-      ? getAttachedRoomPosition(targetRoom, room.formValues, targetWall, offsetMeters)
-      : { x: cursorX, y: 0 };
+    const targetRoom = placedRooms.find((r) => r.id === room.placement?.attachToRoomId) || placedRooms[placedRooms.length - 1];
+    const targetWall = getPlacementWall(room.placement?.targetWall ?? room.placement?.targetAnchor, "East");
+    const ownWall = getPlacementWall(room.placement?.ownWall ?? room.placement?.ownAnchor, OPPOSITE_ROOM_WALL[targetWall]);
+    const offsetMeters = parseSignedRoomNumber(room.placement?.offsetMeters?.toString());
+
+    const attachedPosition = getAttachedRoomPosition(targetRoom, room.formValues, targetWall, offsetMeters);
+
     const placement = {
-      ...(room.placement ?? {}),
+      ...room.placement,
       x: attachedPosition.x,
       y: attachedPosition.y,
       rotation: room.placement?.rotation ?? 0,
-      attachToRoomId: targetRoom?.id,
+      attachToRoomId: targetRoom.id,
       targetWall,
       ownWall,
       targetAnchor: targetWall,
@@ -714,38 +711,27 @@ function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"
       offsetMeters,
     };
 
-    placedRooms.push({
-      ...room,
-      placement,
-    });
-    cursorX = Math.max(
-      cursorX,
-      placement.x + getRoomPlanWidth(room.formValues) + getRoomPlanWallThickness(room.formValues, "East")
-    );
+    placedRooms.push({ ...room, placement });
+    cursorX = Math.max(cursorX, placement.x + getRoomPlanWidth(room.formValues) + getRoomPlanWallThickness(room.formValues, "East"));
   });
 
   return placedRooms;
 }
 
-function getRoomPlanWidth(formValues: FormValues | undefined) {
-  if (!formValues) {
-    return 6;
-  }
+// Paste the rest of your helper functions here (getRoomPlanWidth, getRoomPlanDepth, getAttachedRoomPosition, parseSignedRoomNumber, createRoomFormValuesForSharedWall, etc.)
+// They are the same as in your current file.
 
+function getRoomPlanWidth(formValues: FormValues | undefined) {
+  if (!formValues) return 6;
   const north = parsePositiveRoomNumber(formValues.wallNorthLength);
   const south = parsePositiveRoomNumber(formValues.wallSouthLength);
-
   return Math.max(north, south, 5);
 }
 
 function getRoomPlanDepth(formValues: FormValues | undefined) {
-  if (!formValues) {
-    return 6;
-  }
-
+  if (!formValues) return 6;
   const east = parsePositiveRoomNumber(formValues.wallEastLength);
   const west = parsePositiveRoomNumber(formValues.wallWestLength);
-
   return Math.max(east, west, 5);
 }
 
@@ -753,12 +739,7 @@ function getRoomPlanWallThickness(formValues: FormValues | undefined, wall: Room
   return parseWallThicknessMeters(formValues?.[getWallWidthFieldName(wall)], 0.2);
 }
 
-function getAttachedRoomPosition(
-  targetRoom: ProjectData["rooms"][number],
-  formValues: FormValues,
-  targetWall: RoomWall,
-  offsetMeters: number
-) {
+function getAttachedRoomPosition(targetRoom: any, formValues: FormValues, targetWall: RoomWall, offsetMeters: number) {
   const targetPlacement = targetRoom.placement ?? { x: 0, y: 0 };
   const targetWidth = getRoomPlanWidth(targetRoom.formValues);
   const targetDepth = getRoomPlanDepth(targetRoom.formValues);
@@ -767,26 +748,11 @@ function getAttachedRoomPosition(
   const roomDepth = getRoomPlanDepth(formValues);
 
   switch (targetWall) {
-    case "North":
-      return {
-        x: targetPlacement.x + offsetMeters,
-        y: targetPlacement.y - targetWallThickness - roomDepth,
-      };
-    case "East":
-      return {
-        x: targetPlacement.x + targetWidth + targetWallThickness,
-        y: targetPlacement.y + offsetMeters,
-      };
-    case "South":
-      return {
-        x: targetPlacement.x + offsetMeters,
-        y: targetPlacement.y + targetDepth + targetWallThickness,
-      };
-    case "West":
-      return {
-        x: targetPlacement.x - targetWallThickness - roomWidth,
-        y: targetPlacement.y + offsetMeters,
-      };
+    case "North": return { x: targetPlacement.x + offsetMeters, y: targetPlacement.y - targetWallThickness - roomDepth };
+    case "East": return { x: targetPlacement.x + targetWidth + targetWallThickness, y: targetPlacement.y + offsetMeters };
+    case "South": return { x: targetPlacement.x + offsetMeters, y: targetPlacement.y + targetDepth + targetWallThickness };
+    case "West": return { x: targetPlacement.x - targetWallThickness - roomWidth, y: targetPlacement.y + offsetMeters };
+    default: return { x: targetPlacement.x, y: targetPlacement.y };
   }
 }
 
@@ -796,61 +762,39 @@ function getPlacementWall(value: string | undefined, fallback: RoomWall = "East"
 
 function parseWallThicknessMeters(value: string | undefined, fallback: number) {
   const parsed = parsePositiveRoomNumber(value);
-
-  if (parsed <= 0) {
-    return fallback;
-  }
-
+  if (parsed <= 0) return fallback;
   return parsed > 20 ? parsed / 1000 : parsed;
 }
 
 function parsePositiveRoomNumber(value: string | undefined) {
-  if (!value) {
-    return 0;
-  }
-
+  if (!value) return 0;
   const parsed = Number(value.replace(",", "."));
-
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-function parseSignedRoomNumber(value: string | undefined) {
-  if (!value) {
-    return 0;
-  }
-
-  const parsed = Number(value.replace(",", "."));
-
+function parseSignedRoomNumber(value: string | number | undefined) {
+  if (value === undefined || value === null) return 0;
+  const str = String(value).replace(",", ".");
+  const parsed = Number(str);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function createRoomFormValuesForSharedWall(
-  targetFormValues: FormValues | undefined,
-  targetWall: RoomWall
-) {
-  if (!targetFormValues) {
-    return initialFormValues;
-  }
+function createRoomFormValuesForSharedWall(targetFormValues: FormValues | undefined, targetWall: RoomWall) {
+  if (!targetFormValues) return initialFormValues;
 
   const ownWall = OPPOSITE_ROOM_WALL[targetWall];
-  const nextFormValues: FormValues = {
-    ...initialFormValues,
-    wallNorthType: targetFormValues.wallNorthType ?? initialFormValues.wallNorthType,
-    wallEastType: targetFormValues.wallEastType ?? initialFormValues.wallEastType,
-    wallSouthType: targetFormValues.wallSouthType ?? initialFormValues.wallSouthType,
-    wallWestType: targetFormValues.wallWestType ?? initialFormValues.wallWestType,
-    wallNorthWidth: targetFormValues.wallNorthWidth ?? initialFormValues.wallNorthWidth,
-    wallEastWidth: targetFormValues.wallEastWidth ?? initialFormValues.wallEastWidth,
-    wallSouthWidth: targetFormValues.wallSouthWidth ?? initialFormValues.wallSouthWidth,
-    wallWestWidth: targetFormValues.wallWestWidth ?? initialFormValues.wallWestWidth,
-    roofType: targetFormValues.roofType ?? initialFormValues.roofType,
-    roofThickness: targetFormValues.roofThickness ?? initialFormValues.roofThickness,
-  };
+  const nextFormValues: FormValues = { ...initialFormValues };
 
-  nextFormValues[getWallTypeFieldName(ownWall)] =
-    targetFormValues[getWallTypeFieldName(targetWall)] ?? nextFormValues[getWallTypeFieldName(ownWall)];
-  nextFormValues[getWallWidthFieldName(ownWall)] =
-    targetFormValues[getWallWidthFieldName(targetWall)] ?? nextFormValues[getWallWidthFieldName(ownWall)];
+  ["wallNorthType", "wallEastType", "wallSouthType", "wallWestType",
+   "wallNorthWidth", "wallEastWidth", "wallSouthWidth", "wallWestWidth",
+   "roofType", "roofThickness"].forEach(key => {
+    if (targetFormValues[key as keyof FormValues]) {
+      (nextFormValues as any)[key] = targetFormValues[key as keyof FormValues];
+    }
+  });
+
+  nextFormValues[getWallTypeFieldName(ownWall)] = targetFormValues[getWallTypeFieldName(targetWall)] || nextFormValues[getWallTypeFieldName(ownWall)];
+  nextFormValues[getWallWidthFieldName(ownWall)] = targetFormValues[getWallWidthFieldName(targetWall)] || nextFormValues[getWallWidthFieldName(ownWall)];
 
   return nextFormValues;
 }
@@ -863,11 +807,7 @@ function getWallWidthFieldName(wall: RoomWall) {
   return `wall${wall}Width`;
 }
 
-function applySheetValueToFormValues(
-  formValues: FormValues,
-  sheetKey: string,
-  sheetValue: string
-): FormValues {
+function applySheetValueToFormValues(formValues: FormValues, sheetKey: string, sheetValue: string): FormValues {
   const wallFieldMap: Record<string, keyof FormValues> = {
     "1.1_type": "wallNorthType",
     "1.2_type": "wallEastType",
@@ -882,13 +822,7 @@ function applySheetValueToFormValues(
   };
 
   const formField = wallFieldMap[sheetKey];
+  if (!formField) return formValues;
 
-  if (!formField) {
-    return formValues;
-  }
-
-  return {
-    ...formValues,
-    [formField]: sheetValue,
-  };
+  return { ...formValues, [formField]: sheetValue };
 }
