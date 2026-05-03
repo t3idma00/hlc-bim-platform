@@ -1,0 +1,47 @@
+{
+  "shading_coefficients": {
+    "Single Glass Clear": {
+      "No shading": 1.0,
+      "Venetian Blinds Medium": 0.74,
+      "Venetian Blinds Light": 0.67,
+      "Opaque Dark": 0.59,
+      "Opaque White": 0.35,
+      "Translucent": 0.45
+    },
+    "Single Glass Heat Absorbing": {
+      "No shading": 0.71,
+      "Venetian Blinds Medium": 0.57,
+      "Venetian Blinds Light": 0.53,
+      "Opaque Dark": 0.45,
+      "Opaque White": 0.30,
+      "Translucent": 0.38
+    },
+    "Insulating Glass Clear out Clear In": {
+      "No shading": 0.88,
+      "Venetian Blinds Medium": 0.65,
+      "Venetian Blinds Light": 0.58,
+      "Opaque Dark": 0.51,
+      "Opaque White": 0.30,
+      "Translucent": 0.39
+    },
+    "Insulating Glass Heat Absorbing out Clear In": {
+      "No shading": 0.58,
+      "Venetian Blinds Medium": 0.45,
+      "Venetian Blinds Light": 0.41,
+      "Opaque Dark": 0.35,
+      "Opaque White": 0.22,
+      "Translucent": 0.28
+    }
+  },
+  "solar_cooling_load_factors_clf": {
+    "North": 0.82,
+    "Northeast": 0.78,
+    "East": 0.80,
+    "Southeast": 0.83,
+    "South": 0.85,
+    "Southwest": 0.83,
+    "West": 0.80,
+    "Northwest": 0.78,
+    "HOR": 0.85
+  }
+}

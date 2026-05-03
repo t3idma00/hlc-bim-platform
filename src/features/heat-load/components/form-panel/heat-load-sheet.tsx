@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo } from "react";
 import { heatLoadLookupOptions } from "./heat-load-options";
-import dummyFactors from "./dummy-factors.json";
+import section1Data from "./section-1-data.json";
+import section2Data from "./section-2-data.json";
+import section3Data from "./section-3-data.json";
+import section4Data from "./section-4-data.json";
+import section5Data from "./section-5-data.json";
+import section6Data from "./section-6-data.json";
 import { calculateSHGF, getHumidityRatioFromRelHum, getHumidityRatioFromWetBulb } from "@/lib/calculations";
 import {
   formatUnitValue,
@@ -103,48 +108,84 @@ const roofCellSelects: SelectOptionsByKey = {
 };
 
 function getDummyUFactor(type: string): string {
-  if (!type) return dummyFactors.uFactors.default.toFixed(2);
-  const factor = (dummyFactors.uFactors as Record<string, number>)[type] ?? dummyFactors.uFactors.default;
-  return factor.toFixed(2);
+  if (!type) return "2.00";
+  
+  if (type === "Brick Wall") return section1Data.wall_corrected_cltd_month_may.u_factors_W_per_m2K.brick_wall.toFixed(2);
+  if (type === "Cement block Wall") return section1Data.wall_corrected_cltd_month_may.u_factors_W_per_m2K.cement_block_wall.toFixed(2);
+  if (type === "Concrete Wall") return section1Data.wall_corrected_cltd_month_may.u_factors_W_per_m2K.concrete_wall.toFixed(2);
+  
+  const roof = section1Data.roof_material_u_factor.records.find((r: any) => type.includes(r.material_type));
+  if (roof) return roof.u_factor_with_ceiling_W_per_m2K.toFixed(2);
+  
+  const glass = section1Data.fenestration_u_factors_exterior_to_interior.records.find((r: any) => type.includes(r.glazing_type) || r.glazing_type.includes(type));
+  if (glass && glass.glass_only_center_W_per_m2K) return glass.glass_only_center_W_per_m2K.toFixed(2);
+
+  return "2.00";
 }
 
 function getDummyCLTD(type: string): string {
-  if (!type) return dummyFactors.cltd.default.toFixed(2);
-  const cltd = (dummyFactors.cltd as Record<string, number>)[type] ?? dummyFactors.cltd.default;
-  return cltd.toFixed(2);
+  if (!type) return "10.00";
+  if (type.includes("Brick")) return "15.90";
+  if (type.includes("Cement")) return "19.10";
+  if (type.includes("Concrete Wall")) return "14.10";
+  if (type.includes("Roof")) return "20.70";
+  if (type.toLowerCase().includes("glass")) return "14.10";
+  return "10.00";
 }
 
 function getDummyGlassFactors(type: string, shading: string) {
-  let sc = dummyFactors.glassFactors.shading.default;
-  if (shading) {
-    sc = (dummyFactors.glassFactors.shading as Record<string, number>)[shading] ?? sc;
+  let sc = 0.80;
+  const typeKey = Object.keys(section2Data.shading_coefficients).find(k => type.includes(k) || k.includes(type));
+  if (typeKey) {
+    const scData = (section2Data.shading_coefficients as Record<string, Record<string, number>>)[typeKey];
+    sc = scData[shading] ?? scData["No shading"] ?? 0.80;
   }
   
-  if (type?.includes("Absorbing")) sc += dummyFactors.glassFactors.typeAdjustments.Absorbing;
-  if (type?.includes("Insulating")) sc += dummyFactors.glassFactors.typeAdjustments.Insulating;
-  
   return {
-    sc: Math.max(0.1, sc).toFixed(2),
-    shg: dummyFactors.glassFactors.defaultShg.toFixed(2),
-    clf: dummyFactors.glassFactors.defaultClf.toFixed(2)
+    sc: sc.toFixed(2),
+    shg: "150.00",
+    clf: section2Data.solar_cooling_load_factors_clf.North.toFixed(2)
   };
 }
 
-function getDummyInternalGain(item: string, application: string): string {
+function getDummyInternalGain(item: string, application: string, isLatent: boolean = false): string {
   if (item === "Motor power (Name plate)") {
+    const power = (section5Data.internalGains.motorPower as Record<string, number>)[application];
+    if (power !== undefined) return power.toFixed(2);
+    
     const motorPowerKw = Number.parseFloat(application.replace(/[()]/g, ""));
     if (Number.isFinite(motorPowerKw)) {
       return (motorPowerKw * 1000).toFixed(2);
     }
   }
 
-  if (!item) return dummyFactors.internalGains.items.default.toFixed(2);
-  const gain = (dummyFactors.internalGains.items as Record<string, number>)[item] ?? dummyFactors.internalGains.items.default;
+  if (item === "People (sensible)" || item === "People (latent)" || item === "People") {
+    const peopleGains = (section5Data.internalGains.people as Record<string, { sensible: number, latent: number }>)[application] ?? section5Data.internalGains.people.default;
+    return (item === "People (latent)" || isLatent ? peopleGains.latent : peopleGains.sensible).toFixed(2);
+  }
+
+  if (item === "compact fluorescent lamp" || item === "Lamp") {
+    const lamp = (section5Data.internalGains.lamps as Record<string, number>)[application] ?? section5Data.internalGains.lamps.default;
+    return lamp.toFixed(2);
+  }
+
+  if (item === "Appliance etc.") {
+    const app = (section5Data.internalGains.appliances as Record<string, number>)[application] ?? section5Data.internalGains.appliances.default;
+    return app.toFixed(2);
+  }
+
+  if (!item) return section5Data.internalGains.items.default.toFixed(2);
+  const gain = (section5Data.internalGains.items as Record<string, number>)[item] ?? section5Data.internalGains.items.default;
   return gain.toFixed(2);
 }
 
+function getDummyCLF(item: string): string {
+  const clf = (section5Data.internalGains.clf as Record<string, number>)[item] ?? section5Data.internalGains.clf.default;
+  return clf.toFixed(2);
+}
+
 function getDummyVentilation(application: string) {
-  const vent = (dummyFactors.ventilation.applications as Record<string, { sensible: number, latent: number }>)[application] ?? dummyFactors.ventilation.default;
+  const vent = (section6Data.ventilation.applications as Record<string, { sensible: number, latent: number }>)[application] ?? section6Data.ventilation.default;
   return {
     sensible: vent.sensible.toFixed(2),
     latent: vent.latent.toFixed(2)
@@ -271,12 +312,12 @@ function buildInitialSections(): Section[] {
         { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "17%", editable: true },
       ],
       rows: [
-        { id: "5.1", values: { item: "People (sensible)", application: "Standing, light work or walking", heatGain: getDummyInternalGain("People", "Standing, light work or walking"), clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.peopleApplications } },
-        { id: "5.2", values: { item: "People (latent)", application: "Standing, light work or walking", heatGain: "70.00", clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.peopleApplications } },
-        { id: "5.3", values: { item: "Motor power (Name plate)", application: "(0.04)", heatGain: getDummyInternalGain("Motor power (Name plate)", "(0.04)"), clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.motorPowerFactors } },
-        { id: "5.4", values: { item: "compact fluorescent lamp", application: "Office", heatGain: getDummyInternalGain("compact fluorescent lamp", "Office"), clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.lampApplications } },
-        { id: "5.5", values: { item: "Appliance etc.", application: "Medium, desktop type", heatGain: getDummyInternalGain("Appliance etc.", "Medium, desktop type"), clf: "1.00", qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.applianceApplications } },
-        { id: "5.6", values: { item: "Additional heat gain", application: "Miscellaneous equipment", heatGain: "50", clf: "1.00", qty: "", heatLoad: "" } },
+        { id: "5.1", values: { item: "People (sensible)", application: "Standing, light work or walking", heatGain: getDummyInternalGain("People (sensible)", "Standing, light work or walking"), clf: getDummyCLF("People (sensible)"), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.peopleApplications } },
+        { id: "5.2", values: { item: "People (latent)", application: "Standing, light work or walking", heatGain: getDummyInternalGain("People (latent)", "Standing, light work or walking", true), clf: getDummyCLF("People (latent)"), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.peopleApplications } },
+        { id: "5.3", values: { item: "Motor power (Name plate)", application: "(0.04)", heatGain: getDummyInternalGain("Motor power (Name plate)", "(0.04)"), clf: getDummyCLF("Motor power (Name plate)"), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.motorPowerFactors } },
+        { id: "5.4", values: { item: "compact fluorescent lamp", application: "Office", heatGain: getDummyInternalGain("compact fluorescent lamp", "Office"), clf: getDummyCLF("compact fluorescent lamp"), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.lampApplications } },
+        { id: "5.5", values: { item: "Appliance etc.", application: "Medium, desktop type", heatGain: getDummyInternalGain("Appliance etc.", "Medium, desktop type"), clf: getDummyCLF("Appliance etc."), qty: "", heatLoad: "" }, selectOptions: { application: heatLoadLookupOptions.applianceApplications } },
+        { id: "5.6", values: { item: "Additional heat gain", application: "Miscellaneous equipment", heatGain: getDummyInternalGain("Additional heat gain", "Miscellaneous equipment"), clf: getDummyCLF("Additional heat gain"), qty: "", heatLoad: "" } },
       ],
     },
     {
@@ -709,18 +750,18 @@ export function HeatLoadSheet({ formValues, sheetValues, unitSystem, onSheetChan
           const doorArea = getNum(getVal(id, "doorArea", row.values.doorArea));
           const componentB = getVal(id, "componentB", row.values.componentB);
 
-          const windowFlow = windowQty * crackLength * dummyFactors.infiltration.windowCrackRate;
+          const windowFlow = windowQty * crackLength * section4Data.infiltration.windowCrackRate;
 
           const doorRate = componentB.includes("Nonresidential")
-            ? dummyFactors.infiltration.nonresidentialDoorRate
-            : dummyFactors.infiltration.residentialDoorRate;
+            ? section4Data.infiltration.nonresidentialDoorRate
+            : section4Data.infiltration.residentialDoorRate;
           const doorFlow = doorQty * doorArea * doorRate;
 
           const totalFlow = windowFlow + doorFlow;
 
           if (totalFlow > 0 && (deltaT !== 0 || deltaW !== 0)) {
-            const qSensible = totalFlow * dummyFactors.infiltration.airDensityCp * deltaT;
-            const qLatent = totalFlow * dummyFactors.infiltration.latentConstant * deltaW;
+            const qSensible = totalFlow * section4Data.infiltration.airDensityCp * deltaT;
+            const qLatent = totalFlow * section4Data.infiltration.latentConstant * deltaW;
             rowHeatLoad = qSensible + qLatent;
             setVal(`${id}_heatLoad`, rowHeatLoad.toFixed(2));
           } else {
@@ -753,8 +794,8 @@ export function HeatLoadSheet({ formValues, sheetValues, unitSystem, onSheetChan
           const areaQty = getNum(getVal(id, "areaQty", row.values.areaQty));
           const manualFlowRate = getNum(getVal(id, "totalFlowRate", row.values.totalFlowRate));
 
-          const rates = (dummyFactors.ventilationRates as Record<string, { perPerson: number; perArea: number }>)[application]
-            ?? dummyFactors.ventilationRates.default;
+          const rates = (section6Data.ventilationRates as Record<string, { perPerson: number; perArea: number }>)[application]
+            ?? section6Data.ventilationRates.default;
 
           const calculatedFlowRate = (peopleQty * rates.perPerson) + (areaQty * rates.perArea);
           const totalFlowRate = calculatedFlowRate > 0 ? calculatedFlowRate : manualFlowRate;

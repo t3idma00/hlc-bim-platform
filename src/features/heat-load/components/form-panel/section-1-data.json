@@ -1,0 +1,249 @@
+{
+  "wall_u_factor_exterior_to_interior": {
+    "title": "U-factor if different type of building wall material exterior to interior",
+    "records": [
+      {
+        "material_type": "Brick Wall",
+        "base_R_factor_without_core": 0.2052280701754386,
+        "base_U_factor_W_per_m2K": 4.872627799623867,
+        "core_K_factor_W_per_mK": 1.47
+      },
+      {
+        "material_type": "Cement block Wall",
+        "base_R_factor_without_core": 0.2052280701754386,
+        "base_U_factor_W_per_m2K": 4.872627799623867,
+        "core_K_factor_W_per_mK": 1.17647058823529
+      },
+      {
+        "material_type": "Concrete Wall",
+        "base_R_factor_without_core": 0.20522807017543857,
+        "base_U_factor_W_per_m2K": 4.872627799623868,
+        "core_K_factor_W_per_mK": 2.6
+      }
+    ]
+  },
+  "wall_corrected_cltd_month_may": {
+    "title": "Corrected CLTD for wall, month May",
+    "u_factors_W_per_m2K": {
+      "brick_wall": 2.8450588875239124,
+      "cement_block_wall": 3.4455661004654536,
+      "concrete_wall": 3.803432841949658
+    },
+    "records": [
+      {
+        "orientation": "North",
+        "brick_wall_CLTD_C": 15.9,
+        "cement_block_wall_CLTD_C": 19.1,
+        "concrete_wall_CLTD_C": 14.1
+      },
+      {
+        "orientation": "Northeast",
+        "brick_wall_CLTD_C": 18.3,
+        "cement_block_wall_CLTD_C": 23.3,
+        "concrete_wall_CLTD_C": 21.1
+      },
+      {
+        "orientation": "East",
+        "brick_wall_CLTD_C": 19.0,
+        "cement_block_wall_CLTD_C": 27.0,
+        "concrete_wall_CLTD_C": 28.1
+      },
+      {
+        "orientation": "Southeast",
+        "brick_wall_CLTD_C": 14.3,
+        "cement_block_wall_CLTD_C": 22.7,
+        "concrete_wall_CLTD_C": 27.1
+      },
+      {
+        "orientation": "South",
+        "brick_wall_CLTD_C": 10.3,
+        "cement_block_wall_CLTD_C": 17.3,
+        "concrete_wall_CLTD_C": 21.1
+      },
+      {
+        "orientation": "Southwest",
+        "brick_wall_CLTD_C": 10.3,
+        "cement_block_wall_CLTD_C": 12.7,
+        "concrete_wall_CLTD_C": 17.1
+      },
+      {
+        "orientation": "West",
+        "brick_wall_CLTD_C": 14.0,
+        "cement_block_wall_CLTD_C": 14.0,
+        "concrete_wall_CLTD_C": 15.1
+      },
+      {
+        "orientation": "Northwest",
+        "brick_wall_CLTD_C": 15.3,
+        "cement_block_wall_CLTD_C": 16.3,
+        "concrete_wall_CLTD_C": 14.1
+      },
+      {
+        "orientation": "HOR, Roof",
+        "brick_wall_CLTD_C": 31.7,
+        "cement_block_wall_CLTD_C": 20.7,
+        "concrete_wall_CLTD_C": 20.7
+      }
+    ]
+  },
+  "fenestration_u_factors_exterior_to_interior": {
+    "title": "Fenestration U-factors, exterior to interior",
+    "records": [
+      {
+        "product_type": "Single Glazing",
+        "glazing_type": "Single glass",
+        "thickness_mm": 3,
+        "glass_only_center_W_per_m2K": 5.978303387487939,
+        "operable_wood_vinyl_W_per_m2K": 5.05,
+        "fixed_wood_vinyl_W_per_m2K": 5.55
+      },
+      {
+        "product_type": "Single Glazing",
+        "glazing_type": "Single glass",
+        "thickness_mm": 6,
+        "glass_only_center_W_per_m2K": 5.863621249712255,
+        "operable_wood_vinyl_W_per_m2K": null,
+        "fixed_wood_vinyl_W_per_m2K": null
+      },
+      {
+        "product_type": "Single Glazing",
+        "glazing_type": "Single glass",
+        "thickness_mm": 10,
+        "glass_only_center_W_per_m2K": 5.717385340549169,
+        "operable_wood_vinyl_W_per_m2K": null,
+        "fixed_wood_vinyl_W_per_m2K": null
+      },
+      {
+        "product_type": "Single Glazing",
+        "glazing_type": "Single glass",
+        "thickness_mm": 12,
+        "glass_only_center_W_per_m2K": 5.646968987856246,
+        "operable_wood_vinyl_W_per_m2K": null,
+        "fixed_wood_vinyl_W_per_m2K": null
+      },
+      {
+        "product_type": "Single Glazing",
+        "glazing_type": "single glass acrylic/polycarbonate single glass",
+        "thickness_mm": 3,
+        "glass_only_center_W_per_m2K": 5.562060889929743,
+        "operable_wood_vinyl_W_per_m2K": 4.73,
+        "fixed_wood_vinyl_W_per_m2K": 5.15
+      },
+      {
+        "product_type": "Single Glazing",
+        "glazing_type": "acrylic/polycarbonate single glass acrylic/polycarbonate",
+        "thickness_mm": 6,
+        "glass_only_center_W_per_m2K": 5.113024757804092,
+        "operable_wood_vinyl_W_per_m2K": 4.42,
+        "fixed_wood_vinyl_W_per_m2K": 4.75
+      },
+      {
+        "product_type": "Single Glazing",
+        "glazing_type": "single glass acrylic/polycarbonate",
+        "thickness_mm": 10,
+        "glass_only_center_W_per_m2K": 4.616132167152576,
+        "operable_wood_vinyl_W_per_m2K": null,
+        "fixed_wood_vinyl_W_per_m2K": null
+      },
+      {
+        "product_type": "Single Glazing",
+        "glazing_type": "single glass acrylic/polycarbonate",
+        "thickness_mm": 12,
+        "glass_only_center_W_per_m2K": 4.402224281742354,
+        "operable_wood_vinyl_W_per_m2K": null,
+        "fixed_wood_vinyl_W_per_m2K": null
+      },
+      {
+        "product_type": "Double Glazing",
+        "glazing_type": "6.4 mm air space",
+        "thickness_mm": null,
+        "glass_only_center_W_per_m2K": null,
+        "operable_wood_vinyl_W_per_m2K": 3.13,
+        "fixed_wood_vinyl_W_per_m2K": 3.17
+      },
+      {
+        "product_type": "Double Glazing",
+        "glazing_type": "12.7 mm air space",
+        "thickness_mm": null,
+        "glass_only_center_W_per_m2K": null,
+        "operable_wood_vinyl_W_per_m2K": 2.87,
+        "fixed_wood_vinyl_W_per_m2K": 2.84
+      },
+      {
+        "product_type": "Double Glazing",
+        "glazing_type": "6.4 mm argon space",
+        "thickness_mm": null,
+        "glass_only_center_W_per_m2K": null,
+        "operable_wood_vinyl_W_per_m2K": 2.98,
+        "fixed_wood_vinyl_W_per_m2K": 2.98
+      },
+      {
+        "product_type": "Double Glazing",
+        "glazing_type": "12.7 mm argon space",
+        "thickness_mm": null,
+        "glass_only_center_W_per_m2K": null,
+        "operable_wood_vinyl_W_per_m2K": 2.76,
+        "fixed_wood_vinyl_W_per_m2K": 2.70
+      }
+    ]
+  },
+  "glass_corrected_cltd_by_solar_time_h": {
+    "title": "Corrected CLTD for glass",
+    "values_by_solar_time_h": {
+      "100": 8.1,
+      "200": 7.1,
+      "300": 6.1,
+      "400": 6.1,
+      "500": 6.1,
+      "600": 6.1,
+      "700": 6.1,
+      "800": 7.1,
+      "900": 8.1,
+      "1000": 9.1,
+      "1100": 11.1,
+      "1200": 12.1,
+      "1300": 14.1,
+      "1400": 14.1,
+      "1500": 15.1
+    }
+  },
+  "roof_material_u_factor": {
+    "title": "U-factor for different type of building roof material",
+    "records": [
+      {
+        "material_type": "Asbestos",
+        "u_factor_with_ceiling_W_per_m2K": 1.6935930052328554,
+        "u_factor_without_ceiling_W_per_m2K": 5.32670374613693
+      },
+      {
+        "material_type": "Clay tile",
+        "u_factor_with_ceiling_W_per_m2K": 1.6845952230132872,
+        "u_factor_without_ceiling_W_per_m2K": 5.23869765357066
+      },
+      {
+        "material_type": "Concrete",
+        "u_factor_with_ceiling_W_per_m2K": 1.7385595487039829,
+        "u_factor_without_ceiling_W_per_m2K": 5.1958433253397285
+      }
+    ]
+  },
+  "roof_material_u_factor_intermediate_floor": {
+    "title": "U-factor for different roof material for intermediate floor",
+    "records": [
+      {
+        "material_type": "Concrete",
+        "u_factor_with_ceiling_W_per_m2K": 1.5596030101428726,
+        "u_factor_without_ceiling_W_per_m2K": 3.869047619047619
+      }
+    ]
+  },
+  "corrected_cltd_roof_horizontal": {
+    "note": "Used only if modelling an exterior roof rather than an intermediate floor.",
+    "values": {
+      "orientation": "HOR, Roof",
+      "brick_wall_CLTD_C": 31.7,
+      "cement_block_wall_CLTD_C": 20.7,
+      "concrete_wall_CLTD_C": 20.7
+    }
+  }
+}

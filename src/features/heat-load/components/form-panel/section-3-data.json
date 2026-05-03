@@ -1,0 +1,6 @@
+{
+  "transmission": {
+    "defaultTD": 10.00,
+    "unconditionedSpaceTDMultiplier": 0.5
+  }
+}
