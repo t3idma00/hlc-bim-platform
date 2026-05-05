@@ -1,0 +1,9 @@
+{
+  "infiltration": {
+    "windowCrackRate": 1.3,
+    "residentialDoorRate": 11.0,
+    "nonresidentialDoorRate": 17.0,
+    "airDensityCp": 1.23,
+    "latentConstant": 3010
+  }
+}

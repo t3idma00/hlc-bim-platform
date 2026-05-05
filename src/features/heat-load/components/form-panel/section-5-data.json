@@ -1,0 +1,77 @@
+{
+  "internalGains": {
+    "people": {
+      "Seated at Theater": { "sensible": 70, "latent": 30 },
+      "Seated at Theater, night": { "sensible": 70, "latent": 30 },
+      "Seated very light work": { "sensible": 70, "latent": 45 },
+      "Moderately active office work": { "sensible": 75, "latent": 55 },
+      "Standing, light work or walking": { "sensible": 75, "latent": 75 },
+      "Walking, standing": { "sensible": 75, "latent": 75 },
+      "Sedentary work": { "sensible": 70, "latent": 60 },
+      "Light bench work": { "sensible": 80, "latent": 140 },
+      "Moderate dancing": { "sensible": 90, "latent": 160 },
+      "Walking 4.8 km/h; light machine work": { "sensible": 110, "latent": 205 },
+      "Bowling": { "sensible": 170, "latent": 255 },
+      "Heavy work": { "sensible": 170, "latent": 255 },
+      "default": { "sensible": 70, "latent": 45 }
+    },
+    "items": {
+      "People": 115.00,
+      "Motor power (Name plate)": 400.00,
+      "compact fluorescent lamp": 20.00,
+      "Appliance etc.": 150.00,
+      "Additional heat gain": 100.00,
+      "default": 100.00
+    },
+    "motorPower": {
+      "(0.04)": 40,
+      "(0.06)": 60,
+      "(0.09)": 90,
+      "(0.12)": 120,
+      "(0.19)": 190,
+      "(0.25)": 250,
+      "(0.37)": 370,
+      "(0.56)": 560,
+      "(0.75)": 750,
+      "(1.10)": 1100,
+      "(1.50)": 1500,
+      "(2.20)": 2200,
+      "default": 400
+    },
+    "lamps": {
+      "Office": 20,
+      "Residential": 15,
+      "Educational": 18,
+      "Service": 15,
+      "Store": 25,
+      "Hospital": 22,
+      "Production": 30,
+      "Farm (chicken coop)": 10,
+      "default": 20
+    },
+    "appliances": {
+      "Medium, desktop type": 150,
+      "2.8GHz Processor, 1GB RAM": 100,
+      "2.6GHz Processor, 2GB RAM": 105,
+      "(Model A) 3.0GHz Processor, 2GB RAM": 110,
+      "(Model B) 3.0GHz Processor, 2GB RAM": 110,
+      "2.3GHz Processor, 3GB RAM": 95,
+      "2.0GHz Processor, 2GB RAM, 430mm Screen": 85,
+      "1.8GHz Processor, 1GB RAM, 430mm Screen": 80,
+      "2.0GHz Processor, 2GB RAM, 355mm Screen": 80,
+      "2.13GHz Processor, 1GB RAM, 430mm Screen": 85,
+      "366MHz Processor, 130MB RAM, 355mm Screen": 50,
+      "900MHz Processor, 256MB RAM, 265mm Screen": 60,
+      "default": 150
+    },
+    "clf": {
+      "People": 1.0,
+      "People (sensible)": 1.0,
+      "Motor power (Name plate)": 1.0,
+      "compact fluorescent lamp": 1.2,
+      "Appliance etc.": 1.0,
+      "Additional heat gain": 1.0,
+      "default": 1.0
+    }
+  }
+}
