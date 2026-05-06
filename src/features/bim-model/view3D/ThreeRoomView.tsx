@@ -1,32 +1,39 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { roomToThree, type RoomInputValues } from "../converters/roomToThree";
+import * as THREE from "three";
+import { roomToThree, type RoomInputValues, type ThreeRoomModel } from "../converters/roomToThree";
 import {
   useThreeRoom,
   type SolarStateLike,
   type ThreeRoomCameraPreset,
   type ThreeRoomTool,
 } from "./useThreeRoom";
+import type { RoomData } from "@/types";
 
 type SheetValues = Record<string, string>;
+type ThreeRoomSceneRoom = Pick<RoomData, "id" | "formValues" | "sheetValues" | "placement">;
 
 type ThreeRoomViewProps = {
   formValues: RoomInputValues;
   sheetValues?: SheetValues;
+  rooms?: ThreeRoomSceneRoom[];
+  activeRoomId?: string;
   solarState?: SolarStateLike;
 };
 
 export function ThreeRoomView({
   formValues,
   sheetValues = {},
+  rooms,
+  activeRoomId,
   solarState,
 }: ThreeRoomViewProps) {
   const [activeTool, setActiveTool] = useState<ThreeRoomTool>("orbit");
   const [roofAndCeilingVisible, setRoofAndCeilingVisible] = useState(false);
   const roomModel = useMemo(
-    () => roomToThree(formValues, sheetValues),
-    [formValues, sheetValues]
+    () => buildSceneRoomModel(rooms, activeRoomId, formValues, sheetValues),
+    [activeRoomId, formValues, rooms, sheetValues]
   );
   const { containerRef, controls } = useThreeRoom(roomModel, solarState, activeTool);
   const isReady = roomModel !== null;
@@ -143,6 +150,79 @@ export function ThreeRoomView({
       </div>
     </div>
   );
+}
+
+function buildSceneRoomModel(
+  rooms: ThreeRoomSceneRoom[] | undefined,
+  activeRoomId: string | undefined,
+  fallbackFormValues: RoomInputValues,
+  fallbackSheetValues: SheetValues
+): ThreeRoomModel | null {
+  if (!rooms || rooms.length === 0) {
+    return roomToThree(fallbackFormValues, fallbackSheetValues);
+  }
+
+  const sceneGroup = new THREE.Group();
+  sceneGroup.name = "three-room-scene-root";
+  const validRooms = rooms
+    .map((room) => {
+      const model = roomToThree(room.formValues, room.sheetValues ?? {});
+      return model ? { room, model } : null;
+    })
+    .filter((entry): entry is { room: ThreeRoomSceneRoom; model: ThreeRoomModel } => entry !== null);
+
+  if (validRooms.length === 0) {
+    return roomToThree(fallbackFormValues, fallbackSheetValues);
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
+  let maxHeight = 0;
+
+  validRooms.forEach(({ room, model }) => {
+    const sceneX = (room.placement?.x ?? 0) + model.dimensions.width / 2;
+    const sceneZ = -((room.placement?.y ?? 0) + model.dimensions.depth / 2);
+    const sceneY = 0;
+
+    model.group.position.set(sceneX, sceneY, sceneZ);
+    model.group.rotation.y = -(room.placement?.rotation ?? 0);
+    model.group.userData = {
+      ...model.group.userData,
+      roomId: room.id,
+      isActiveRoom: room.id === activeRoomId,
+    };
+    sceneGroup.add(model.group);
+
+    const halfWidth = model.dimensions.width / 2 + model.dimensions.wallThickness;
+    const halfDepth = model.dimensions.depth / 2 + model.dimensions.wallThickness;
+    minX = Math.min(minX, sceneX - halfWidth);
+    maxX = Math.max(maxX, sceneX + halfWidth);
+    minZ = Math.min(minZ, sceneZ - halfDepth);
+    maxZ = Math.max(maxZ, sceneZ + halfDepth);
+    maxHeight = Math.max(maxHeight, model.dimensions.height);
+  });
+
+  const centerX = (minX + maxX) / 2;
+  const centerZ = (minZ + maxZ) / 2;
+  sceneGroup.position.set(-centerX, 0, -centerZ);
+  sceneGroup.userData.dimensions = {
+    width: maxX - minX,
+    depth: maxZ - minZ,
+    height: maxHeight,
+    wallThickness: 0.2,
+  };
+
+  return {
+    group: sceneGroup,
+    dimensions: {
+      width: maxX - minX,
+      depth: maxZ - minZ,
+      height: maxHeight,
+      wallThickness: 0.2,
+    },
+  };
 }
 
 function ThreeToolbarIcon({

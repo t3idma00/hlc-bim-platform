@@ -89,6 +89,17 @@ type LaidOutChain = {
   offset: Point;
 };
 
+type RenderedRoomPlan = {
+  room: CanvasRoom;
+  wallChainResult: WallChainBuildResult;
+  laidOutChains: {
+    items: LaidOutChain[];
+  };
+  roomOffset: Point;
+  points: Point[];
+  isActive: boolean;
+};
+
 type WallChainBuildResult = {
   chains: WallChain[];
   hasFullLoopInput: boolean;
@@ -142,7 +153,7 @@ type SolarApiResponse = {
   error?: string;
 };
 
-type EditorTool = "select" | "pan" | "measure" | "delete" | "wall" | "window" | "door" | "desk";
+type EditorTool = "select" | "rotate" | "pan" | "measure" | "delete" | "wall" | "window" | "door" | "desk";
 
 type EditableWall = {
   id: string;
@@ -161,7 +172,7 @@ type EditableOpening = {
   widthMeters: number;
 };
 
-type EditorObjectKind = "workDesk";
+type EditorObjectKind = "workDesk" | "chair" | "table" | "computer" | "tv" | "bed";
 
 type EditableObject = {
   id: string;
@@ -208,6 +219,12 @@ type EditorDragState =
       objectId: string;
       didRecordHistory: boolean;
       lastWorld: Point;
+    }
+  | {
+      kind: "object-rotate";
+      objectId: string;
+      didRecordHistory: boolean;
+      angleOffsetRadians: number;
     };
 
 type EditorViewport = {
@@ -244,6 +261,7 @@ type ActiveEditorTool = EditorTool | null;
 
 const TOOL_OPTIONS: ToolOption[] = [
   { key: "select", label: "Select" },
+  { key: "rotate", label: "Rotate" },
   { key: "pan", label: "Pan" },
   { key: "measure", label: "Measure" },
   { key: "delete", label: "Delete" },
@@ -251,8 +269,26 @@ const TOOL_OPTIONS: ToolOption[] = [
 
 const MAX_HISTORY_STEPS = 60;
 const EDITOR_OBJECTS_FIELD_NAME = "sceneObjectsJson";
-const EDITOR_DESK_WIDTH_METERS = 1.4;
-const EDITOR_DESK_DEPTH_METERS = 0.7;
+const EDITOR_DESK_WIDTH_METERS = 1.5;
+const EDITOR_DESK_DEPTH_METERS = 0.75;
+const EDITOR_TABLE_WIDTH_METERS = 1.25;
+const EDITOR_TABLE_DEPTH_METERS = 0.85;
+const EDITOR_CHAIR_WIDTH_METERS = 0.6;
+const EDITOR_CHAIR_DEPTH_METERS = 0.6;
+const EDITOR_TV_WIDTH_METERS = 1.4;
+const EDITOR_TV_DEPTH_METERS = 0.32;
+const EDITOR_COMPUTER_WIDTH_METERS = 0.8;
+const EDITOR_COMPUTER_DEPTH_METERS = 0.5;
+const EDITOR_BED_WIDTH_METERS = 1.7;
+const EDITOR_BED_DEPTH_METERS = 2.2;
+const OBJECT_TOOL_OPTIONS: Array<{ key: EditorObjectKind; label: string }> = [
+  { key: "workDesk", label: "Work Desk" },
+  { key: "chair", label: "Chair" },
+  { key: "table", label: "Table" },
+  { key: "computer", label: "Computer" },
+  { key: "tv", label: "TV" },
+  { key: "bed", label: "Bed" },
+];
 
 export function HeatLoadCanvasPanel({
   formValues,
@@ -278,7 +314,9 @@ export function HeatLoadCanvasPanel({
     snapshot: null,
     message: "Locating live sun...",
   });
-  const [editorTool, setEditorTool] = useState<ActiveEditorTool>(null);
+  const [editorTool, setEditorTool] = useState<ActiveEditorTool>("select");
+  const [selectedObjectKind, setSelectedObjectKind] = useState<EditorObjectKind>("workDesk");
+  const [showObjectMenu, setShowObjectMenu] = useState(false);
   const [editorRevision, setEditorRevision] = useState(0);
   const [historyControls, setHistoryControls] = useState({
     canUndo: false,
@@ -494,11 +532,18 @@ export function HeatLoadCanvasPanel({
     if (tool === "delete" && selectedEditorElementRef.current !== null) {
       recordEditorHistory();
       deleteSelectedEditorElement();
-      setEditorTool(null);
+      setEditorTool("select");
       return;
     }
 
-    setEditorTool((previousTool) => (previousTool === tool ? null : tool));
+    if (tool === "select") {
+      setEditorTool("select");
+    } else {
+      setEditorTool((previousTool) => (previousTool === tool ? "select" : tool));
+    }
+    if (tool !== "desk") {
+      setShowObjectMenu(false);
+    }
   };
 
   useEffect(() => {
@@ -551,7 +596,8 @@ export function HeatLoadCanvasPanel({
       dragStateRef.current = { kind: "idle" };
       clearEditorDraft();
       refreshEditorUi();
-      setEditorTool(null);
+      setEditorTool("select");
+      setShowObjectMenu(false);
     };
 
     document.addEventListener("pointerdown", handleDocumentPointerDown);
@@ -846,60 +892,27 @@ export function HeatLoadCanvasPanel({
       offsetX: number,
       offsetY: number
     ) {
-      const drawX = LEFT_RULER_SIZE;
-      const drawY = RULER_SIZE;
-      const drawWidth = width - LEFT_RULER_SIZE;
-      const drawHeight = height - RULER_SIZE;
-      const roomsToRender: CanvasRoom[] =
-        rooms && rooms.length > 0
-          ? rooms
-          : [
-              {
-                id: "active-room",
-                name: "Room",
-                formValues,
-                placement: { x: 0, y: 0 },
-              },
-            ];
-      const roomPlans = roomsToRender
-        .map((room, roomIndex) => {
-          const wallChainResult = buildWallChains(room.formValues);
-          const laidOutChains = layoutChains(
-            wallChainResult.chains
-              .map((chain) => {
-                const geometry = buildChainGeometry(chain);
-
-                if (!geometry) {
-                  return null;
-                }
-
-                return {
-                  chain,
-                  geometry,
-                };
-              })
-              .filter((value): value is { chain: WallChain; geometry: ChainGeometry } => value !== null)
-          );
-          const roomOffset = {
-            x: room.placement?.x ?? roomIndex * 7,
-            y: room.placement?.y ?? 0,
-          };
-          const points = laidOutChains.items.flatMap((item) =>
-            getGeometryPoints(item.geometry).map((point) =>
-              addPoints(addPoints(point, item.offset), roomOffset)
-            )
-          );
-
-          return {
-            room,
-            wallChainResult,
-            laidOutChains,
-            roomOffset,
-            points,
-            isActive: activeRoomId ? room.id === activeRoomId : roomIndex === 0,
-          };
-        })
-        .filter((plan) => plan.points.length > 0);
+      const {
+        drawX,
+        drawY,
+        drawWidth,
+        drawHeight,
+        roomPlans,
+        originX,
+        originY,
+        bounds,
+        planWidth,
+        planHeight,
+      } = getRenderedRoomPlanMetrics(
+        width,
+        height,
+        pixelsPerMeter,
+        offsetX,
+        offsetY,
+        rooms,
+        activeRoomId,
+        formValues
+      );
 
       context.save();
       context.beginPath();
@@ -948,16 +961,21 @@ export function HeatLoadCanvasPanel({
         context.restore();
         return;
       }
-
-      const bounds = getPointsBounds(roomPlans.flatMap((plan) => plan.points));
-      const planWidth = Math.max(bounds.maxX - bounds.minX, 1);
-      const planHeight = Math.max(bounds.maxY - bounds.minY, 1);
-
-      const originX =
-        drawX + (drawWidth - planWidth * pixelsPerMeter) / 2 - bounds.minX * pixelsPerMeter + offsetX;
-      const originY =
-        drawY + (drawHeight - planHeight * pixelsPerMeter) / 2 - bounds.minY * pixelsPerMeter + offsetY;
       const drawnSharedWalls = new Set<string>();
+      const selectedWall =
+        selectedEditorElementRef.current?.kind === "wall"
+          ? editorWallsRef.current.find((wall) => wall.id === selectedEditorElementRef.current?.id) ?? null
+          : null;
+      const selectedOpening =
+        selectedEditorElementRef.current?.kind === "opening"
+          ? editorOpeningsRef.current.find(
+              (opening) => opening.id === selectedEditorElementRef.current?.id
+            ) ?? null
+          : null;
+      const selectedOpeningWall =
+        selectedOpening
+          ? editorWallsRef.current.find((wall) => wall.id === selectedOpening.wallId) ?? null
+          : null;
 
       roomPlans.forEach((plan) => {
         const pendingDoors = new Map<WallDirection, DoorInput>();
@@ -991,6 +1009,25 @@ export function HeatLoadCanvasPanel({
             const end = translatePoint(worldEnd, originX, originY, pixelsPerMeter);
             drawPlainWallSurface(context, segment, start, end, pixelsPerMeter);
 
+            if (
+              plan.isActive &&
+              selectedWall &&
+              doWallPointsMatch(
+                segment.start,
+                segment.end,
+                selectedWall.start,
+                selectedWall.end
+              )
+            ) {
+              drawSelectedWallOverlay(
+                context,
+                segment,
+                start,
+                end,
+                pixelsPerMeter
+              );
+            }
+
             const door = pendingDoors.get(segment.direction);
             const window = pendingWindows.get(segment.direction);
 
@@ -1010,6 +1047,27 @@ export function HeatLoadCanvasPanel({
               if (window) {
                 pendingWindows.delete(segment.direction);
               }
+            }
+
+            if (
+              plan.isActive &&
+              selectedOpening &&
+              selectedOpeningWall &&
+              doWallPointsMatch(
+                segment.start,
+                segment.end,
+                selectedOpeningWall.start,
+                selectedOpeningWall.end
+              )
+            ) {
+              drawSelectedOpeningOverlay(
+                context,
+                segment,
+                start,
+                end,
+                pixelsPerMeter,
+                selectedOpening
+              );
             }
 
             drawSegmentDimension(
@@ -1051,6 +1109,25 @@ export function HeatLoadCanvasPanel({
           }
         });
 
+        const roomObjects =
+          plan.isActive
+            ? editorObjectsRef.current
+            : parseEditorObjects(plan.room.formValues[EDITOR_OBJECTS_FIELD_NAME]);
+
+        roomObjects.forEach((object) => {
+          drawPlacedRoomObject(
+            context,
+            object,
+            plan.roomOffset,
+            originX,
+            originY,
+            pixelsPerMeter,
+            plan.isActive &&
+              selectedEditorElementRef.current?.kind === "object" &&
+              selectedEditorElementRef.current.id === object.id
+          );
+        });
+
         const roomBounds = getPointsBounds(plan.points);
         const labelPoint = translatePoint(
           {
@@ -1084,10 +1161,34 @@ export function HeatLoadCanvasPanel({
           originY,
           pixelsPerMeter
         );
+        const planTopLeft = translatePoint(
+          {
+            x: bounds.minX,
+            y: bounds.minY,
+          },
+          originX,
+          originY,
+          pixelsPerMeter
+        );
+        const planBottomRight = translatePoint(
+          {
+            x: bounds.maxX,
+            y: bounds.maxY,
+          },
+          originX,
+          originY,
+          pixelsPerMeter
+        );
 
         drawSunOverlay(
           context,
           planCenter,
+          {
+            x: Math.min(planTopLeft.x, planBottomRight.x),
+            y: Math.min(planTopLeft.y, planBottomRight.y),
+            width: Math.abs(planBottomRight.x - planTopLeft.x),
+            height: Math.abs(planBottomRight.y - planTopLeft.y),
+          },
           {
             x: drawX,
             y: drawY,
@@ -1175,13 +1276,42 @@ export function HeatLoadCanvasPanel({
     const getEditorInteractionContext = (event: MouseEvent) => {
       const point = getCanvasPoint(event);
       const gridMetrics = getGridMetrics(scale);
-      const viewport = getEditorViewport(
-        canvas.width,
-        canvas.height,
-        gridMetrics.pixelsPerMeter,
-        offsetRef.current.x,
-        offsetRef.current.y
-      );
+      const renderedPlanMetrics =
+        rooms && rooms.length > 0
+          ? getRenderedRoomPlanMetrics(
+              canvas.width,
+              canvas.height,
+              gridMetrics.pixelsPerMeter,
+              offsetRef.current.x,
+              offsetRef.current.y,
+              rooms,
+              activeRoomId,
+              formValues
+            )
+          : null;
+      const activePlan = renderedPlanMetrics?.roomPlans.find((plan) => plan.isActive);
+      const viewport =
+        renderedPlanMetrics && activePlan
+          ? {
+              x: renderedPlanMetrics.drawX,
+              y: renderedPlanMetrics.drawY,
+              width: renderedPlanMetrics.drawWidth,
+              height: renderedPlanMetrics.drawHeight,
+              centerX:
+                renderedPlanMetrics.originX +
+                activePlan.roomOffset.x * gridMetrics.pixelsPerMeter,
+              centerY:
+                renderedPlanMetrics.originY +
+                activePlan.roomOffset.y * gridMetrics.pixelsPerMeter,
+              pixelsPerMeter: gridMetrics.pixelsPerMeter,
+            }
+          : getEditorViewport(
+              canvas.width,
+              canvas.height,
+              gridMetrics.pixelsPerMeter,
+              offsetRef.current.x,
+              offsetRef.current.y
+            );
       const insideViewport = isPointInsideViewport(point, viewport);
       const rawWorldPoint = insideViewport
         ? screenToEditorWorld(point, viewport)
@@ -1359,7 +1489,7 @@ export function HeatLoadCanvasPanel({
         idCounterRef.current += 1;
         const object: EditableObject = {
           id: `object-${idCounterRef.current}`,
-          kind: "workDesk",
+          kind: selectedObjectKind,
           position: interaction.worldPoint,
           rotationRadians: 0,
         };
@@ -1419,6 +1549,41 @@ export function HeatLoadCanvasPanel({
           kind: "pan",
           lastScreen: interaction.point,
         };
+        redrawCanvas();
+        return;
+      }
+
+      if (tool === "rotate") {
+        if (objectHit && interaction.worldPoint) {
+          const targetObject = editorObjectsRef.current.find(
+            (object) => object.id === objectHit.object.id
+          );
+
+          if (!targetObject) {
+            dragStateRef.current = { kind: "idle" };
+            return;
+          }
+
+          selectedEditorElementRef.current = {
+            kind: "object",
+            id: targetObject.id,
+          };
+          dragStateRef.current = {
+            kind: "object-rotate",
+            objectId: targetObject.id,
+            didRecordHistory: false,
+            angleOffsetRadians:
+              targetObject.rotationRadians -
+              getAngleBetweenPoints(targetObject.position, interaction.worldPoint),
+          };
+          refreshEditorUi();
+          redrawCanvas();
+          return;
+        }
+
+        selectedEditorElementRef.current = null;
+        dragStateRef.current = { kind: "idle" };
+        refreshEditorUi();
         redrawCanvas();
         return;
       }
@@ -1626,6 +1791,44 @@ export function HeatLoadCanvasPanel({
         };
         syncEditorObjectsField();
         redrawCanvas();
+        return;
+      }
+
+      if (dragState.kind === "object-rotate" && interaction.worldPoint) {
+        const targetObject = editorObjectsRef.current.find(
+          (object) => object.id === dragState.objectId
+        );
+
+        if (!targetObject) {
+          dragStateRef.current = { kind: "idle" };
+          return;
+        }
+
+        if (!dragState.didRecordHistory) {
+          recordEditorHistory();
+        }
+
+        const nextRotation = normalizeRadians(
+          getAngleBetweenPoints(targetObject.position, interaction.worldPoint) +
+            dragState.angleOffsetRadians
+        );
+
+        editorObjectsRef.current = editorObjectsRef.current.map((object) =>
+          object.id === dragState.objectId
+            ? {
+                ...object,
+                rotationRadians: nextRotation,
+              }
+            : object
+        );
+        dragStateRef.current = {
+          kind: "object-rotate",
+          objectId: dragState.objectId,
+          didRecordHistory: true,
+          angleOffsetRadians: dragState.angleOffsetRadians,
+        };
+        syncEditorObjectsField();
+        redrawCanvas();
       }
     };
 
@@ -1711,6 +1914,7 @@ export function HeatLoadCanvasPanel({
     redoEditorChange,
     scale,
     solarState,
+    selectedObjectKind,
     unitSystem,
     undoEditorChange,
   ]);
@@ -1735,7 +1939,7 @@ export function HeatLoadCanvasPanel({
   const canvasCursorClass =
     editorTool === "pan"
       ? "cursor-grab active:cursor-grabbing"
-      : editorTool === "measure"
+      : editorTool === "measure" || editorTool === "rotate"
         ? "cursor-crosshair"
       : editorTool === "delete"
         ? "cursor-not-allowed"
@@ -1762,7 +1966,7 @@ export function HeatLoadCanvasPanel({
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
         <div className="flex h-full w-full flex-1 overflow-hidden border border-sky-100 bg-[#dbeafe]">
-          <div className="w-14 border-r border-[#44536a] bg-[#5d6b7d]/97 shadow-lg shadow-slate-900/18 backdrop-blur">
+          <div className="relative z-20 w-14 overflow-visible border-r border-[#44536a] bg-[#5d6b7d]/97 shadow-lg shadow-slate-900/18 backdrop-blur">
             <div className="flex h-full w-full flex-col items-center gap-1 pt-2">
               {TOOL_OPTIONS.map((tool) => {
                 const isActive = editorTool === tool.key;
@@ -1818,19 +2022,77 @@ export function HeatLoadCanvasPanel({
                 <HistoryToolIcon action="redo" />
               </button>
               <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
-              <button
-                type="button"
-                aria-label="Desk"
-                title="Desk"
-                onClick={() => handleToolbarToolClick("desk")}
-                className={`flex h-10 w-10 items-center justify-center border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 ${
-                  editorTool === "desk"
-                    ? "border-[#a9c8ff] bg-[#2f6fe4] text-white shadow-sm"
-                    : "border-transparent bg-transparent text-[#f8fbff] hover:border-[#8ea2bf]/55 hover:bg-[#7686a0]/28"
-                }`}
-              >
-                <ToolboxIcon tool="desk" />
-              </button>
+              <div className="relative overflow-visible">
+                <div className="flex overflow-hidden rounded-md border border-[#8ea2bf]/35 shadow-sm">
+                  <button
+                    type="button"
+                    aria-label={getEditorObjectKindLabel(selectedObjectKind)}
+                    title={getEditorObjectKindLabel(selectedObjectKind)}
+                    onClick={() => handleToolbarToolClick("desk")}
+                    className={`flex h-10 w-9 items-center justify-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 ${
+                      editorTool === "desk"
+                        ? "bg-[#2f6fe4] text-white"
+                        : "bg-transparent text-[#f8fbff] hover:bg-[#7686a0]/28"
+                    }`}
+                  >
+                    <ObjectToolIcon kind={selectedObjectKind} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Choose object"
+                    title="Choose object"
+                    onClick={() => setShowObjectMenu((value) => !value)}
+                    className={`flex h-10 w-5 items-center justify-center border-l border-[#8ea2bf]/35 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/80 ${
+                      editorTool === "desk" || showObjectMenu
+                        ? "bg-[#245fca] text-white"
+                        : "bg-transparent text-[#f8fbff] hover:bg-[#7686a0]/28"
+                    }`}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className={`h-3 w-3 transition-transform ${showObjectMenu ? "rotate-180" : ""}`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                </div>
+
+                {showObjectMenu ? (
+                  <div className="absolute left-full top-0 z-50 ml-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl shadow-slate-900/20">
+                    {OBJECT_TOOL_OPTIONS.map((option) => {
+                      const isSelected = option.key === selectedObjectKind;
+
+                      return (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => {
+                            setSelectedObjectKind(option.key);
+                            setShowObjectMenu(false);
+                            setEditorTool("desk");
+                          }}
+                          className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition ${
+                            isSelected
+                              ? "bg-sky-50 text-sky-700"
+                              : "text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          <span className="flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700">
+                            <ObjectToolIcon kind={option.key} />
+                          </span>
+                          <span>{option.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -1880,6 +2142,25 @@ function ToolboxIcon({ tool }: { tool: EditorTool }) {
     );
   }
 
+  if (tool === "rotate") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M18 8a6.5 6.5 0 1 0 1 7.9" />
+        <path d="M18 3.5v5h-5" />
+        <path d="M12 9.5v5" />
+      </svg>
+    );
+  }
+
   if (tool === "pan") {
     return (
       <svg
@@ -1925,7 +2206,95 @@ function ToolboxIcon({ tool }: { tool: EditorTool }) {
     );
   }
 
+  if (tool === "wall") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M4.5 8h15" />
+        <path d="M4.5 12h15" />
+        <path d="M4.5 16h15" />
+        <path d="M8 8v4" />
+        <path d="M14 12v4" />
+        <path d="M18 8v4" />
+      </svg>
+    );
+  }
+
+  if (tool === "window") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="5.5" y="6.5" width="13" height="11" rx="1.2" />
+        <path d="M12 6.5v11" />
+        <path d="M5.5 12h13" />
+      </svg>
+    );
+  }
+
+  if (tool === "door") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M6 18V6.5h8" />
+        <path d="M14 6.5v11" />
+        <path d="M14 17.5a8 8 0 0 0-8-8" />
+        <path d="M11 12.5h.01" />
+      </svg>
+    );
+  }
+
   if (tool === "desk") {
+    return <ObjectToolIcon kind="workDesk" />;
+  }
+
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5.5 7.5h13" />
+      <path d="M8 7.5V5.7h8v1.8" />
+      <path d="M7 10.5v7" />
+      <path d="M17 10.5v7" />
+      <path d="M10 10.5v7" />
+      <path d="M14 10.5v7" />
+      <path d="M6.2 18.5h11.6" />
+    </svg>
+  );
+}
+
+function ObjectToolIcon({ kind }: { kind: EditorObjectKind }) {
+  if (kind === "workDesk") {
     return (
       <svg
         aria-hidden="true"
@@ -1940,6 +2309,110 @@ function ToolboxIcon({ tool }: { tool: EditorTool }) {
         <path d="M4.5 8.5h15v3.5h-15z" />
         <path d="M7 12v6" />
         <path d="M17 12v6" />
+        <path d="M13 9.4h4.2v2.1H13z" />
+        <path d="M14.2 14.1h3.1" />
+      </svg>
+    );
+  }
+
+  if (kind === "table") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M4.5 8.5h15v3.5h-15z" />
+        <path d="M7 12v6" />
+        <path d="M17 12v6" />
+        <path d="M12 8.5v3.5" />
+      </svg>
+    );
+  }
+
+  if (kind === "chair") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M8 5.5v5" />
+        <path d="M16 5.5v5" />
+        <path d="M7 11h10v4H7z" />
+        <path d="M8 15v3" />
+        <path d="M16 15v3" />
+      </svg>
+    );
+  }
+
+  if (kind === "computer") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="6.5" y="5.5" width="9" height="6.8" rx="1.1" />
+        <path d="M10 15.5h2" />
+        <path d="M8 18h8" />
+        <path d="M17.5 7.5v8.5" />
+        <path d="M17.5 9.2h2" />
+        <path d="M17.5 12.2h2" />
+      </svg>
+    );
+  }
+
+  if (kind === "tv") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="4.5" y="6.5" width="15" height="9" rx="1.4" />
+        <path d="M10 18.5h4" />
+        <path d="M12 15.5v3" />
+      </svg>
+    );
+  }
+
+  if (kind === "bed") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M5 7.5h4.5v3H5z" />
+        <path d="M9.5 7.5H19v7H5v-4" />
+        <path d="M5 16.5v2" />
+        <path d="M19 16.5v2" />
       </svg>
     );
   }
@@ -2121,7 +2594,7 @@ function parseEditorObjects(rawValue: string | undefined): EditableObject[] {
             typeof source.id === "string" && source.id.trim().length > 0
               ? source.id
               : `object-${index + 1}`,
-          kind: source.kind === "workDesk" ? "workDesk" : "workDesk",
+          kind: parseEditorObjectKind(source.kind),
           position: { x: positionX, y: positionY },
           rotationRadians: Number.isFinite(rotationRadians) ? rotationRadians : 0,
         } as EditableObject;
@@ -2130,6 +2603,17 @@ function parseEditorObjects(rawValue: string | undefined): EditableObject[] {
   } catch {
     return [];
   }
+}
+
+function parseEditorObjectKind(value: unknown): EditorObjectKind {
+  return value === "table" ||
+    value === "chair" ||
+    value === "tv" ||
+    value === "computer" ||
+    value === "bed" ||
+    value === "workDesk"
+    ? value
+    : "workDesk";
 }
 
 function getEditorNumericId(id: string) {
@@ -2509,7 +2993,7 @@ function drawEditorPlan(
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillText(
-      "Choose Wall or Desk to start sketching.",
+      "Choose Wall or Object to start sketching.",
       viewport.x + viewport.width / 2,
       viewport.y + viewport.height / 2
     );
@@ -2525,6 +3009,7 @@ function drawEditorObject(
   selectedElement: SelectedEditorElement
 ) {
   const corners = getEditorObjectPolygon(object, viewport);
+  const objectStyle = getEditorObjectStyle(object.kind);
   const isSelected =
     selectedElement?.kind === "object" && selectedElement.id === object.id;
 
@@ -2541,19 +3026,171 @@ function drawEditorObject(
 
   context.beginPath();
   addClosedPath(context, corners);
-  context.fillStyle = "#8b5a2b";
+  context.fillStyle = objectStyle.fill;
   context.fill();
-  context.strokeStyle = "rgba(15, 23, 42, 0.65)";
+  context.strokeStyle = objectStyle.stroke;
   context.lineWidth = 1.2;
   context.stroke();
 
-  const center = worldToEditorScreen(object.position, viewport);
+  drawEditorObjectDetails(context, object, viewport, objectStyle);
+
+  context.restore();
+}
+
+function drawPlacedRoomObject(
+  context: CanvasRenderingContext2D,
+  object: EditableObject,
+  roomOffset: Point,
+  originX: number,
+  originY: number,
+  pixelsPerMeter: number,
+  isSelected: boolean
+) {
+  const center = translatePoint(
+    addPoints(object.position, roomOffset),
+    originX,
+    originY,
+    pixelsPerMeter
+  );
+  const corners = getObjectPolygonFromCenter(
+    center,
+    object.kind,
+    object.rotationRadians,
+    pixelsPerMeter
+  );
+  const objectStyle = getEditorObjectStyle(object.kind);
+
+  context.save();
+  context.lineJoin = "round";
+
+  if (isSelected) {
+    context.beginPath();
+    addClosedPath(context, corners);
+    context.strokeStyle = "rgba(14, 165, 233, 0.98)";
+    context.lineWidth = 4;
+    context.stroke();
+
+    corners.forEach((corner) => {
+      context.fillStyle = "#ffffff";
+      context.strokeStyle = "#0ea5e9";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(corner.x, corner.y, 4, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+    });
+  }
+
   context.beginPath();
-  context.moveTo(center.x - 9, center.y);
-  context.lineTo(center.x + 9, center.y);
-  context.strokeStyle = "rgba(255,255,255,0.8)";
-  context.lineWidth = 1;
+  addClosedPath(context, corners);
+  context.fillStyle = objectStyle.fill;
+  context.fill();
+  context.strokeStyle = objectStyle.stroke;
+  context.lineWidth = 1.2;
   context.stroke();
+
+  drawObjectDetailsAtScreenPoint(
+    context,
+    object,
+    center,
+    pixelsPerMeter,
+    objectStyle
+  );
+
+  context.restore();
+}
+
+function drawEditorObjectDetails(
+  context: CanvasRenderingContext2D,
+  object: EditableObject,
+  viewport: EditorViewport,
+  objectStyle: ReturnType<typeof getEditorObjectStyle>
+) {
+  const center = worldToEditorScreen(object.position, viewport);
+  drawObjectDetailsAtScreenPoint(
+    context,
+    object,
+    center,
+    viewport.pixelsPerMeter,
+    objectStyle
+  );
+}
+
+function drawObjectDetailsAtScreenPoint(
+  context: CanvasRenderingContext2D,
+  object: EditableObject,
+  center: Point,
+  pixelsPerMeter: number,
+  objectStyle: ReturnType<typeof getEditorObjectStyle>
+) {
+  const objectSize = getEditorObjectSize(object.kind);
+  const width = objectSize.width * pixelsPerMeter;
+  const depth = objectSize.depth * pixelsPerMeter;
+
+  context.save();
+  context.translate(center.x, center.y);
+  context.rotate(object.rotationRadians);
+  context.strokeStyle = objectStyle.accent;
+  context.fillStyle = objectStyle.detail;
+  context.lineWidth = 1.1;
+  context.lineJoin = "round";
+
+  if (object.kind === "workDesk") {
+    context.fillRect(width * 0.14, -depth * 0.2, width * 0.22, depth * 0.34);
+    context.strokeRect(-width * 0.36, -depth * 0.28, width * 0.26, depth * 0.56);
+    context.strokeRect(width * 0.16, -depth * 0.16, width * 0.16, depth * 0.22);
+    context.beginPath();
+    context.moveTo(-width * 0.06, -depth * 0.15);
+    context.lineTo(width * 0.24, -depth * 0.15);
+    context.moveTo(-width * 0.06, depth * 0.15);
+    context.lineTo(width * 0.24, depth * 0.15);
+    context.stroke();
+  } else if (object.kind === "table") {
+    context.strokeRect(-width * 0.34, -depth * 0.28, width * 0.68, depth * 0.56);
+    context.beginPath();
+    context.moveTo(0, -depth * 0.28);
+    context.lineTo(0, depth * 0.28);
+    context.moveTo(-width * 0.34, 0);
+    context.lineTo(width * 0.34, 0);
+    context.stroke();
+  } else if (object.kind === "chair") {
+    context.strokeRect(-width * 0.22, -depth * 0.14, width * 0.44, depth * 0.4);
+    context.beginPath();
+    context.moveTo(-width * 0.24, -depth * 0.3);
+    context.lineTo(width * 0.24, -depth * 0.3);
+    context.lineTo(width * 0.24, -depth * 0.06);
+    context.lineTo(-width * 0.24, -depth * 0.06);
+    context.closePath();
+    context.stroke();
+  } else if (object.kind === "computer") {
+    context.strokeRect(-width * 0.28, -depth * 0.34, width * 0.56, depth * 0.34);
+    context.fillRect(-width * 0.12, -depth * 0.07, width * 0.24, depth * 0.06);
+    context.strokeRect(-width * 0.22, depth * 0.1, width * 0.44, depth * 0.16);
+    context.beginPath();
+    context.moveTo(width * 0.3, -depth * 0.3);
+    context.lineTo(width * 0.3, depth * 0.3);
+    context.moveTo(width * 0.3, -depth * 0.12);
+    context.lineTo(width * 0.42, -depth * 0.12);
+    context.stroke();
+  } else if (object.kind === "tv") {
+    context.strokeRect(-width * 0.4, -depth * 0.32, width * 0.8, depth * 0.54);
+    context.fillRect(-width * 0.34, -depth * 0.26, width * 0.68, depth * 0.42);
+    context.beginPath();
+    context.moveTo(0, depth * 0.12);
+    context.lineTo(0, depth * 0.32);
+    context.moveTo(-width * 0.16, depth * 0.32);
+    context.lineTo(width * 0.16, depth * 0.32);
+    context.stroke();
+  } else if (object.kind === "bed") {
+    context.fillRect(-width * 0.42, -depth * 0.46, width * 0.84, depth * 0.22);
+    context.fillRect(-width * 0.34, -depth * 0.38, width * 0.22, depth * 0.12);
+    context.fillRect(width * 0.12, -depth * 0.38, width * 0.22, depth * 0.12);
+    context.strokeRect(-width * 0.42, -depth * 0.46, width * 0.84, depth * 0.84);
+    context.beginPath();
+    context.moveTo(-width * 0.42, depth * 0.04);
+    context.lineTo(width * 0.42, depth * 0.04);
+    context.stroke();
+  }
 
   context.restore();
 }
@@ -2825,9 +3462,24 @@ function getEditorObjectPolygon(
   object: EditableObject,
   viewport: EditorViewport
 ) {
-  const halfWidth = (EDITOR_DESK_WIDTH_METERS * viewport.pixelsPerMeter) / 2;
-  const halfDepth = (EDITOR_DESK_DEPTH_METERS * viewport.pixelsPerMeter) / 2;
   const center = worldToEditorScreen(object.position, viewport);
+  return getObjectPolygonFromCenter(
+    center,
+    object.kind,
+    object.rotationRadians,
+    viewport.pixelsPerMeter
+  );
+}
+
+function getObjectPolygonFromCenter(
+  center: Point,
+  kind: EditorObjectKind,
+  rotationRadians: number,
+  pixelsPerMeter: number
+) {
+  const objectSize = getEditorObjectSize(kind);
+  const halfWidth = (objectSize.width * pixelsPerMeter) / 2;
+  const halfDepth = (objectSize.depth * pixelsPerMeter) / 2;
   const baseCorners = [
     { x: -halfWidth, y: -halfDepth },
     { x: halfWidth, y: -halfDepth },
@@ -2838,13 +3490,94 @@ function getEditorObjectPolygon(
   return baseCorners.map((corner) => ({
     x:
       center.x +
-      corner.x * Math.cos(object.rotationRadians) -
-      corner.y * Math.sin(object.rotationRadians),
+      corner.x * Math.cos(rotationRadians) -
+      corner.y * Math.sin(rotationRadians),
     y:
       center.y +
-      corner.x * Math.sin(object.rotationRadians) +
-      corner.y * Math.cos(object.rotationRadians),
+      corner.x * Math.sin(rotationRadians) +
+      corner.y * Math.cos(rotationRadians),
   }));
+}
+
+function getEditorObjectSize(kind: EditorObjectKind) {
+  switch (kind) {
+    case "bed":
+      return { width: EDITOR_BED_WIDTH_METERS, depth: EDITOR_BED_DEPTH_METERS };
+    case "table":
+      return { width: EDITOR_TABLE_WIDTH_METERS, depth: EDITOR_TABLE_DEPTH_METERS };
+    case "chair":
+      return { width: EDITOR_CHAIR_WIDTH_METERS, depth: EDITOR_CHAIR_DEPTH_METERS };
+    case "tv":
+      return { width: EDITOR_TV_WIDTH_METERS, depth: EDITOR_TV_DEPTH_METERS };
+    case "computer":
+      return { width: EDITOR_COMPUTER_WIDTH_METERS, depth: EDITOR_COMPUTER_DEPTH_METERS };
+    default:
+      return { width: EDITOR_DESK_WIDTH_METERS, depth: EDITOR_DESK_DEPTH_METERS };
+  }
+}
+
+function getEditorObjectKindLabel(kind: EditorObjectKind) {
+  switch (kind) {
+    case "bed":
+      return "Bed";
+    case "table":
+      return "Table";
+    case "chair":
+      return "Chair";
+    case "tv":
+      return "TV";
+    case "computer":
+      return "Computer";
+    default:
+      return "Work Desk";
+  }
+}
+
+function getEditorObjectStyle(kind: EditorObjectKind) {
+  switch (kind) {
+    case "bed":
+      return {
+        fill: "#e9d5ff",
+        stroke: "rgba(107, 33, 168, 0.72)",
+        accent: "rgba(255,255,255,0.96)",
+        detail: "rgba(107, 33, 168, 0.16)",
+      };
+    case "table":
+      return {
+        fill: "#a16207",
+        stroke: "rgba(120, 53, 15, 0.72)",
+        accent: "rgba(255,255,255,0.88)",
+        detail: "rgba(120, 53, 15, 0.16)",
+      };
+    case "chair":
+      return {
+        fill: "#3b82f6",
+        stroke: "rgba(30, 41, 59, 0.72)",
+        accent: "rgba(255,255,255,0.9)",
+        detail: "rgba(15, 23, 42, 0.18)",
+      };
+    case "tv":
+      return {
+        fill: "#111827",
+        stroke: "rgba(148, 163, 184, 0.72)",
+        accent: "rgba(148, 163, 184, 0.92)",
+        detail: "rgba(255,255,255,0.08)",
+      };
+    case "computer":
+      return {
+        fill: "#334155",
+        stroke: "rgba(15, 23, 42, 0.72)",
+        accent: "rgba(226, 232, 240, 0.92)",
+        detail: "rgba(255,255,255,0.08)",
+      };
+    default:
+      return {
+        fill: "#8b5a2b",
+        stroke: "rgba(15, 23, 42, 0.65)",
+        accent: "rgba(255,255,255,0.88)",
+        detail: "rgba(15, 23, 42, 0.14)",
+      };
+  }
 }
 
 function getDistanceToSegment(point: Point, start: Point, end: Point) {
@@ -2943,6 +3676,10 @@ function getEditorToolHelp(
   tool: EditorTool,
   hasDraftWall: boolean
 ) {
+  if (tool === "rotate") {
+    return "Click and drag an object to rotate it.";
+  }
+
   if (tool === "wall") {
     return hasDraftWall
       ? "Click again to finish the wall. Press Esc to cancel the draft."
@@ -2958,7 +3695,7 @@ function getEditorToolHelp(
   }
 
   if (tool === "desk") {
-    return "Click inside the room to place a work desk.";
+    return "Click inside the room to place the selected object.";
   }
 
   if (tool === "delete") {
@@ -2986,7 +3723,7 @@ function getSelectedEditorElementLabel(
 
   if (selectedElement.kind === "object") {
     const object = objects.find((item) => item.id === selectedElement.id);
-    return object?.kind === "workDesk" ? "Work Desk" : "Object";
+    return object ? getEditorObjectKindLabel(object.kind) : "Object";
   }
 
   const opening = openings.find(
@@ -3548,6 +4285,208 @@ function drawSegmentDimension(
   context.restore();
 }
 
+function getRenderedRoomPlanMetrics(
+  width: number,
+  height: number,
+  pixelsPerMeter: number,
+  offsetX: number,
+  offsetY: number,
+  rooms: CanvasRoom[] | undefined,
+  activeRoomId: string | undefined,
+  formValues: CanvasFormValues
+) {
+  const drawX = LEFT_RULER_SIZE;
+  const drawY = RULER_SIZE;
+  const drawWidth = width - LEFT_RULER_SIZE;
+  const drawHeight = height - RULER_SIZE;
+  const roomsToRender: CanvasRoom[] =
+    rooms && rooms.length > 0
+      ? rooms
+      : [
+          {
+            id: "active-room",
+            name: "Room",
+            formValues,
+            placement: { x: 0, y: 0 },
+          },
+        ];
+  const roomPlans: RenderedRoomPlan[] = roomsToRender
+    .map((room, roomIndex) => {
+      const wallChainResult = buildWallChains(room.formValues);
+      const laidOutChains = layoutChains(
+        wallChainResult.chains
+          .map((chain) => {
+            const geometry = buildChainGeometry(chain);
+
+            if (!geometry) {
+              return null;
+            }
+
+            return {
+              chain,
+              geometry,
+            };
+          })
+          .filter((value): value is { chain: WallChain; geometry: ChainGeometry } => value !== null)
+      );
+      const roomOffset = {
+        x: room.placement?.x ?? roomIndex * 7,
+        y: room.placement?.y ?? 0,
+      };
+      const points = laidOutChains.items.flatMap((item) =>
+        getGeometryPoints(item.geometry).map((point) =>
+          addPoints(addPoints(point, item.offset), roomOffset)
+        )
+      );
+
+      return {
+        room,
+        wallChainResult,
+        laidOutChains,
+        roomOffset,
+        points,
+        isActive: activeRoomId ? room.id === activeRoomId : roomIndex === 0,
+      };
+    })
+    .filter((plan) => plan.points.length > 0);
+
+  const bounds =
+    roomPlans.length > 0
+      ? getPointsBounds(roomPlans.flatMap((plan) => plan.points))
+      : { minX: 0, minY: 0, maxX: 1, maxY: 1 };
+  const planWidth = Math.max(bounds.maxX - bounds.minX, 1);
+  const planHeight = Math.max(bounds.maxY - bounds.minY, 1);
+  const originX =
+    drawX + (drawWidth - planWidth * pixelsPerMeter) / 2 - bounds.minX * pixelsPerMeter + offsetX;
+  const originY =
+    drawY + (drawHeight - planHeight * pixelsPerMeter) / 2 - bounds.minY * pixelsPerMeter + offsetY;
+
+  return {
+    drawX,
+    drawY,
+    drawWidth,
+    drawHeight,
+    roomPlans,
+    bounds,
+    planWidth,
+    planHeight,
+    originX,
+    originY,
+  };
+}
+
+function doWallPointsMatch(
+  firstStart: Point,
+  firstEnd: Point,
+  secondStart: Point,
+  secondEnd: Point
+) {
+  const threshold = 0.01;
+  return (
+    (getDistance(firstStart, secondStart) <= threshold &&
+      getDistance(firstEnd, secondEnd) <= threshold) ||
+    (getDistance(firstStart, secondEnd) <= threshold &&
+      getDistance(firstEnd, secondStart) <= threshold)
+  );
+}
+
+function drawSelectedWallOverlay(
+  context: CanvasRenderingContext2D,
+  segment: WallSegment,
+  start: Point,
+  end: Point,
+  pixelsPerMeter: number
+) {
+  const exteriorNormal = normalizeVector(getExteriorNormal(segment.direction));
+  const wallThicknessPx = Math.max(segment.thickness * pixelsPerMeter, 8);
+  const outerStart = addPoints(start, scalePoint(exteriorNormal, wallThicknessPx));
+  const outerEnd = addPoints(end, scalePoint(exteriorNormal, wallThicknessPx));
+  const corners = [
+    start,
+    end,
+    outerEnd,
+    outerStart,
+  ];
+
+  context.save();
+  context.shadowColor = "rgba(14, 165, 233, 0.35)";
+  context.shadowBlur = 8;
+  context.beginPath();
+  addClosedPath(context, corners);
+  context.strokeStyle = "rgba(14, 165, 233, 0.95)";
+  context.lineWidth = 4;
+  context.stroke();
+  context.shadowBlur = 0;
+
+  [start, end, outerStart, outerEnd].forEach((point) => {
+    context.fillStyle = "#ffffff";
+    context.strokeStyle = "#0ea5e9";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(point.x, point.y, 3.75, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+  });
+  context.restore();
+}
+
+function drawSelectedOpeningOverlay(
+  context: CanvasRenderingContext2D,
+  segment: WallSegment,
+  start: Point,
+  end: Point,
+  pixelsPerMeter: number,
+  opening: EditableOpening
+) {
+  const alongWall = normalizeVector({
+    x: end.x - start.x,
+    y: end.y - start.y,
+  });
+  const normal = {
+    x: -alongWall.y,
+    y: alongWall.x,
+  };
+  const wallThicknessPx = Math.max(segment.thickness * pixelsPerMeter, 8);
+  const halfThickness = wallThicknessPx / 2;
+  const openingStart = addPoints(
+    start,
+    scalePoint(alongWall, opening.offsetMeters * pixelsPerMeter)
+  );
+  const openingEnd = addPoints(
+    openingStart,
+    scalePoint(alongWall, opening.widthMeters * pixelsPerMeter)
+  );
+  const polygon = [
+    addPoints(openingStart, scalePoint(normal, halfThickness)),
+    addPoints(openingEnd, scalePoint(normal, halfThickness)),
+    addPoints(openingEnd, scalePoint(normal, -halfThickness)),
+    addPoints(openingStart, scalePoint(normal, -halfThickness)),
+  ];
+  const center = addPoints(
+    openingStart,
+    scalePoint(alongWall, (opening.widthMeters * pixelsPerMeter) / 2)
+  );
+
+  context.save();
+  context.shadowColor = "rgba(14, 165, 233, 0.28)";
+  context.shadowBlur = 8;
+  context.beginPath();
+  addClosedPath(context, polygon);
+  context.strokeStyle = "#0ea5e9";
+  context.lineWidth = 3;
+  context.stroke();
+  context.shadowBlur = 0;
+
+  context.fillStyle = "#ffffff";
+  context.strokeStyle = "#0ea5e9";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(center.x, center.y, 4.5, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.restore();
+}
+
 function getWallTypeFieldName(direction: WallDirection) {
   return `wall${direction}Type`;
 }
@@ -3974,11 +4913,15 @@ function drawDimensionTick(context: CanvasRenderingContext2D, point: Point, dime
 function drawSunOverlay(
   context: CanvasRenderingContext2D,
   planCenter: Point,
+  planBounds: { x: number; y: number; width: number; height: number },
   bounds: { x: number; y: number; width: number; height: number },
   solarSnapshot: SolarSnapshot
 ) {
   const sunVector = getSunScreenVector(solarSnapshot.azimuth);
-  const reach = Math.min(bounds.width, bounds.height) * 0.32;
+  const planRadius =
+    Math.max(Math.hypot(planBounds.width / 2, planBounds.height / 2), 24);
+  const sunPadding = 28;
+  const reach = planRadius + sunPadding;
   const altitudeFactor = clampNumber(solarSnapshot.altitude / 90, 0.15, 1);
 
   const start = clampPointToBounds(
@@ -4066,6 +5009,15 @@ function parseWallThicknessMeters(value: string | undefined, fallback = 0) {
 
 function getDistance(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function getAngleBetweenPoints(origin: Point, target: Point) {
+  return Math.atan2(target.y - origin.y, target.x - origin.x);
+}
+
+function normalizeRadians(value: number) {
+  const fullTurn = Math.PI * 2;
+  return ((value % fullTurn) + fullTurn) % fullTurn;
 }
 
 function formatAxisValue(value: number, unitSystem: UnitSystem) {

@@ -64,7 +64,7 @@ type WallFeatureSpan = {
   widthMeters: number;
 };
 
-type SceneObjectKind = "workDesk";
+type SceneObjectKind = "workDesk" | "chair" | "table" | "computer" | "tv" | "bed";
 
 type SceneObjectPlacement = {
   id: string;
@@ -117,24 +117,55 @@ function createSceneObjectGroup(
   const halfDepth = dimensions.depth / 2;
 
   objects.forEach((object) => {
-    if (object.kind !== "workDesk") {
-      return;
-    }
-
-    const desk = createWorkDeskMesh();
+    const mesh = createSceneObjectMesh(object.kind);
     const mappedPosition = mapEditorObjectToRoomPosition(object.position, dimensions);
-    const clampedX = clamp(mappedPosition.x, -halfWidth + 0.75, halfWidth - 0.75);
-    const clampedZ = clamp(mappedPosition.z, -halfDepth + 0.45, halfDepth - 0.45);
-    desk.position.set(clampedX, 0, clampedZ);
-    desk.rotation.y = -object.rotationRadians;
-    desk.userData = {
+    const footprint = getSceneObjectFootprint(object.kind);
+    const clampedX = clamp(mappedPosition.x, -halfWidth + footprint.width / 2, halfWidth - footprint.width / 2);
+    const clampedZ = clamp(mappedPosition.z, -halfDepth + footprint.depth / 2, halfDepth - footprint.depth / 2);
+    mesh.position.set(clampedX, 0, clampedZ);
+    mesh.rotation.y = -object.rotationRadians;
+    mesh.userData = {
       id: object.id,
       kind: object.kind,
     };
-    group.add(desk);
+    group.add(mesh);
   });
 
   return group;
+}
+
+function createSceneObjectMesh(kind: SceneObjectKind) {
+  switch (kind) {
+    case "chair":
+      return createChairMesh();
+    case "table":
+      return createTableMesh();
+    case "computer":
+      return createComputerMesh();
+    case "tv":
+      return createTvMesh();
+    case "bed":
+      return createBedMesh();
+    default:
+      return createWorkDeskMesh();
+  }
+}
+
+function getSceneObjectFootprint(kind: SceneObjectKind) {
+  switch (kind) {
+    case "chair":
+      return { width: 0.6, depth: 0.6 };
+    case "table":
+      return { width: 1.25, depth: 0.85 };
+    case "computer":
+      return { width: 0.8, depth: 0.5 };
+    case "tv":
+      return { width: 1.4, depth: 0.32 };
+    case "bed":
+      return { width: 1.7, depth: 2.2 };
+    default:
+      return { width: 1.5, depth: 0.75 };
+  }
 }
 
 function mapEditorObjectToRoomPosition(
@@ -153,55 +184,153 @@ function createWorkDeskMesh() {
   const group = new THREE.Group();
   group.name = "work-desk";
 
-  const topWidth = 1.4;
-  const topDepth = 0.7;
-  const topThickness = 0.05;
-  const legWidth = 0.06;
-  const legDepth = 0.06;
-  const height = 0.75;
-  const legHeight = height - topThickness;
-  const legInsetX = topWidth / 2 - legWidth / 2 - 0.06;
-  const legInsetZ = topDepth / 2 - legDepth / 2 - 0.06;
+  const topMaterial = new THREE.MeshStandardMaterial({ color: "#8b5a2b", roughness: 0.68, metalness: 0.05 });
+  const frameMaterial = new THREE.MeshStandardMaterial({ color: "#475569", roughness: 0.52, metalness: 0.22 });
+  const screenMaterial = new THREE.MeshStandardMaterial({ color: "#111827", roughness: 0.32, metalness: 0.18 });
+  const accentMaterial = new THREE.MeshStandardMaterial({ color: "#cbd5e1", roughness: 0.45, metalness: 0.12 });
 
-  const topMaterial = new THREE.MeshStandardMaterial({
-    color: "#8b5a2b",
-    roughness: 0.7,
-    metalness: 0.05,
-  });
-  const legMaterial = new THREE.MeshStandardMaterial({
-    color: "#4b5563",
-    roughness: 0.55,
-    metalness: 0.2,
-  });
-
-  const top = new THREE.Mesh(
-    new THREE.BoxGeometry(topWidth, topThickness, topDepth),
-    topMaterial
-  );
-  top.position.set(0, height - topThickness / 2, 0);
-  top.castShadow = true;
-  top.receiveShadow = true;
-  group.add(top);
-
-  const legOffsets = [
-    { x: legInsetX, z: legInsetZ },
-    { x: -legInsetX, z: legInsetZ },
-    { x: legInsetX, z: -legInsetZ },
-    { x: -legInsetX, z: -legInsetZ },
-  ];
-
-  legOffsets.forEach((offset) => {
-    const leg = new THREE.Mesh(
-      new THREE.BoxGeometry(legWidth, legHeight, legDepth),
-      legMaterial
-    );
-    leg.position.set(offset.x, legHeight / 2, offset.z);
-    leg.castShadow = true;
-    leg.receiveShadow = true;
-    group.add(leg);
-  });
-
+  group.add(createFurnitureBox(1.5, 0.05, 0.75, topMaterial, 0, 0.73, 0));
+  group.add(createFurnitureBox(0.42, 0.64, 0.68, topMaterial, -0.46, 0.32, 0));
+  group.add(createFurnitureBox(0.76, 0.04, 0.08, frameMaterial, 0.16, 0.61, -0.29));
+  group.add(createFurnitureBox(0.76, 0.04, 0.08, frameMaterial, 0.16, 0.61, 0.29));
+  group.add(createFurnitureBox(0.06, 0.68, 0.06, frameMaterial, 0.69, 0.34, 0.3));
+  group.add(createFurnitureBox(0.06, 0.68, 0.06, frameMaterial, 0.69, 0.34, -0.3));
+  group.add(createFurnitureBox(0.38, 0.24, 0.03, screenMaterial, 0.22, 0.99, -0.16));
+  group.add(createFurnitureBox(0.06, 0.18, 0.06, accentMaterial, 0.22, 0.83, -0.16));
+  group.add(createFurnitureBox(0.28, 0.02, 0.14, accentMaterial, 0.22, 0.75, 0.04));
+  group.add(createFurnitureBox(0.12, 0.012, 0.08, new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.44, metalness: 0.12 }), 0.42, 0.746, 0.08));
+  applyObjectShadows(group);
   return group;
+}
+
+function createTableMesh() {
+  const group = new THREE.Group();
+  group.name = "room-table";
+  const topMaterial = new THREE.MeshStandardMaterial({ color: "#a16207", roughness: 0.74, metalness: 0.04 });
+  const legMaterial = new THREE.MeshStandardMaterial({ color: "#57534e", roughness: 0.6, metalness: 0.15 });
+  group.add(createFurnitureBox(1.25, 0.06, 0.85, topMaterial, 0, 0.74, 0));
+  group.add(createFurnitureBox(1.06, 0.05, 0.08, legMaterial, 0, 0.66, -0.31));
+  group.add(createFurnitureBox(1.06, 0.05, 0.08, legMaterial, 0, 0.66, 0.31));
+  group.add(createFurnitureBox(0.08, 0.05, 0.56, legMaterial, -0.42, 0.66, 0));
+  group.add(createFurnitureBox(0.08, 0.05, 0.56, legMaterial, 0.42, 0.66, 0));
+  [
+    [0.53, 0.33],
+    [-0.53, 0.33],
+    [0.53, -0.33],
+    [-0.53, -0.33],
+  ].forEach(([x, z]) => {
+    group.add(createFurnitureBox(0.06, 0.68, 0.06, legMaterial, x, 0.34, z));
+  });
+  applyObjectShadows(group);
+  return group;
+}
+
+function createChairMesh() {
+  const group = new THREE.Group();
+  group.name = "room-chair";
+  const seatMaterial = new THREE.MeshStandardMaterial({ color: "#3b82f6", roughness: 0.48, metalness: 0.05 });
+  const frameMaterial = new THREE.MeshStandardMaterial({ color: "#475569", roughness: 0.56, metalness: 0.22 });
+  group.add(createFurnitureBox(0.52, 0.05, 0.5, seatMaterial, 0, 0.47, 0));
+  group.add(createFurnitureBox(0.52, 0.06, 0.06, seatMaterial, 0, 0.8, -0.22));
+  group.add(createFurnitureBox(0.06, 0.4, 0.06, seatMaterial, -0.23, 0.63, -0.22));
+  group.add(createFurnitureBox(0.06, 0.4, 0.06, seatMaterial, 0.23, 0.63, -0.22));
+  [
+    [0.2, 0.2],
+    [-0.2, 0.2],
+    [0.2, -0.2],
+    [-0.2, -0.2],
+  ].forEach(([x, z]) => {
+    group.add(createFurnitureBox(0.04, 0.45, 0.04, frameMaterial, x, 0.225, z));
+  });
+  group.add(createFurnitureBox(0.34, 0.03, 0.03, frameMaterial, 0, 0.26, 0.2));
+  group.add(createFurnitureBox(0.34, 0.03, 0.03, frameMaterial, 0, 0.26, -0.2));
+  applyObjectShadows(group);
+  return group;
+}
+
+function createTvMesh() {
+  const group = new THREE.Group();
+  group.name = "room-tv";
+  const screenMaterial = new THREE.MeshStandardMaterial({ color: "#111827", roughness: 0.32, metalness: 0.24 });
+  const glassMaterial = new THREE.MeshStandardMaterial({ color: "#0f172a", roughness: 0.08, metalness: 0.18, emissive: "#0b1220", emissiveIntensity: 0.12 });
+  const cabinetMaterial = new THREE.MeshStandardMaterial({ color: "#475569", roughness: 0.58, metalness: 0.16 });
+  group.add(createFurnitureBox(1.28, 0.22, 0.32, cabinetMaterial, 0, 0.11, 0));
+  group.add(createFurnitureBox(1.18, 0.03, 0.28, new THREE.MeshStandardMaterial({ color: "#64748b", roughness: 0.42, metalness: 0.18 }), 0, 0.22, 0));
+  group.add(createFurnitureBox(1.02, 0.62, 0.07, screenMaterial, 0, 0.67, -0.03));
+  group.add(createFurnitureBox(0.9, 0.5, 0.02, glassMaterial, 0, 0.67, 0.006));
+  group.add(createFurnitureBox(0.1, 0.28, 0.08, cabinetMaterial, 0, 0.35, 0.02));
+  group.add(createFurnitureBox(0.56, 0.03, 0.18, cabinetMaterial, 0, 0.015, 0.04));
+  applyObjectShadows(group);
+  return group;
+}
+
+function createComputerMesh() {
+  const group = new THREE.Group();
+  group.name = "room-computer";
+  const frameMaterial = new THREE.MeshStandardMaterial({ color: "#94a3b8", roughness: 0.5, metalness: 0.18 });
+  const topMaterial = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.56, metalness: 0.12 });
+  const screenMaterial = new THREE.MeshStandardMaterial({ color: "#111827", roughness: 0.28, metalness: 0.18 });
+  group.add(createFurnitureBox(0.8, 0.04, 0.5, topMaterial, 0, 0.72, 0));
+  [
+    [0.33, 0.18],
+    [-0.33, 0.18],
+    [0.33, -0.18],
+    [-0.33, -0.18],
+  ].forEach(([x, z]) => {
+    group.add(createFurnitureBox(0.04, 0.7, 0.04, frameMaterial, x, 0.35, z));
+  });
+  group.add(createFurnitureBox(0.42, 0.28, 0.04, screenMaterial, 0, 0.94, -0.11));
+  group.add(createFurnitureBox(0.06, 0.16, 0.06, frameMaterial, 0, 0.81, -0.11));
+  group.add(createFurnitureBox(0.28, 0.02, 0.12, frameMaterial, 0, 0.74, 0.08));
+  group.add(createFurnitureBox(0.12, 0.38, 0.22, new THREE.MeshStandardMaterial({ color: "#1f2937", roughness: 0.48, metalness: 0.14 }), 0.28, 0.19, -0.08));
+  applyObjectShadows(group);
+  return group;
+}
+
+function createBedMesh() {
+  const group = new THREE.Group();
+  group.name = "room-bed";
+  const frameMaterial = new THREE.MeshStandardMaterial({ color: "#8b5a2b", roughness: 0.7, metalness: 0.05 });
+  const mattressMaterial = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.9, metalness: 0 });
+  const blanketMaterial = new THREE.MeshStandardMaterial({ color: "#93c5fd", roughness: 0.78, metalness: 0.02 });
+  const pillowMaterial = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.86, metalness: 0 });
+
+  group.add(createFurnitureBox(1.7, 0.2, 2.2, frameMaterial, 0, 0.1, 0));
+  group.add(createFurnitureBox(1.6, 0.22, 1.95, mattressMaterial, 0, 0.31, 0.02));
+  group.add(createFurnitureBox(1.7, 0.72, 0.08, frameMaterial, 0, 0.56, -1.06));
+  group.add(createFurnitureBox(1.52, 0.08, 1.08, blanketMaterial, 0, 0.43, 0.48));
+  group.add(createFurnitureBox(0.56, 0.08, 0.34, pillowMaterial, -0.4, 0.44, -0.72));
+  group.add(createFurnitureBox(0.56, 0.08, 0.34, pillowMaterial, 0.4, 0.44, -0.72));
+  applyObjectShadows(group);
+  return group;
+}
+
+function createFurnitureBox(
+  width: number,
+  height: number,
+  depth: number,
+  material: THREE.Material,
+  x: number,
+  y: number,
+  z: number
+) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function applyObjectShadows(group: THREE.Group) {
+  group.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) {
+      return;
+    }
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+  });
 }
 
 function buildWallSpecs(formValues: RoomInputValues, dimensions: RoomDimensions): WallSpec[] {
@@ -1400,7 +1529,7 @@ function parseSceneObjects(rawValue: string | undefined): SceneObjectPlacement[]
             typeof source.id === "string" && source.id.trim().length > 0
               ? source.id
               : `object-${index + 1}`,
-          kind: source.kind === "workDesk" ? "workDesk" : "workDesk",
+          kind: parseSceneObjectKind(source.kind),
           position: { x, y },
           rotationRadians: Number.isFinite(rotationRadians) ? rotationRadians : 0,
         } as SceneObjectPlacement;
@@ -1413,4 +1542,15 @@ function parseSceneObjects(rawValue: string | undefined): SceneObjectPlacement[]
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function parseSceneObjectKind(value: unknown): SceneObjectKind {
+  return value === "table" ||
+    value === "chair" ||
+    value === "tv" ||
+    value === "computer" ||
+    value === "bed" ||
+    value === "workDesk"
+    ? value
+    : "workDesk";
 }

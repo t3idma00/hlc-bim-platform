@@ -9,6 +9,7 @@ import {
 } from "../workspace-view-toggle";
 import { ThreeRoomView } from "./ThreeRoomView";
 import { formatLengthDisplay, normalizeUnitSystem, type UnitSystem } from "@/lib/units";
+import type { RoomData } from "@/types";
 
 const DEFAULT_HEIGHT = 3;
 const DEFAULT_WALL_THICKNESS = 0.2;
@@ -28,6 +29,8 @@ type WallDirection = "North" | "East" | "South" | "West";
 type HeatLoad3DPanelProps = {
   formValues: CanvasFormValues;
   sheetValues?: SheetValues;
+  rooms?: RoomData[];
+  activeRoomId?: string;
   activeView: WorkspaceView;
   onViewChange: (view: WorkspaceView) => void;
 };
@@ -277,6 +280,8 @@ function eraseWallOpening(
 export function HeatLoad3DPanel({
   formValues,
   sheetValues = {},
+  rooms,
+  activeRoomId,
   activeView,
   onViewChange,
 }: HeatLoad3DPanelProps) {
@@ -419,6 +424,8 @@ export function HeatLoad3DPanel({
           <ThreeRoomView
             formValues={formValues}
             sheetValues={sheetValues}
+            rooms={rooms}
+            activeRoomId={activeRoomId}
             solarState={solarState}
           />
         </div>
