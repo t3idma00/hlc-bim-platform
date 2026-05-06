@@ -27,9 +27,41 @@ const wallPatternCache: Partial<Record<WallPatternKind, CanvasPattern | null>> =
 type CanvasFormValues = Record<string, string>;
 type CanvasRoom = Pick<RoomData, "id" | "name" | "formValues" | "placement">;
 type Point = { x: number; y: number };
-type WallDirection = "North" | "East" | "South" | "West";
+type WallSlot = "North" | "East" | "South" | "West";
+type WallDirection =
+  | "North"
+  | "Northeast"
+  | "East"
+  | "Southeast"
+  | "South"
+  | "Southwest"
+  | "West"
+  | "Northwest";
+
+const WALL_DIRECTIONS: WallDirection[] = [
+  "North",
+  "Northeast",
+  "East",
+  "Southeast",
+  "South",
+  "Southwest",
+  "West",
+  "Northwest",
+];
+
+const WALL_EXTERIOR_NORMALS: Record<WallDirection, Point> = {
+  North: { x: 0, y: -1 },
+  Northeast: { x: Math.SQRT1_2, y: -Math.SQRT1_2 },
+  East: { x: 1, y: 0 },
+  Southeast: { x: Math.SQRT1_2, y: Math.SQRT1_2 },
+  South: { x: 0, y: 1 },
+  Southwest: { x: -Math.SQRT1_2, y: Math.SQRT1_2 },
+  West: { x: -1, y: 0 },
+  Northwest: { x: -Math.SQRT1_2, y: -Math.SQRT1_2 },
+};
 
 type WallSegment = {
+  slot: WallSlot;
   direction: WallDirection;
   length: number;
   thickness: number;
@@ -38,18 +70,21 @@ type WallSegment = {
 };
 
 type RawWallInput = {
+  slot: WallSlot;
   direction: WallDirection;
   length: number;
   thickness: number;
 };
 
 type DoorInput = {
+  slot: WallSlot;
   direction: WallDirection;
   width: number;
   height: number;
 };
 
 type WindowInput = {
+  slot: WallSlot;
   direction: WallDirection;
   width: number;
   height: number;
@@ -157,6 +192,8 @@ type EditorTool = "select" | "rotate" | "pan" | "measure" | "delete" | "wall" | 
 
 type EditableWall = {
   id: string;
+  slot: WallSlot;
+  direction: WallDirection;
   start: Point;
   end: Point;
   thickness: number;
@@ -443,7 +480,7 @@ export function HeatLoadCanvasPanel({
   };
 
   const deleteWallAndSync = (wall: EditableWall) => {
-    const direction = getEditorWallDirection(wall);
+    const slot = wall.slot;
 
     editorWallsRef.current = editorWallsRef.current.filter((item) => item.id !== wall.id);
     editorOpeningsRef.current = editorOpeningsRef.current.filter(
@@ -451,18 +488,18 @@ export function HeatLoadCanvasPanel({
     );
 
     clearFormFields(
-      getWallLengthFieldName(direction),
-      getDoorLengthFieldName(direction),
-      getDoorWidthFieldName(direction),
-      getDoorHeightFieldName(direction),
-      getWindowLengthFieldName(direction),
-      getWindowWidthFieldName(direction),
-      getWindowHeightFieldName(direction)
+      getWallLengthFieldName(slot),
+      getDoorLengthFieldName(slot),
+      getDoorWidthFieldName(slot),
+      getDoorHeightFieldName(slot),
+      getWindowLengthFieldName(slot),
+      getWindowWidthFieldName(slot),
+      getWindowHeightFieldName(slot)
     );
   };
 
   const deleteOpeningAndSync = (opening: EditableOpening, wall: EditableWall) => {
-    const direction = getEditorWallDirection(wall);
+    const slot = wall.slot;
 
     editorOpeningsRef.current = editorOpeningsRef.current.filter(
       (item) => item.id !== opening.id
@@ -470,17 +507,17 @@ export function HeatLoadCanvasPanel({
 
     if (opening.kind === "door") {
       clearFormFields(
-        getDoorLengthFieldName(direction),
-        getDoorWidthFieldName(direction),
-        getDoorHeightFieldName(direction)
+        getDoorLengthFieldName(slot),
+        getDoorWidthFieldName(slot),
+        getDoorHeightFieldName(slot)
       );
       return;
     }
 
     clearFormFields(
-      getWindowLengthFieldName(direction),
-      getWindowWidthFieldName(direction),
-      getWindowHeightFieldName(direction)
+      getWindowLengthFieldName(slot),
+      getWindowWidthFieldName(slot),
+      getWindowHeightFieldName(slot)
     );
   };
 
@@ -978,16 +1015,16 @@ export function HeatLoadCanvasPanel({
           : null;
 
       roomPlans.forEach((plan) => {
-        const pendingDoors = new Map<WallDirection, DoorInput>();
-        const pendingWindows = new Map<WallDirection, WindowInput>();
+        const pendingWindows = new Map<WallSlot, WindowInput>();
+        const pendingDoors = new Map<WallSlot, DoorInput>();
         getRawDoorInputs(plan.room.formValues).forEach((door) => {
           if (door.width > 0) {
-            pendingDoors.set(door.direction, door);
+            pendingDoors.set(door.slot, door);
           }
         });
         getRawWindowInputs(plan.room.formValues).forEach((window) => {
           if (window.width > 0) {
-            pendingWindows.set(window.direction, window);
+            pendingWindows.set(window.slot, window);
           }
         });
 
@@ -1028,8 +1065,8 @@ export function HeatLoadCanvasPanel({
               );
             }
 
-            const door = pendingDoors.get(segment.direction);
-            const window = pendingWindows.get(segment.direction);
+            const door = pendingDoors.get(segment.slot);
+            const window = pendingWindows.get(segment.slot);
 
             if (door || window) {
               drawCenteredWallFeatures(
@@ -1042,10 +1079,10 @@ export function HeatLoadCanvasPanel({
                 window?.width ?? 0
               );
               if (door) {
-                pendingDoors.delete(segment.direction);
+                pendingDoors.delete(segment.slot);
               }
               if (window) {
-                pendingWindows.delete(segment.direction);
+                pendingWindows.delete(segment.slot);
               }
             }
 
@@ -1425,9 +1462,15 @@ export function HeatLoadCanvasPanel({
         ) {
           recordEditorHistory();
           idCounterRef.current += 1;
+          const direction = getWallDirectionFromSegmentPoints(
+            draftWallStartRef.current,
+            endPoint
+          );
 
           const wall: EditableWall = {
             id: `wall-${idCounterRef.current}`,
+            slot: getWallSlotForDirection(direction),
+            direction,
             start: draftWallStartRef.current,
             end: endPoint,
             thickness: DEFAULT_WALL_THICKNESS,
@@ -2481,6 +2524,8 @@ function buildEditorSketchFromFormValues(formValues: CanvasFormValues) {
 
     return {
       id: `wall-${nextId}`,
+      slot: segment.slot,
+      direction: segment.direction,
       start: segment.start,
       end: segment.end,
       thickness: segment.thickness,
@@ -2488,18 +2533,17 @@ function buildEditorSketchFromFormValues(formValues: CanvasFormValues) {
   });
 
   const seededOpenings: EditableOpening[] = [];
-  const doorsByDirection = new Map(
-    getRawDoorInputs(formValues).map((item) => [item.direction, item.width])
+  const doorsBySlot = new Map(
+    getRawDoorInputs(formValues).map((item) => [item.slot, item.width])
   );
-  const windowsByDirection = new Map(
-    getRawWindowInputs(formValues).map((item) => [item.direction, item.width])
+  const windowsBySlot = new Map(
+    getRawWindowInputs(formValues).map((item) => [item.slot, item.width])
   );
 
   seededWalls.forEach((ownerWall) => {
-    const direction = getEditorWallDirection(ownerWall);
     const wallLength = getEditorWallLength(ownerWall);
-    const desiredDoorWidth = doorsByDirection.get(direction) ?? 0;
-    const desiredWindowWidth = windowsByDirection.get(direction) ?? 0;
+    const desiredDoorWidth = doorsBySlot.get(ownerWall.slot) ?? 0;
+    const desiredWindowWidth = windowsBySlot.get(ownerWall.slot) ?? 0;
     const featureSpans = resolveWallFeatureSpans(
       wallLength,
       desiredDoorWidth,
@@ -2762,14 +2806,7 @@ function getEditorWallLength(wall: EditableWall) {
 }
 
 function getEditorWallDirection(wall: EditableWall): WallDirection {
-  const dx = wall.end.x - wall.start.x;
-  const dy = wall.end.y - wall.start.y;
-
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return dx >= 0 ? "North" : "South";
-  }
-
-  return dy >= 0 ? "East" : "West";
+  return wall.direction;
 }
 
 function getEditorOpeningOffsetBounds(
@@ -2968,8 +3005,14 @@ function drawEditorPlan(
     context.fill();
 
     if (getDistance(draftWallStart, draftWallEnd) >= EDITOR_MIN_WALL_LENGTH) {
+      const direction = getWallDirectionFromSegmentPoints(
+        draftWallStart,
+        draftWallEnd
+      );
       const previewWall: EditableWall = {
         id: "draft",
+        slot: getWallSlotForDirection(direction),
+        direction,
         start: draftWallStart,
         end: draftWallEnd,
         thickness: DEFAULT_WALL_THICKNESS,
@@ -3794,22 +3837,26 @@ function buildWallChains(formValues: CanvasFormValues): WallChainBuildResult {
 function getRawWallInputs(formValues: CanvasFormValues): RawWallInput[] {
   return [
     {
-      direction: "North",
+      slot: "North",
+      direction: parseWallDirection(formValues.wallNorthDirection, "North"),
       length: parsePositiveNumber(formValues.wallNorthLength),
       thickness: parseWallThicknessMeters(formValues.wallNorthWidth, DEFAULT_WALL_THICKNESS),
     },
     {
-      direction: "East",
+      slot: "East",
+      direction: parseWallDirection(formValues.wallEastDirection, "East"),
       length: parsePositiveNumber(formValues.wallEastLength),
       thickness: parseWallThicknessMeters(formValues.wallEastWidth, DEFAULT_WALL_THICKNESS),
     },
     {
-      direction: "South",
+      slot: "South",
+      direction: parseWallDirection(formValues.wallSouthDirection, "South"),
       length: parsePositiveNumber(formValues.wallSouthLength),
       thickness: parseWallThicknessMeters(formValues.wallSouthWidth, DEFAULT_WALL_THICKNESS),
     },
     {
-      direction: "West",
+      slot: "West",
+      direction: parseWallDirection(formValues.wallWestDirection, "West"),
       length: parsePositiveNumber(formValues.wallWestLength),
       thickness: parseWallThicknessMeters(formValues.wallWestWidth, DEFAULT_WALL_THICKNESS),
     },
@@ -3819,22 +3866,26 @@ function getRawWallInputs(formValues: CanvasFormValues): RawWallInput[] {
 function getRawDoorInputs(formValues: CanvasFormValues): DoorInput[] {
   return [
     {
-      direction: "North",
+      slot: "North",
+      direction: parseWallDirection(formValues.doorNorthDirection, "North"),
       width: parsePositiveNumber(formValues.doorNorthWidth),
       height: parsePositiveNumber(formValues.doorNorthHeight),
     },
     {
-      direction: "East",
+      slot: "East",
+      direction: parseWallDirection(formValues.doorEastDirection, "East"),
       width: parsePositiveNumber(formValues.doorEastWidth),
       height: parsePositiveNumber(formValues.doorEastHeight),
     },
     {
-      direction: "South",
+      slot: "South",
+      direction: parseWallDirection(formValues.doorSouthDirection, "South"),
       width: parsePositiveNumber(formValues.doorSouthWidth),
       height: parsePositiveNumber(formValues.doorSouthHeight),
     },
     {
-      direction: "West",
+      slot: "West",
+      direction: parseWallDirection(formValues.doorWestDirection, "West"),
       width: parsePositiveNumber(formValues.doorWestWidth),
       height: parsePositiveNumber(formValues.doorWestHeight),
     },
@@ -3844,22 +3895,26 @@ function getRawDoorInputs(formValues: CanvasFormValues): DoorInput[] {
 function getRawWindowInputs(formValues: CanvasFormValues): WindowInput[] {
   return [
     {
-      direction: "North",
+      slot: "North",
+      direction: parseWallDirection(formValues.windowNorthDirection, "North"),
       width: parsePositiveNumber(formValues.windowNorthWidth),
       height: parsePositiveNumber(formValues.windowNorthHeight),
     },
     {
-      direction: "East",
+      slot: "East",
+      direction: parseWallDirection(formValues.windowEastDirection, "East"),
       width: parsePositiveNumber(formValues.windowEastWidth),
       height: parsePositiveNumber(formValues.windowEastHeight),
     },
     {
-      direction: "South",
+      slot: "South",
+      direction: parseWallDirection(formValues.windowSouthDirection, "South"),
       width: parsePositiveNumber(formValues.windowSouthWidth),
       height: parsePositiveNumber(formValues.windowSouthHeight),
     },
     {
-      direction: "West",
+      slot: "West",
+      direction: parseWallDirection(formValues.windowWestDirection, "West"),
       width: parsePositiveNumber(formValues.windowWestWidth),
       height: parsePositiveNumber(formValues.windowWestHeight),
     },
@@ -3880,6 +3935,7 @@ function createChainSegments(walls: RawWallInput[]): WallSegment[] {
     currentPoint = end;
 
     return {
+      slot: wall.slot,
       direction: wall.direction,
       length: wall.length,
       thickness: wall.thickness,
@@ -3890,15 +3946,64 @@ function createChainSegments(walls: RawWallInput[]): WallSegment[] {
 }
 
 function getDirectionVector(direction: WallDirection): Point {
+  const outwardNormal = getExteriorNormal(direction);
+  return {
+    x: -outwardNormal.y,
+    y: outwardNormal.x,
+  };
+}
+
+function getWallDirectionFromSegmentPoints(start: Point, end: Point): WallDirection {
+  const vector = {
+    x: end.x - start.x,
+    y: end.y - start.y,
+  };
+  const length = Math.hypot(vector.x, vector.y);
+
+  if (length <= 0.0001) {
+    return "North";
+  }
+
+  const outwardNormal = normalizeVector({
+    x: vector.y,
+    y: -vector.x,
+  });
+
+  return getClosestWallDirection(outwardNormal);
+}
+
+function getClosestWallDirection(exteriorNormal: Point): WallDirection {
+  let closestDirection: WallDirection = "North";
+  let bestDotProduct = Number.NEGATIVE_INFINITY;
+
+  WALL_DIRECTIONS.forEach((direction) => {
+    const candidate = WALL_EXTERIOR_NORMALS[direction];
+    const dotProduct =
+      exteriorNormal.x * candidate.x + exteriorNormal.y * candidate.y;
+
+    if (dotProduct > bestDotProduct) {
+      bestDotProduct = dotProduct;
+      closestDirection = direction;
+    }
+  });
+
+  return closestDirection;
+}
+
+function getWallSlotForDirection(direction: WallDirection): WallSlot {
   switch (direction) {
     case "North":
-      return { x: 1, y: 0 };
+    case "Northeast":
+      return "North";
     case "East":
-      return { x: 0, y: 1 };
+    case "Southeast":
+      return "East";
     case "South":
-      return { x: -1, y: 0 };
+    case "Southwest":
+      return "South";
     case "West":
-      return { x: 0, y: -1 };
+    case "Northwest":
+      return "West";
   }
 }
 
@@ -4238,7 +4343,13 @@ function drawSegmentDimension(
   });
   const midX = (dimensionStart.x + dimensionEnd.x) / 2;
   const midY = (dimensionStart.y + dimensionEnd.y) / 2;
-  const isHorizontal = direction === "North" || direction === "South";
+  let labelAngle = Math.atan2(
+    dimensionEnd.y - dimensionStart.y,
+    dimensionEnd.x - dimensionStart.x
+  );
+  if (labelAngle > Math.PI / 2 || labelAngle < -Math.PI / 2) {
+    labelAngle += Math.PI;
+  }
   const label = formatLengthDisplay(value, unitSystem);
 
   context.save();
@@ -4266,9 +4377,7 @@ function drawSegmentDimension(
 
   context.save();
   context.translate(midX, midY);
-  if (!isHorizontal) {
-    context.rotate(-Math.PI / 2);
-  }
+  context.rotate(labelAngle);
   context.fillStyle = "rgba(255, 255, 255, 0.92)";
   context.fillRect(
     -textWidth / 2 - paddingX,
@@ -4487,43 +4596,43 @@ function drawSelectedOpeningOverlay(
   context.restore();
 }
 
-function getWallTypeFieldName(direction: WallDirection) {
+function getWallTypeFieldName(direction: WallSlot) {
   return `wall${direction}Type`;
 }
 
-function getWallLengthFieldName(direction: WallDirection) {
+function getWallLengthFieldName(direction: WallSlot) {
   return `wall${direction}Length`;
 }
 
-function getWallWidthFieldName(direction: WallDirection) {
+function getWallWidthFieldName(direction: WallSlot) {
   return `wall${direction}Width`;
 }
 
-function getDoorLengthFieldName(direction: WallDirection) {
+function getDoorLengthFieldName(direction: WallSlot) {
   return `door${direction}Length`;
 }
 
-function getDoorWidthFieldName(direction: WallDirection) {
+function getDoorWidthFieldName(direction: WallSlot) {
   return `door${direction}Width`;
 }
 
-function getDoorHeightFieldName(direction: WallDirection) {
+function getDoorHeightFieldName(direction: WallSlot) {
   return `door${direction}Height`;
 }
 
-function getWindowLengthFieldName(direction: WallDirection) {
+function getWindowLengthFieldName(direction: WallSlot) {
   return `window${direction}Length`;
 }
 
-function getWindowWidthFieldName(direction: WallDirection) {
+function getWindowWidthFieldName(direction: WallSlot) {
   return `window${direction}Width`;
 }
 
-function getWindowHeightFieldName(direction: WallDirection) {
+function getWindowHeightFieldName(direction: WallSlot) {
   return `window${direction}Height`;
 }
 
-function getWallAppearanceForDirection(direction: WallDirection, formValues: CanvasFormValues) {
+function getWallAppearanceForDirection(direction: WallSlot, formValues: CanvasFormValues) {
   const wallType = formValues[getWallTypeFieldName(direction)] ?? "Brick Wall";
   return getWallAppearanceByType(wallType);
 }
@@ -4879,20 +4988,11 @@ function drawDoorSwingArc(
 }
 
 function getInteriorNormal(direction: WallDirection): Point {
-  switch (direction) {
-    case "North":
-      return { x: 0, y: 1 };
-    case "East":
-      return { x: -1, y: 0 };
-    case "South":
-      return { x: 0, y: -1 };
-    case "West":
-      return { x: 1, y: 0 };
-  }
+  return scalePoint(getExteriorNormal(direction), -1);
 }
 
 function getExteriorNormal(direction: WallDirection): Point {
-  return scalePoint(getInteriorNormal(direction), -1);
+  return WALL_EXTERIOR_NORMALS[direction];
 }
 
 function drawDimensionTick(context: CanvasRenderingContext2D, point: Point, dimensionDirection: Point) {
@@ -4995,6 +5095,19 @@ function parsePositiveNumber(value: string | undefined, fallback = 0) {
   }
 
   return normalizedValue;
+}
+
+function parseWallDirection(
+  value: string | undefined,
+  fallback: WallDirection
+): WallDirection {
+  if (!value) {
+    return fallback;
+  }
+
+  return WALL_DIRECTIONS.includes(value as WallDirection)
+    ? (value as WallDirection)
+    : fallback;
 }
 
 function parseWallThicknessMeters(value: string | undefined, fallback = 0) {
