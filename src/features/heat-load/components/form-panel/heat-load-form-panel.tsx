@@ -1,14 +1,17 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DesignConditionsHeader, DesignConditionsRow } from "./design-conditions-table";
-import { HeatLoadSheet } from "./heat-load-sheet";
-import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
+
 import { fetchCachedJson } from "@/lib/client-fetch-cache";
 import { calculateRelativeHumidityFromWetBulb, calculateWetBulbFromRelativeHumidity } from "@/lib/calculations";
 import { normalizeUnitSystem, unitLabel, type UnitSystem } from "@/lib/units";
 
+import { DesignConditionsHeader, DesignConditionsRow } from "./design-conditions-table";
+import { HeatLoadSheet } from "./heat-load-sheet";
+import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
+
 type SurfaceType = "walls" | "windows" | "doors";
+type DesignConditionSource = "current" | "ashrae-2017";
 
 export type FormValues = Record<string, string>;
 type SheetValues = Record<string, string>;
@@ -29,6 +32,12 @@ type SolarLocationOption = {
   latitude: number;
   longitude: number;
   timezone?: string;
+};
+
+type ResolvedSolarLocation = {
+  latitude: number;
+  longitude: number;
+  timezone: string;
 };
 
 type TemperatureHistoryResponse = {
@@ -55,7 +64,64 @@ type SolarDetailsResponse = {
   };
 };
 
+type AshraeDesignConditionsResponse = {
+  percentile: "0.4" | "1" | "2";
+  matchedByCountry: boolean;
+  distanceKm: number;
+  station: {
+    name: string;
+    wmo: string;
+    sourceEdition: string;
+    countryLabel: string;
+    locationLabel: string;
+    latitude: number;
+    longitude: number;
+    elevationM: number;
+    utcOffsetHours: number;
+    timeZoneCode: string;
+    periodOfRecord: string;
+    standardPressureKPa: number;
+    grade?: string;
+  };
+  cooling: {
+    hottestMonth: number;
+    hottestMonthDryBulbRange: number | null;
+    dryBulbTemp: number;
+    meanCoincidentWetBulb: number;
+    relativeHumidity: number | null;
+    wetBulbPercentile: number | null;
+    wetBulbMeanCoincidentDryBulb: number | null;
+    meanCoincidentWindSpeed: number | null;
+    prevailingWindDirection: number | null;
+  };
+  supportedPercentiles: Array<"0.4" | "1" | "2">;
+};
+
+type OutdoorDesignCache = {
+  source: DesignConditionSource;
+  label: string;
+  dryBulbTemp: string;
+  wetBulbTemp: string;
+  relativeHumidity: string;
+  solarDni: string;
+  solarDhi: string;
+  solarGhi: string;
+  solarZenith: string;
+  solarAzimuth: string;
+  percentile: string;
+  year?: string;
+  stationName?: string;
+  stationWmo?: string;
+  stationLocation?: string;
+  stationCountry?: string;
+  stationSourceEdition?: string;
+  stationDistanceKm?: number;
+  hottestMonth?: number | null;
+  matchedByCountry?: boolean;
+};
+
 const topSectionRows = [0, 1, 2, 3];
+const ASHRAE_SUPPORTED_PERCENTILES = ["0.4", "1", "2"] as const;
 
 export const initialFormValues: FormValues = {
   selectedCountry: "",
@@ -121,6 +187,9 @@ export const initialFormValues: FormValues = {
   wetBulbTemp: "",
   dryBulbPercentile: "1",
   designYear: String(new Date().getUTCFullYear() - 1),
+  designConditionSource: "current",
+  currentOutdoorDesignData: "",
+  ashraeOutdoorDesignData: "",
   insideCondition: "",
   conditionDifference: "",
   conditionType: "Relative Humidity",
@@ -134,7 +203,6 @@ export const initialFormValues: FormValues = {
   solarAzimuth: "",
 };
 
-// Helper functions 
 function computePercentile(values: number[], percentile: number): number {
   if (!values.length) {
     return 0;
@@ -176,9 +244,182 @@ function formatConditionValue(value: number): string {
   return value.toFixed(1);
 }
 
+function formatOptionalConditionValue(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? formatConditionValue(value) : "";
+}
+
 function parseConditionValue(value: string): number | null {
   const parsedValue = Number.parseFloat(value ?? "");
   return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function getDesignConditionSource(value: string | undefined): DesignConditionSource {
+  return value === "ashrae-2017" || value === "ashrae-2005" ? "ashrae-2017" : "current";
+}
+
+function parseOutdoorDesignCache(value: string | undefined): OutdoorDesignCache | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<OutdoorDesignCache>;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.dryBulbTemp !== "string" ||
+      typeof parsed.wetBulbTemp !== "string" ||
+      typeof parsed.relativeHumidity !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      source: getDesignConditionSource(parsed.source),
+      label: typeof parsed.label === "string" ? parsed.label : "",
+      dryBulbTemp: parsed.dryBulbTemp,
+      wetBulbTemp: parsed.wetBulbTemp,
+      relativeHumidity: parsed.relativeHumidity,
+      solarDni: typeof parsed.solarDni === "string" ? parsed.solarDni : "",
+      solarDhi: typeof parsed.solarDhi === "string" ? parsed.solarDhi : "",
+      solarGhi: typeof parsed.solarGhi === "string" ? parsed.solarGhi : "",
+      solarZenith: typeof parsed.solarZenith === "string" ? parsed.solarZenith : "",
+      solarAzimuth: typeof parsed.solarAzimuth === "string" ? parsed.solarAzimuth : "",
+      percentile: typeof parsed.percentile === "string" ? parsed.percentile : "",
+      year: typeof parsed.year === "string" ? parsed.year : undefined,
+      stationName: typeof parsed.stationName === "string" ? parsed.stationName : undefined,
+      stationWmo: typeof parsed.stationWmo === "string" ? parsed.stationWmo : undefined,
+      stationLocation: typeof parsed.stationLocation === "string" ? parsed.stationLocation : undefined,
+      stationCountry: typeof parsed.stationCountry === "string" ? parsed.stationCountry : undefined,
+      stationSourceEdition:
+        typeof parsed.stationSourceEdition === "string" ? parsed.stationSourceEdition : undefined,
+      stationDistanceKm:
+        typeof parsed.stationDistanceKm === "number" && Number.isFinite(parsed.stationDistanceKm)
+          ? parsed.stationDistanceKm
+          : undefined,
+      hottestMonth:
+        typeof parsed.hottestMonth === "number" && Number.isFinite(parsed.hottestMonth)
+          ? parsed.hottestMonth
+          : undefined,
+      matchedByCountry: typeof parsed.matchedByCountry === "boolean" ? parsed.matchedByCountry : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildSolarSnapshot(payload: SolarDetailsResponse) {
+  return {
+    solarDni:
+      typeof payload.solarIntensity?.dni === "number" && Number.isFinite(payload.solarIntensity.dni)
+        ? payload.solarIntensity.dni.toFixed(3)
+        : "",
+    solarDhi:
+      typeof payload.solarIntensity?.dhi === "number" && Number.isFinite(payload.solarIntensity.dhi)
+        ? payload.solarIntensity.dhi.toFixed(3)
+        : "",
+    solarGhi:
+      typeof payload.solarIntensity?.ghi === "number" && Number.isFinite(payload.solarIntensity.ghi)
+        ? payload.solarIntensity.ghi.toFixed(3)
+        : "",
+    solarZenith:
+      typeof payload.solarPosition?.zenith === "number" && Number.isFinite(payload.solarPosition.zenith)
+        ? payload.solarPosition.zenith.toFixed(3)
+        : "",
+    solarAzimuth:
+      typeof payload.solarPosition?.azimuth === "number" && Number.isFinite(payload.solarPosition.azimuth)
+        ? payload.solarPosition.azimuth.toFixed(3)
+        : "",
+  };
+}
+
+function emptySolarSnapshot() {
+  return {
+    solarDni: "",
+    solarDhi: "",
+    solarGhi: "",
+    solarZenith: "",
+    solarAzimuth: "",
+  };
+}
+
+function buildSyntheticAshraeDatetime(year: number, hottestMonth: number | null | undefined) {
+  const month = Math.min(12, Math.max(1, Number.isFinite(hottestMonth ?? NaN) ? Number(hottestMonth) : 7));
+  const paddedMonth = String(month).padStart(2, "0");
+  return `${year}-${paddedMonth}-21T15:00`;
+}
+
+async function resolveSelectedLocation(input: {
+  country: string;
+  city: string;
+  countryCode?: string;
+}) {
+  const locationParams = new URLSearchParams({
+    name: input.city,
+    country: input.country,
+    count: "1",
+    onlyCities: "true",
+  });
+
+  if (input.countryCode) {
+    locationParams.set("countryCode", input.countryCode);
+  }
+
+  const locationPayload = await fetchCachedJson<{
+    results?: SolarLocationOption[];
+    error?: string;
+  }>(`/api/solar-locations?${locationParams.toString()}`, undefined, {
+    cacheKey: `solar-locations:${locationParams.toString()}`,
+    ttlMs: 24 * 60 * 60 * 1000,
+  });
+
+  const resolved = locationPayload.results?.[0];
+  if (!resolved) {
+    throw new Error("No location match found for selected city.");
+  }
+
+  return {
+    latitude: resolved.latitude,
+    longitude: resolved.longitude,
+    timezone: resolved.timezone ?? "UTC",
+  } satisfies ResolvedSolarLocation;
+}
+
+async function fetchTemperatureHistoryForLocation(location: ResolvedSolarLocation, year: number) {
+  const historyParams = new URLSearchParams({
+    latitude: String(location.latitude),
+    longitude: String(location.longitude),
+    year: String(year),
+    timezone: location.timezone,
+  });
+
+  return fetchCachedJson<TemperatureHistoryResponse & { error?: string }>(
+    `/api/temperature-history?${historyParams.toString()}`,
+    undefined,
+    {
+      cacheKey: `temperature-history:${historyParams.toString()}`,
+      ttlMs: 24 * 60 * 60 * 1000,
+    },
+  );
+}
+
+async function fetchSolarDetailsForLocation(location: ResolvedSolarLocation, datetime: string) {
+  const solarDetailsParams = new URLSearchParams({
+    latitude: String(location.latitude),
+    longitude: String(location.longitude),
+    timezone: location.timezone,
+    datetime,
+    mode: "auto",
+  });
+
+  return fetchCachedJson<SolarDetailsResponse & { error?: string }>(
+    `/api/solar-details?${solarDetailsParams.toString()}`,
+    undefined,
+    {
+      cacheKey: `solar-details:${solarDetailsParams.toString()}`,
+      ttlMs: 24 * 60 * 60 * 1000,
+    },
+  );
 }
 
 export function HeatLoadFormPanel({
@@ -199,8 +440,61 @@ export function HeatLoadFormPanel({
 
   const previousOutdoorConditionType = useRef(formValues.conditionType);
   const previousIndoorConditionType = useRef(formValues.indoorConditionType);
+  const previousLocationKey = useRef("");
 
-  // useEffect hooks
+  const designConditionSource = getDesignConditionSource(formValues.designConditionSource);
+  const currentOutdoorDesignCache = parseOutdoorDesignCache(formValues.currentOutdoorDesignData);
+  const ashraeOutdoorDesignCache = parseOutdoorDesignCache(formValues.ashraeOutdoorDesignData);
+  const activeOutdoorDesignCache =
+    designConditionSource === "ashrae-2017" ? ashraeOutdoorDesignCache : currentOutdoorDesignCache;
+  const designConditionSourceSummary =
+    designConditionSource === "current"
+      ? currentOutdoorDesignCache?.year
+        ? `Current historical data source. Cached percentile ${currentOutdoorDesignCache.percentile}% for year ${currentOutdoorDesignCache.year}.`
+        : "Current historical data source using the existing Open-Meteo percentile workflow."
+      : ashraeOutdoorDesignCache?.stationName
+        ? `ASHRAE station source. ${ashraeOutdoorDesignCache.stationName}${ashraeOutdoorDesignCache.stationWmo ? ` (${ashraeOutdoorDesignCache.stationWmo})` : ""}${ashraeOutdoorDesignCache.stationLocation ? ` | ${ashraeOutdoorDesignCache.stationLocation}` : ""}${ashraeOutdoorDesignCache.stationSourceEdition ? ` | ASHRAE ${ashraeOutdoorDesignCache.stationSourceEdition}` : ""}${typeof ashraeOutdoorDesignCache.stationDistanceKm === "number" ? ` | ${ashraeOutdoorDesignCache.stationDistanceKm.toFixed(1)} km from selected city` : ""}.`
+        : "ASHRAE station source using the bundled global lookup with Sri Lanka 2025 overrides.";
+
+  const updateFieldIfChanged = (name: string, value: string) => {
+    if ((formValues[name] ?? "") !== value) {
+      onFieldChange(name, value);
+    }
+  };
+
+  const clearOutdoorFields = () => {
+    updateFieldIfChanged("outsideCondition", "");
+    updateFieldIfChanged("dryBulbTemp", "");
+    updateFieldIfChanged("wetBulbTemp", "");
+    updateFieldIfChanged("conditionValue", "");
+    updateFieldIfChanged("solarDni", "");
+    updateFieldIfChanged("solarDhi", "");
+    updateFieldIfChanged("solarGhi", "");
+    updateFieldIfChanged("solarZenith", "");
+    updateFieldIfChanged("solarAzimuth", "");
+  };
+
+  const applyOutdoorDesignCache = (cache: OutdoorDesignCache | null) => {
+    if (!cache) {
+      return;
+    }
+
+    const currentType = formValues.conditionType ?? "Relative Humidity";
+    const conditionValue =
+      currentType === "Wet bulb temperature" ? cache.wetBulbTemp : cache.relativeHumidity;
+
+    updateFieldIfChanged("dryBulbTemp", cache.dryBulbTemp);
+    updateFieldIfChanged("outsideCondition", cache.dryBulbTemp);
+    updateFieldIfChanged("wetBulbTemp", cache.wetBulbTemp);
+    updateFieldIfChanged("conditionValue", conditionValue);
+    updateFieldIfChanged("solarDni", cache.solarDni);
+    updateFieldIfChanged("solarDhi", cache.solarDhi);
+    updateFieldIfChanged("solarGhi", cache.solarGhi);
+    updateFieldIfChanged("solarZenith", cache.solarZenith);
+    updateFieldIfChanged("solarAzimuth", cache.solarAzimuth);
+  };
+
+  // Countries are loaded once and then persisted into form state.
   useEffect(() => {
     async function loadCountries() {
       setCountryLoading(true);
@@ -209,18 +503,21 @@ export function HeatLoadFormPanel({
         const payload = await fetchCachedJson<{ results?: CountryOption[]; error?: string }>(
           "/api/solar-countries",
           undefined,
-          { cacheKey: "solar-countries", ttlMs: 24 * 60 * 60 * 1000 }
+          { cacheKey: "solar-countries", ttlMs: 24 * 60 * 60 * 1000 },
         );
 
         const countries = payload.results ?? [];
         setCountryOptions(countries);
 
-        if (!countries.length) return;
+        if (!countries.length) {
+          return;
+        }
 
         const selected = formValues.selectedCountry;
-        const nextCountry = selected && countries.some((item) => item.name === selected)
-          ? selected
-          : countries[0].name;
+        const nextCountry =
+          selected && countries.some((item) => item.name === selected)
+            ? selected
+            : countries[0].name;
         const matched = countries.find((item) => item.name === nextCountry);
 
         if (formValues.selectedCountry !== nextCountry) {
@@ -236,8 +533,10 @@ export function HeatLoadFormPanel({
     }
 
     void loadCountries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The city list is keyed only by the selected country.
   useEffect(() => {
     async function loadCities() {
       const country = formValues.selectedCountry?.trim();
@@ -252,7 +551,7 @@ export function HeatLoadFormPanel({
         const payload = await fetchCachedJson<{ results?: string[]; error?: string }>(
           `/api/solar-country-cities?country=${encodeURIComponent(country)}`,
           undefined,
-          { cacheKey: `solar-country-cities:${country}`, ttlMs: 24 * 60 * 60 * 1000 }
+          { cacheKey: `solar-country-cities:${country}`, ttlMs: 24 * 60 * 60 * 1000 },
         );
 
         const cities = payload.results ?? [];
@@ -291,11 +590,54 @@ export function HeatLoadFormPanel({
     }
   }
 
+  function handleDesignConditionSourceChange(nextSource: DesignConditionSource) {
+    if (nextSource !== designConditionSource) {
+      onFieldChange("designConditionSource", nextSource);
+    }
+  }
+
+  // Location changes invalidate both cached sources and the projected active values.
   useEffect(() => {
-    async function updateDesignTemperatures() {
+    const nextLocationKey = [
+      formValues.selectedCountry ?? "",
+      formValues.selectedCountryCode ?? "",
+      formValues.selectedCity ?? "",
+    ].join("|");
+
+    if (!previousLocationKey.current) {
+      previousLocationKey.current = nextLocationKey;
+      return;
+    }
+
+    if (previousLocationKey.current === nextLocationKey) {
+      return;
+    }
+
+    previousLocationKey.current = nextLocationKey;
+
+    updateFieldIfChanged("currentOutdoorDesignData", "");
+    updateFieldIfChanged("ashraeOutdoorDesignData", "");
+    clearOutdoorFields();
+  }, [formValues.selectedCountry, formValues.selectedCountryCode, formValues.selectedCity]);
+
+  useEffect(() => {
+    if (
+      designConditionSource === "ashrae-2017" &&
+      !ASHRAE_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof ASHRAE_SUPPORTED_PERCENTILES)[number])
+    ) {
+      onFieldChange("dryBulbPercentile", "1");
+    }
+  }, [designConditionSource, formValues.dryBulbPercentile, onFieldChange]);
+
+  useEffect(() => {
+    applyOutdoorDesignCache(activeOutdoorDesignCache);
+  }, [designConditionSource, formValues.currentOutdoorDesignData, formValues.ashraeOutdoorDesignData]);
+
+  useEffect(() => {
+    async function updateCurrentDesignConditions() {
       const country = formValues.selectedCountry?.trim();
       const city = formValues.selectedCity?.trim();
-      if (!country || !city) {
+      if (!country || !city || designConditionSource !== "current") {
         return;
       }
 
@@ -303,50 +645,17 @@ export function HeatLoadFormPanel({
       setDesignTempError(null);
 
       try {
-        const locationParams = new URLSearchParams({
-          name: city,
+        const resolvedLocation = await resolveSelectedLocation({
           country,
-          count: "1",
-          onlyCities: "true",
+          city,
+          countryCode: formValues.selectedCountryCode,
         });
-
-        if (formValues.selectedCountryCode) {
-          locationParams.set("countryCode", formValues.selectedCountryCode);
-        }
-
-        const locationPayload = await fetchCachedJson<{
-          results?: SolarLocationOption[];
-          error?: string;
-        }>(`/api/solar-locations?${locationParams.toString()}`, undefined, {
-          cacheKey: `solar-locations:${locationParams.toString()}`,
-          ttlMs: 24 * 60 * 60 * 1000,
-        });
-
-        const resolved = locationPayload.results?.[0];
-        if (!resolved) {
-          throw new Error("No location match found for selected city.");
-        }
 
         const latestCompleteYear = new Date().getUTCFullYear() - 1;
         const selectedYear = Number.parseInt(formValues.designYear ?? "", 10);
         const year = Number.isInteger(selectedYear) ? selectedYear : latestCompleteYear;
 
-        const historyParams = new URLSearchParams({
-          latitude: String(resolved.latitude),
-          longitude: String(resolved.longitude),
-          year: String(year),
-          timezone: resolved.timezone ?? "UTC",
-        });
-
-        const historyPayload = await fetchCachedJson<TemperatureHistoryResponse & { error?: string }>(
-          `/api/temperature-history?${historyParams.toString()}`,
-          undefined,
-          {
-            cacheKey: `temperature-history:${historyParams.toString()}`,
-            ttlMs: 24 * 60 * 60 * 1000,
-          }
-        );
-
+        const historyPayload = await fetchTemperatureHistoryForLocation(resolvedLocation, year);
         const hourlyDryBulb = historyPayload.hourlyDryBulb ?? [];
         const dryBulbSeries = hourlyDryBulb
           .map((entry) => entry.dryBulbTemp)
@@ -357,79 +666,163 @@ export function HeatLoadFormPanel({
         }
 
         const selectedPercent = Number(formValues.dryBulbPercentile || "1");
-        // Cooling design style: 1% means the top hottest 1% hours, so use (100 - p) percentile.
         const dryBulb = computePercentile(dryBulbSeries, 100 - selectedPercent);
         const designHour = findNearestDesignHour(hourlyDryBulb, dryBulb);
 
-        onFieldChange("dryBulbTemp", formatConditionValue(dryBulb));
-        onFieldChange("outsideCondition", formatConditionValue(dryBulb));
+        let relativeHumidityText = "";
+        let wetBulbText = "";
+        let solarSnapshot = emptySolarSnapshot();
 
-        if (!designHour) {
-          onFieldChange("conditionValue", "");
-          onFieldChange("wetBulbTemp", "");
-          return;
+        if (designHour) {
+          const solarDetailsPayload = await fetchSolarDetailsForLocation(
+            resolvedLocation,
+            designHour.time,
+          );
+          solarSnapshot = buildSolarSnapshot(solarDetailsPayload);
+
+          const relativeHumidity = solarDetailsPayload.ambient?.relativeHumidity;
+          const wetBulb = solarDetailsPayload.ambient?.wetBulbTemp;
+
+          relativeHumidityText = formatOptionalConditionValue(relativeHumidity);
+          wetBulbText =
+            formatOptionalConditionValue(wetBulb) ||
+            formatOptionalConditionValue(
+              typeof relativeHumidity === "number"
+                ? calculateWetBulbFromRelativeHumidity(dryBulb, relativeHumidity)
+                : null,
+            );
         }
 
-        const solarDetailsParams = new URLSearchParams({
-          latitude: String(resolved.latitude),
-          longitude: String(resolved.longitude),
-          timezone: resolved.timezone ?? "UTC",
-          datetime: designHour.time,
-          mode: "auto",
-        });
-
-        const solarDetailsPayload = await fetchCachedJson<SolarDetailsResponse & { error?: string }>(
-          `/api/solar-details?${solarDetailsParams.toString()}`,
-          undefined,
-          {
-            cacheKey: `solar-details:${solarDetailsParams.toString()}`,
-            ttlMs: 24 * 60 * 60 * 1000,
-          }
-        );
-
-        const currentType = formValues.conditionType ?? "Relative Humidity";
-        const ambient = solarDetailsPayload.ambient;
-        const nextConditionValue =
-          currentType === "Wet bulb temperature" ? ambient?.wetBulbTemp : ambient?.relativeHumidity;
-
-        if (typeof nextConditionValue === "number") {
-          onFieldChange("conditionValue", formatConditionValue(nextConditionValue));
-        } else {
-          onFieldChange("conditionValue", "");
-          onFieldChange("wetBulbTemp", "");
-        }
-
-        // Persist solar intensity + sun position for downstream SHG computation.
-        const intensity = solarDetailsPayload.solarIntensity;
-        const position = solarDetailsPayload.solarPosition;
-        const writeNum = (key: string, val: number | null | undefined) => {
-          if (typeof val === "number" && Number.isFinite(val)) {
-            onFieldChange(key, val.toFixed(3));
-          } else {
-            onFieldChange(key, "");
-          }
+        const cache: OutdoorDesignCache = {
+          source: "current",
+          label: "Current",
+          dryBulbTemp: formatConditionValue(dryBulb),
+          wetBulbTemp: wetBulbText,
+          relativeHumidity: relativeHumidityText,
+          solarDni: solarSnapshot.solarDni,
+          solarDhi: solarSnapshot.solarDhi,
+          solarGhi: solarSnapshot.solarGhi,
+          solarZenith: solarSnapshot.solarZenith,
+          solarAzimuth: solarSnapshot.solarAzimuth,
+          percentile: formValues.dryBulbPercentile,
+          year: String(year),
         };
-        writeNum("solarDni", intensity?.dni);
-        writeNum("solarDhi", intensity?.dhi);
-        writeNum("solarGhi", intensity?.ghi);
-        writeNum("solarZenith", position?.zenith);
-        writeNum("solarAzimuth", position?.azimuth);
+
+        const serializedCache = JSON.stringify(cache);
+        updateFieldIfChanged("currentOutdoorDesignData", serializedCache);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to auto-fill design temperatures.";
+        const message =
+          error instanceof Error ? error.message : "Failed to auto-fill current design conditions.";
         setDesignTempError(message);
       } finally {
         setDesignTempLoading(false);
       }
     }
 
-    void updateDesignTemperatures();
+    void updateCurrentDesignConditions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    designConditionSource,
     formValues.selectedCountry,
     formValues.selectedCountryCode,
     formValues.selectedCity,
     formValues.dryBulbPercentile,
     formValues.designYear,
-    formValues.conditionType,
+  ]);
+
+  useEffect(() => {
+    async function updateAshraeDesignConditions() {
+      const country = formValues.selectedCountry?.trim();
+      const city = formValues.selectedCity?.trim();
+      if (!country || !city || designConditionSource !== "ashrae-2017") {
+        return;
+      }
+
+      if (
+        !ASHRAE_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof ASHRAE_SUPPORTED_PERCENTILES)[number])
+      ) {
+        return;
+      }
+
+      setDesignTempLoading(true);
+      setDesignTempError(null);
+
+      try {
+        const resolvedLocation = await resolveSelectedLocation({
+          country,
+          city,
+          countryCode: formValues.selectedCountryCode,
+        });
+
+        const ashraeParams = new URLSearchParams({
+          latitude: String(resolvedLocation.latitude),
+          longitude: String(resolvedLocation.longitude),
+          country,
+          percentile: formValues.dryBulbPercentile,
+        });
+
+        const ashraePayload = await fetchCachedJson<AshraeDesignConditionsResponse & { error?: string }>(
+          `/api/ashrae-design-conditions?${ashraeParams.toString()}`,
+          undefined,
+          {
+            cacheKey: `ashrae-design-conditions:${ashraeParams.toString()}`,
+            ttlMs: 24 * 60 * 60 * 1000,
+          },
+        );
+
+        const latestCompleteYear = new Date().getUTCFullYear() - 1;
+        let solarSnapshot = emptySolarSnapshot();
+
+        try {
+          const solarDetailsPayload = await fetchSolarDetailsForLocation(
+            resolvedLocation,
+            buildSyntheticAshraeDatetime(latestCompleteYear, ashraePayload.cooling.hottestMonth),
+          );
+          solarSnapshot = buildSolarSnapshot(solarDetailsPayload);
+        } catch {
+          solarSnapshot = emptySolarSnapshot();
+        }
+
+        const cache: OutdoorDesignCache = {
+          source: "ashrae-2017",
+          label: "ASHRAE Station Data",
+          dryBulbTemp: formatConditionValue(ashraePayload.cooling.dryBulbTemp),
+          wetBulbTemp: formatConditionValue(ashraePayload.cooling.meanCoincidentWetBulb),
+          relativeHumidity: formatOptionalConditionValue(ashraePayload.cooling.relativeHumidity),
+          solarDni: solarSnapshot.solarDni,
+          solarDhi: solarSnapshot.solarDhi,
+          solarGhi: solarSnapshot.solarGhi,
+          solarZenith: solarSnapshot.solarZenith,
+          solarAzimuth: solarSnapshot.solarAzimuth,
+          percentile: ashraePayload.percentile,
+          stationName: ashraePayload.station.name,
+          stationWmo: ashraePayload.station.wmo,
+          stationLocation: ashraePayload.station.locationLabel,
+          stationCountry: ashraePayload.station.countryLabel,
+          stationSourceEdition: ashraePayload.station.sourceEdition,
+          stationDistanceKm: ashraePayload.distanceKm,
+          hottestMonth: ashraePayload.cooling.hottestMonth,
+          matchedByCountry: ashraePayload.matchedByCountry,
+        };
+
+        const serializedCache = JSON.stringify(cache);
+        updateFieldIfChanged("ashraeOutdoorDesignData", serializedCache);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to auto-fill ASHRAE design conditions.";
+        setDesignTempError(message);
+      } finally {
+        setDesignTempLoading(false);
+      }
+    }
+
+    void updateAshraeDesignConditions();
+  }, [
+    designConditionSource,
+    formValues.selectedCountry,
+    formValues.selectedCountryCode,
+    formValues.selectedCity,
+    formValues.dryBulbPercentile,
   ]);
 
   useEffect(() => {
@@ -494,7 +887,13 @@ export function HeatLoadFormPanel({
     if ((formValues.wetBulbTemp ?? "") !== formattedWetBulb) {
       onFieldChange("wetBulbTemp", formattedWetBulb);
     }
-  }, [formValues.conditionType, formValues.conditionValue, formValues.dryBulbTemp, formValues.wetBulbTemp, onFieldChange]);
+  }, [
+    formValues.conditionType,
+    formValues.conditionValue,
+    formValues.dryBulbTemp,
+    formValues.wetBulbTemp,
+    onFieldChange,
+  ]);
 
   useEffect(() => {
     const currentType = formValues.indoorConditionType ?? "Relative Humidity";
@@ -527,7 +926,12 @@ export function HeatLoadFormPanel({
     if ((formValues.indoorConditionValue ?? "") !== formattedValue) {
       onFieldChange("indoorConditionValue", formattedValue);
     }
-  }, [formValues.indoorConditionType, formValues.indoorConditionValue, formValues.insideCondition, onFieldChange]);
+  }, [
+    formValues.indoorConditionType,
+    formValues.indoorConditionValue,
+    formValues.insideCondition,
+    onFieldChange,
+  ]);
 
   useEffect(() => {
     const outside = Number.parseFloat(formValues.dryBulbTemp ?? "");
@@ -548,7 +952,13 @@ export function HeatLoadFormPanel({
     } else if ((formValues.conditionDifference ?? "") !== "") {
       onFieldChange("conditionDifference", "");
     }
-  }, [formValues.dryBulbTemp, formValues.insideCondition, formValues.outsideCondition, formValues.conditionDifference]);
+  }, [
+    formValues.dryBulbTemp,
+    formValues.insideCondition,
+    formValues.outsideCondition,
+    formValues.conditionDifference,
+    onFieldChange,
+  ]);
 
   return (
     <aside className="min-h-0 overflow-hidden border-b border-rose-100 bg-[#fff8fa] xl:border-r xl:border-b-0">
@@ -585,9 +995,10 @@ export function HeatLoadFormPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
           <div className="space-y-3">
-            {/* Location Selection - restored from main */}
             <div className="border border-rose-200 bg-white px-2 py-2">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]">Location Selection</p>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]">
+                Location Selection
+              </p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="grid gap-1 text-[10px] font-semibold text-slate-700">
                   Country
@@ -627,7 +1038,37 @@ export function HeatLoadFormPanel({
               {designTempError ? <p className="mt-2 text-[10px] text-rose-700">{designTempError}</p> : null}
             </div>
 
-            {/* Room Details + Design Conditions Table */}
+            <div className="border border-rose-200 bg-white px-2 py-2">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]">
+                Design Condition Source
+              </p>
+              <div className="flex flex-wrap gap-4 text-[10px] font-semibold text-slate-800">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="designConditionSource"
+                    value="current"
+                    checked={designConditionSource === "current"}
+                    onChange={() => handleDesignConditionSourceChange("current")}
+                    className="h-3.5 w-3.5 border-rose-300 text-[#9f1239]"
+                  />
+                  Current
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="designConditionSource"
+                    value="ashrae-2017"
+                    checked={designConditionSource === "ashrae-2017"}
+                    onChange={() => handleDesignConditionSourceChange("ashrae-2017")}
+                    className="h-3.5 w-3.5 border-rose-300 text-[#9f1239]"
+                  />
+                  ASHRAE Station Data
+                </label>
+              </div>
+              <p className="mt-2 text-[10px] text-slate-600">{designConditionSourceSummary}</p>
+            </div>
+
             <table className="w-full table-fixed border-collapse text-[10px] leading-none text-slate-900">
               <colgroup>
                 <col style={{ width: "22%" }} />
@@ -638,7 +1079,9 @@ export function HeatLoadFormPanel({
               <tbody>
                 <tr>
                   <RoomDetailsHeader surfaceType={surfaceType} onSurfaceChange={setSurfaceType} />
-                  <DesignConditionsHeader />
+                  <DesignConditionsHeader
+                    sourceSummary={designConditionSourceSummary}
+                  />
                 </tr>
                 {topSectionRows.map((rowIndex) => (
                   <tr key={rowIndex}>
@@ -649,22 +1092,23 @@ export function HeatLoadFormPanel({
                       unitSystem={unitSystem}
                       onFieldChange={onFieldChange}
                     />
-                    <DesignConditionsRow 
-                      rowIndex={rowIndex} 
-                      values={formValues} 
+                    <DesignConditionsRow
+                      rowIndex={rowIndex}
+                      values={formValues}
                       unitSystem={unitSystem}
-                      onFieldChange={onFieldChange} 
+                      designConditionSource={designConditionSource}
+                      onFieldChange={onFieldChange}
                     />
                   </tr>
                 ))}
               </tbody>
             </table>
 
-            <HeatLoadSheet 
+            <HeatLoadSheet
               formValues={formValues}
-              sheetValues={sheetValues} 
+              sheetValues={sheetValues}
               unitSystem={unitSystem}
-              onSheetChange={onSheetChange} 
+              onSheetChange={onSheetChange}
             />
           </div>
         </div>
