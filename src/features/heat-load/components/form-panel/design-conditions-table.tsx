@@ -70,7 +70,7 @@ const conditionRows: ConditionRow[] = [
 export function DesignConditionsHeader({
   sourceSummary,
 }: {
-  sourceSummary: string;
+  sourceSummary?: string;
 }) {
   return (
     <th
