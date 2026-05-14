@@ -6,6 +6,7 @@ import {
 } from "@/lib/units";
 
 type FormValues = Record<string, string>;
+type DesignConditionSource = "current" | "ashrae-2017";
 
 type ConditionRow =
   | {
@@ -66,13 +67,20 @@ const conditionRows: ConditionRow[] = [
   },
 ];
 
-export function DesignConditionsHeader() {
+export function DesignConditionsHeader({
+  sourceSummary,
+}: {
+  sourceSummary: string;
+}) {
   return (
     <th
-      className="border border-slate-300 bg-[#ffe7ee] px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]"
+      className="border border-slate-300 bg-[#ffe7ee] px-2 py-2 text-left text-[10px] text-[#9f1239]"
       colSpan={2}
     >
-      Design Conditions
+      <div className="space-y-1">
+        <div className="font-semibold uppercase tracking-[0.16em]">Design Conditions</div>
+        <p className="text-[9px] font-medium normal-case tracking-normal text-slate-600">{sourceSummary}</p>
+      </div>
     </th>
   );
 }
@@ -81,11 +89,13 @@ export function DesignConditionsRow({
   rowIndex,
   values,
   unitSystem,
+  designConditionSource,
   onFieldChange,
 }: {
   rowIndex: number;
   values: FormValues;
   unitSystem: UnitSystem;
+  designConditionSource: DesignConditionSource;
   onFieldChange: (name: string, value: string) => void;
 }) {
   const conditionRow = conditionRows[rowIndex];
@@ -93,7 +103,9 @@ export function DesignConditionsRow({
   const temperatureDeltaLabel = unitLabel(unitSystem, "temperatureDelta");
 
   if (conditionRow.kind === "outdoorDryBulb") {
-    const selectValue = values[conditionRow.percentageName] ?? conditionRow.percentageOptions[0];
+    const percentageOptions =
+      designConditionSource === "ashrae-2017" ? ["0.4", "1", "2"] : conditionRow.percentageOptions;
+    const selectValue = values[conditionRow.percentageName] ?? percentageOptions[0];
     const yearValue = values[conditionRow.yearName] ?? conditionRow.yearOptions[0];
 
     return (
@@ -119,7 +131,7 @@ export function DesignConditionsRow({
                 onChange={(event) => onFieldChange(conditionRow.percentageName, event.target.value)}
                 className="h-full min-h-[30px] w-full bg-transparent px-0 text-[9px] font-semibold text-slate-900 outline-none"
               >
-                {conditionRow.percentageOptions.map((option) => (
+                {percentageOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}%
                   </option>
@@ -127,19 +139,25 @@ export function DesignConditionsRow({
               </select>
             </div>
             <div className="border-l border-slate-200">
-              <select
-                aria-label="Design year"
-                name={conditionRow.yearName}
-                value={yearValue}
-                onChange={(event) => onFieldChange(conditionRow.yearName, event.target.value)}
-                className="h-full min-h-[30px] w-full bg-transparent px-0 text-[9px] font-semibold text-slate-900 outline-none"
-              >
-                {conditionRow.yearOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
+              {designConditionSource === "current" ? (
+                <select
+                  aria-label="Design year"
+                  name={conditionRow.yearName}
+                  value={yearValue}
+                  onChange={(event) => onFieldChange(conditionRow.yearName, event.target.value)}
+                  className="h-full min-h-[30px] w-full bg-transparent px-0 text-[9px] font-semibold text-slate-900 outline-none"
+                >
+                  {conditionRow.yearOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="flex h-full min-h-[30px] items-center justify-center bg-slate-50 px-1 text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+                  ASHRAE
+                </div>
+              )}
             </div>
           </div>
         </td>

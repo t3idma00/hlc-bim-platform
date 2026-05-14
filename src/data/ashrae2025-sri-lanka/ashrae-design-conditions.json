@@ -1,0 +1,692 @@
+{
+  "metadata": {
+    "datasetName": "ASHRAE 2025 Sri Lanka Climatic Design Conditions Lookup (SI)",
+    "unitSystem": "si",
+    "sourceEdition": "2025",
+    "publisher": "ASHRAE",
+    "sourceDirectory": "d:\\OAMK IT\\3rd year\\Thesis\\Sri Lanka data",
+    "notes": [
+      "Derived from local ASHRAE station-view PDF exports for Sri Lanka.",
+      "Numeric N/A values are serialized as null."
+    ]
+  },
+  "recordCount": 13,
+  "stations": [
+    {
+      "stationName": "ANURADHAPURA",
+      "wmo": "434210",
+      "wban": "99999",
+      "sourcePdfFile": "ANURADHAPURA, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "8.301N",
+      "longitudeText": "80.428E",
+      "latitude": 8.301,
+      "longitude": 80.428,
+      "elevation": 99.0,
+      "elevationUnit": "m",
+      "elevationM": 99.0,
+      "standardPressure": 100.14,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 100.14,
+      "standardPressurePa": 100140.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "1999-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 4,
+        "hottestMonthDryBulbRange": 8.8,
+        "dryBulb": {
+          "0.4": 35.1,
+          "1": 34.4,
+          "2": 33.8
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 25.3,
+          "1": 25.5,
+          "2": 25.6
+        },
+        "wetBulb": {
+          "0.4": 27.3,
+          "1": 27.0,
+          "2": 26.7
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 31.9,
+          "1": 31.7,
+          "2": 31.2
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 1.0,
+          "prevailingDirection": 230.0
+        }
+      }
+    },
+    {
+      "stationName": "BATTICALOA",
+      "wmo": "434360",
+      "wban": "99999",
+      "sourcePdfFile": "BATTICALOA, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "7.7124N",
+      "longitudeText": "81.7011E",
+      "latitude": 7.7124,
+      "longitude": 81.7011,
+      "elevation": 6.0,
+      "elevationUnit": "m",
+      "elevationM": 6.0,
+      "standardPressure": 101.25,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.25,
+      "standardPressurePa": 101250.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "2005-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 6,
+        "hottestMonthDryBulbRange": 6.7,
+        "dryBulb": {
+          "0.4": 35.6,
+          "1": 34.5,
+          "2": 33.6
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 25.3,
+          "1": 25.7,
+          "2": 26.2
+        },
+        "wetBulb": {
+          "0.4": 28.4,
+          "1": 28.1,
+          "2": 27.8
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 31.9,
+          "1": 31.7,
+          "2": 31.4
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 2.4,
+          "prevailingDirection": 230.0
+        }
+      }
+    },
+    {
+      "stationName": "COLOMBO RATMALANA",
+      "wmo": "434670",
+      "wban": "99999",
+      "sourcePdfFile": "COLOMBO RATMALANA, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "6.822N",
+      "longitudeText": "79.886E",
+      "latitude": 6.822,
+      "longitude": 79.886,
+      "elevation": 7.0,
+      "elevationUnit": "m",
+      "elevationM": 7.0,
+      "standardPressure": 101.24,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.24,
+      "standardPressurePa": 101240.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "2009-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 5,
+        "hottestMonthDryBulbRange": 5.0,
+        "dryBulb": {
+          "0.4": 33.2,
+          "1": 32.8,
+          "2": 32.5
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 26.6,
+          "1": 26.5,
+          "2": 26.4
+        },
+        "wetBulb": {
+          "0.4": 27.7,
+          "1": 27.5,
+          "2": 27.2
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 31.6,
+          "1": 31.4,
+          "2": 31.1
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 3.0,
+          "prevailingDirection": 230.0
+        }
+      }
+    },
+    {
+      "stationName": "COLOMBO",
+      "wmo": "434660",
+      "wban": "99999",
+      "sourcePdfFile": "COLOMBO, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "6.9047N",
+      "longitudeText": "79.872E",
+      "latitude": 6.9047,
+      "longitude": 79.872,
+      "elevation": 7.0,
+      "elevationUnit": "m",
+      "elevationM": 7.0,
+      "standardPressure": 101.24,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.24,
+      "standardPressurePa": 101240.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "2009-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 5,
+        "hottestMonthDryBulbRange": 4.2,
+        "dryBulb": {
+          "0.4": 32.5,
+          "1": 32.1,
+          "2": 31.7
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 26.0,
+          "1": 26.1,
+          "2": 26.1
+        },
+        "wetBulb": {
+          "0.4": 27.7,
+          "1": 27.5,
+          "2": 27.2
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 30.9,
+          "1": 30.7,
+          "2": 30.4
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 2.0,
+          "prevailingDirection": 230.0
+        }
+      }
+    },
+    {
+      "stationName": "GALLE",
+      "wmo": "434950",
+      "wban": "99999",
+      "sourcePdfFile": "GALLE, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "6.0296N",
+      "longitudeText": "80.2143E",
+      "latitude": 6.0296,
+      "longitude": 80.2143,
+      "elevation": 13.0,
+      "elevationUnit": "m",
+      "elevationM": 13.0,
+      "standardPressure": 101.17,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.17,
+      "standardPressurePa": 101170.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "2005-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 5,
+        "hottestMonthDryBulbRange": 2.9,
+        "dryBulb": {
+          "0.4": 32.0,
+          "1": 31.4,
+          "2": 30.9
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 26.5,
+          "1": 26.6,
+          "2": 26.6
+        },
+        "wetBulb": {
+          "0.4": 27.8,
+          "1": 27.6,
+          "2": 27.3
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 30.2,
+          "1": 30.0,
+          "2": 29.7
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 2.5,
+          "prevailingDirection": 180.0
+        }
+      }
+    },
+    {
+      "stationName": "HAMBANTOTA",
+      "wmo": "434970",
+      "wban": "99999",
+      "sourcePdfFile": "HAMBANTOTA, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "6.1225N",
+      "longitudeText": "81.1287E",
+      "latitude": 6.1225,
+      "longitude": 81.1287,
+      "elevation": 20.0,
+      "elevationUnit": "m",
+      "elevationM": 20.0,
+      "standardPressure": 101.08,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.08,
+      "standardPressurePa": 101080.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "1999-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 7,
+        "hottestMonthDryBulbRange": 7.4,
+        "dryBulb": {
+          "0.4": 35.1,
+          "1": 34.4,
+          "2": 33.7
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 25.4,
+          "1": 25.6,
+          "2": 25.7
+        },
+        "wetBulb": {
+          "0.4": 28.5,
+          "1": 28.3,
+          "2": 28.0
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 31.5,
+          "1": 31.3,
+          "2": 30.9
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 7.1,
+          "prevailingDirection": 230.0
+        }
+      }
+    },
+    {
+      "stationName": "KANDY",
+      "wmo": "434440",
+      "wban": "99999",
+      "sourcePdfFile": "KANDY, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "7.3344N",
+      "longitudeText": "80.6266E",
+      "latitude": 7.3344,
+      "longitude": 80.6266,
+      "elevation": 477.0,
+      "elevationUnit": "m",
+      "elevationM": 477.0,
+      "standardPressure": 95.72,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 95.72,
+      "standardPressurePa": 95720.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "2009-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 4,
+        "hottestMonthDryBulbRange": 8.8,
+        "dryBulb": {
+          "0.4": 32.2,
+          "1": 31.5,
+          "2": 30.8
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 23.5,
+          "1": 23.7,
+          "2": 23.8
+        },
+        "wetBulb": {
+          "0.4": 25.5,
+          "1": 25.1,
+          "2": 24.8
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 29.8,
+          "1": 29.3,
+          "2": 28.8
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 1.3,
+          "prevailingDirection": 140.0
+        }
+      }
+    },
+    {
+      "stationName": "KATUNAYAKE",
+      "wmo": "434500",
+      "wban": "99999",
+      "sourcePdfFile": "KATUNAYAKE, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "7.167N",
+      "longitudeText": "79.883E",
+      "latitude": 7.167,
+      "longitude": 79.883,
+      "elevation": 8.0,
+      "elevationUnit": "m",
+      "elevationM": 8.0,
+      "standardPressure": 101.23,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.23,
+      "standardPressurePa": 101230.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "1999-2023",
+      "grade": "A",
+      "cooling": {
+        "hottestMonth": 5,
+        "hottestMonthDryBulbRange": 5.0,
+        "dryBulb": {
+          "0.4": 33.3,
+          "1": 32.5,
+          "2": 32.1
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 24.3,
+          "1": 25.1,
+          "2": 25.4
+        },
+        "wetBulb": {
+          "0.4": 28.1,
+          "1": 27.5,
+          "2": 27.3
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 30.4,
+          "1": 30.3,
+          "2": 30.3
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 5.0,
+          "prevailingDirection": 30.0
+        }
+      }
+    },
+    {
+      "stationName": "MANNAR",
+      "wmo": "434130",
+      "wban": "99999",
+      "sourcePdfFile": "MANNAR, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "8.983N",
+      "longitudeText": "79.917E",
+      "latitude": 8.983,
+      "longitude": 79.917,
+      "elevation": 3.0,
+      "elevationUnit": "m",
+      "elevationM": 3.0,
+      "standardPressure": 101.29,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.29,
+      "standardPressurePa": 101290.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "2012-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 5,
+        "hottestMonthDryBulbRange": 3.8,
+        "dryBulb": {
+          "0.4": 33.1,
+          "1": 32.6,
+          "2": 32.1
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 27.0,
+          "1": 27.0,
+          "2": 27.0
+        },
+        "wetBulb": {
+          "0.4": 28.3,
+          "1": 28.0,
+          "2": 27.7
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 31.3,
+          "1": 31.2,
+          "2": 30.8
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 2.3,
+          "prevailingDirection": 230.0
+        }
+      }
+    },
+    {
+      "stationName": "NUWARA ELIYA",
+      "wmo": "434730",
+      "wban": "99999",
+      "sourcePdfFile": "NUWARA ELIYA, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "6.9698N",
+      "longitudeText": "80.7789E",
+      "latitude": 6.9698,
+      "longitude": 80.7789,
+      "elevation": 1880.0,
+      "elevationUnit": "m",
+      "elevationM": 1880.0,
+      "standardPressure": 80.69,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 80.69,
+      "standardPressurePa": 80690.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "1999-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 5,
+        "hottestMonthDryBulbRange": 6.6,
+        "dryBulb": {
+          "0.4": 23.2,
+          "1": 22.3,
+          "2": 21.7
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 16.1,
+          "1": 15.9,
+          "2": 16.0
+        },
+        "wetBulb": {
+          "0.4": 18.5,
+          "1": 18.0,
+          "2": 17.6
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 21.3,
+          "1": 20.7,
+          "2": 20.2
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 1.6,
+          "prevailingDirection": 6.0
+        }
+      }
+    },
+    {
+      "stationName": "PUTTALAM",
+      "wmo": "434240",
+      "wban": "99999",
+      "sourcePdfFile": "PUTTALAM, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "8.0271N",
+      "longitudeText": "79.8416E",
+      "latitude": 8.0271,
+      "longitude": 79.8416,
+      "elevation": 2.0,
+      "elevationUnit": "m",
+      "elevationM": 2.0,
+      "standardPressure": 101.3,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.3,
+      "standardPressurePa": 101300.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "1999-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 5,
+        "hottestMonthDryBulbRange": 5.0,
+        "dryBulb": {
+          "0.4": 33.7,
+          "1": 33.1,
+          "2": 32.6
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 26.6,
+          "1": 26.8,
+          "2": 26.8
+        },
+        "wetBulb": {
+          "0.4": 28.4,
+          "1": 28.0,
+          "2": 27.7
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 31.8,
+          "1": 31.6,
+          "2": 31.2
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 2.0,
+          "prevailingDirection": 50.0
+        }
+      }
+    },
+    {
+      "stationName": "RATNAPURA",
+      "wmo": "434860",
+      "wban": "99999",
+      "sourcePdfFile": "RATNAPURA, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "6.7129N",
+      "longitudeText": "80.3808E",
+      "latitude": 6.7129,
+      "longitude": 80.3808,
+      "elevation": 88.0,
+      "elevationUnit": "m",
+      "elevationM": 88.0,
+      "standardPressure": 100.27,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 100.27,
+      "standardPressurePa": 100270.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "2009-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 5,
+        "hottestMonthDryBulbRange": 6.6,
+        "dryBulb": {
+          "0.4": 34.1,
+          "1": 33.4,
+          "2": 32.8
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 25.6,
+          "1": 25.7,
+          "2": 25.7
+        },
+        "wetBulb": {
+          "0.4": 27.4,
+          "1": 27.1,
+          "2": 26.8
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 31.6,
+          "1": 31.1,
+          "2": 30.6
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 1.4,
+          "prevailingDirection": 320.0
+        }
+      }
+    },
+    {
+      "stationName": "TRINCOMALEE CHINA BAY",
+      "wmo": "434180",
+      "wban": "99999",
+      "sourcePdfFile": "TRINCOMALEE CHINA BAY, SRI LANKA.pdf",
+      "sourceEdition": "2025",
+      "countryLabel": "Sri Lanka",
+      "locationLabel": "Sri Lanka",
+      "latitudeText": "8.539N",
+      "longitudeText": "81.182E",
+      "latitude": 8.539,
+      "longitude": 81.182,
+      "elevation": 2.0,
+      "elevationUnit": "m",
+      "elevationM": 2.0,
+      "standardPressure": 101.3,
+      "standardPressureUnit": "kPa",
+      "standardPressureKPa": 101.3,
+      "standardPressurePa": 101300.0,
+      "utcOffsetHours": 5.5,
+      "timeZoneCode": "IND",
+      "periodOfRecord": "2001-2023",
+      "grade": "B",
+      "cooling": {
+        "hottestMonth": 6,
+        "hottestMonthDryBulbRange": 7.6,
+        "dryBulb": {
+          "0.4": 36.0,
+          "1": 35.3,
+          "2": 34.7
+        },
+        "meanCoincidentWetBulb": {
+          "0.4": 25.9,
+          "1": 25.9,
+          "2": 25.9
+        },
+        "wetBulb": {
+          "0.4": 27.9,
+          "1": 27.6,
+          "2": 27.2
+        },
+        "meanCoincidentDryBulbFromWetBulb": {
+          "0.4": 32.4,
+          "1": 32.1,
+          "2": 31.7
+        },
+        "meanCoincidentWindTo0_4DryBulb": {
+          "windSpeed": 2.7,
+          "prevailingDirection": 230.0
+        }
+      }
+    }
+  ]
+}

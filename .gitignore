@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python
+__pycache__/
+*.pyc
+
+# large generated ASHRAE full archives — app uses only the lookup files
+src/data/ashrae2005/stations.si.json
+src/data/ashrae2005/stations.ip.json
