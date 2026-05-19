@@ -1,8 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { flushSync } from "react-dom";
 import { type User } from "@supabase/supabase-js";
 import { HeatLoadCanvasPanel } from "../../bim-model/view2D";
+import {
+  downloadCanvasJpg,
+  downloadCanvasPdf,
+  waitForRenderFrames,
+  waitForCanvasById,
+} from "../../bim-model/export-canvas";
+import { downloadRoomsDxf } from "../../bim-model/view2D/export-dxf";
 import { HeatLoad3DPanel } from "../../bim-model/view3D";
 import { type WorkspaceView } from "../../bim-model/workspace-view-toggle";
 import { HeatLoadFormPanel, initialFormValues, type FormValues } from "./form-panel";
@@ -38,6 +46,18 @@ type ProjectRecord = Omit<Project, "data"> & {
   data?: ProjectData | null;
 };
 
+type ExportSelection = {
+  export2dJpg: boolean;
+  export2dPdf: boolean;
+  export2dDxf: boolean;
+};
+
+const DEFAULT_EXPORT_SELECTION: ExportSelection = {
+  export2dJpg: true,
+  export2dPdf: true,
+  export2dDxf: false,
+};
+
 export default function HeatLoadWorkspace() {
   const [projectData, setProjectData] = useState<ProjectData>({
     version: "1.2",
@@ -71,6 +91,10 @@ export default function HeatLoadWorkspace() {
   const [showProjectsModal, setShowProjectsModal] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportSelection, setExportSelection] = useState<ExportSelection>(DEFAULT_EXPORT_SELECTION);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   // Add Room Modal
   const [showAddRoomModal, setShowAddRoomModal] = useState(false);
@@ -87,7 +111,6 @@ export default function HeatLoadWorkspace() {
   const [leftWidthPercent, setLeftWidthPercent] = useState(40);
   const containerRef = useRef<HTMLElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-
   const handleMouseDown = useCallback(() => setIsDragging(true), []);
 
   useEffect(() => {
@@ -211,6 +234,112 @@ export default function HeatLoadWorkspace() {
     setActiveRoomId(newRoomId);
     setShowAddRoomModal(false);
   };
+
+  const handleOpenExportModal = useCallback(() => {
+    setExportError(null);
+    setExportSelection(DEFAULT_EXPORT_SELECTION);
+    setShowExportModal(true);
+  }, []);
+
+  const updateExportSelection = useCallback(
+    (field: keyof ExportSelection, value: boolean) => {
+      setExportSelection((previous) => ({
+        ...previous,
+        [field]: value,
+      }));
+    },
+    []
+  );
+
+  const applyExportPreset = useCallback((preset: "2d" | "3d" | "all" | "none") => {
+    if (preset === "2d") {
+      setExportSelection({
+        export2dJpg: true,
+        export2dPdf: true,
+        export2dDxf: true,
+      });
+      return;
+    }
+
+    if (preset === "all") {
+      setExportSelection({
+        export2dJpg: true,
+        export2dPdf: true,
+        export2dDxf: true,
+      });
+      return;
+    }
+
+    setExportSelection({
+      export2dJpg: false,
+      export2dPdf: false,
+      export2dDxf: false,
+    });
+  }, []);
+
+  const handleExportSelected = useCallback(async () => {
+    const selectedCount = Object.values(exportSelection).filter(Boolean).length;
+
+    if (selectedCount === 0) {
+      setExportError("Select at least one export option.");
+      return;
+    }
+
+    const exportBaseName = sanitizeExportFileBase(
+      (currentProjectName || projectName || "hlc-bim-project").trim()
+    );
+    const roomsToExport = resolveRoomPlacements(projectData.rooms);
+    const previousView = activeView;
+    let shouldRestorePreviousView = false;
+
+    try {
+      setExporting(true);
+      setExportError(null);
+
+      let exportCanvas: HTMLCanvasElement | null = null;
+      const needs2dCanvas = exportSelection.export2dJpg || exportSelection.export2dPdf;
+
+      if (needs2dCanvas) {
+        if (previousView !== "2d") {
+          shouldRestorePreviousView = true;
+          flushSync(() => {
+            setActiveView("2d");
+          });
+        }
+
+        await waitForRenderFrames(6);
+        exportCanvas = await waitForCanvasById("heat-load-2d-canvas", 8000);
+      }
+
+      if (exportSelection.export2dJpg) {
+        await downloadCanvasJpg(exportCanvas!, `${exportBaseName}-2d-plan`);
+      }
+
+      if (exportSelection.export2dPdf) {
+        await downloadCanvasPdf(exportCanvas!, `${exportBaseName}-2d-plan`);
+      }
+
+      if (exportSelection.export2dDxf) {
+        downloadRoomsDxf(roomsToExport, {
+          projectName: exportBaseName,
+          fileName: `${exportBaseName}-2d-plan.dxf`,
+        });
+      }
+
+      setShowExportModal(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Export failed.";
+      setExportError(message);
+    } finally {
+      if (shouldRestorePreviousView) {
+        flushSync(() => {
+          setActiveView(previousView);
+        });
+      }
+
+      setExporting(false);
+    }
+  }, [currentProjectName, exportSelection, projectData.rooms, projectName]);
 
   // ==================== SAVE / UPDATE LOGIC ====================
   const handleSaveProject = async () => {
@@ -419,7 +548,10 @@ export default function HeatLoadWorkspace() {
                   {loadingProjects ? "Loading..." : "My Projects"}
                 </button>
 
-                <button className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition">
+                <button
+                  onClick={handleOpenExportModal}
+                  className="border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-[#9f1239] hover:bg-rose-50 rounded-lg transition"
+                >
                   Export
                 </button>
 
@@ -569,6 +701,108 @@ export default function HeatLoadWorkspace() {
               <button onClick={handleConfirmAddRoom} className="flex-1 py-3 bg-[#be123c] text-white rounded-xl font-medium hover:bg-[#9f1239]">
                 Add Room
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="mx-4 w-full max-w-2xl rounded-2xl bg-white p-8 shadow-xl">
+            <h2 className="text-2xl font-semibold text-slate-900">Export Options</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Choose what to export from the 2D workspace.
+            </p>
+
+            <div className="mt-6">
+              <section className="rounded-2xl border border-rose-100 bg-rose-50/60 p-5">
+                <h3 className="text-lg font-semibold text-slate-900">2D Canvas</h3>
+                <div className="mt-4 space-y-3">
+                  <ExportCheckbox
+                    checked={exportSelection.export2dJpg}
+                    onChange={(checked) => updateExportSelection("export2dJpg", checked)}
+                    label="JPG"
+                    description="Quick image of the 2D plan."
+                  />
+                  <ExportCheckbox
+                    checked={exportSelection.export2dPdf}
+                    onChange={(checked) => updateExportSelection("export2dPdf", checked)}
+                    label="PDF"
+                    description="Printable 2D canvas snapshot."
+                  />
+                  <ExportCheckbox
+                    checked={exportSelection.export2dDxf}
+                    onChange={(checked) => updateExportSelection("export2dDxf", checked)}
+                    label="DXF"
+                    description="AutoCAD-compatible 2D drawing."
+                  />
+                </div>
+              </section>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">Quick Actions</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => applyExportPreset("2d")}
+                  type="button"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Select All 2D
+                </button>
+                <button
+                  onClick={() => applyExportPreset("all")}
+                  type="button"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Select Everything
+                </button>
+                <button
+                  onClick={() => applyExportPreset("none")}
+                  type="button"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-slate-900">
+                  {Object.values(exportSelection).filter(Boolean).length} item(s) selected
+                </p>
+                {exportError ? (
+                  <p className="mt-1 text-sm text-red-600">{exportError}</p>
+                ) : (
+                  <p className="mt-1 text-sm text-slate-500">
+                    JPG and PDF export the 2D canvas view. DXF exports the 2D drawing data.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    if (exporting) return;
+                    setShowExportModal(false);
+                    setExportError(null);
+                  }}
+                  type="button"
+                  className="rounded-xl border border-slate-300 px-5 py-3 font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExportSelected}
+                  type="button"
+                  disabled={exporting}
+                  className="rounded-xl bg-[#be123c] px-5 py-3 font-medium text-white hover:bg-[#9f1239] disabled:bg-rose-300"
+                >
+                  {exporting ? "Exporting..." : "Export Selected"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -860,4 +1094,36 @@ function applySheetValueToFormValues(formValues: FormValues, sheetKey: string, s
   if (!formField) return formValues;
 
   return { ...formValues, [formField]: sheetValue };
+}
+
+function ExportCheckbox({
+  checked,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  description: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:border-rose-200">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-1 h-4 w-4 rounded border-slate-300 text-[#be123c] focus:ring-[#be123c]"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-slate-900">{label}</span>
+        <span className="mt-1 block text-xs text-slate-500">{description}</span>
+      </span>
+    </label>
+  );
+}
+
+function sanitizeExportFileBase(value: string) {
+  const sanitized = value.replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").trim();
+  return sanitized.length > 0 ? sanitized : "hlc-bim-project";
 }

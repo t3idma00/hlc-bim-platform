@@ -294,6 +294,22 @@ type EditorObjectHit = {
   distance: number;
 };
 
+type EditorSnapKind = "corner" | "endpoint" | "midpoint" | "center";
+
+type EditorSnapTarget = {
+  point: Point;
+  kind: EditorSnapKind;
+  label: string;
+  distance: number;
+  screenPoint: Point;
+};
+
+type EditorPlanInteractionState = {
+  renderedPlanMetrics: ReturnType<typeof getRenderedRoomPlanMetrics> | null;
+  activePlan: RenderedRoomPlan | null;
+  viewport: EditorViewport;
+};
+
 type ActiveEditorTool = EditorTool | null;
 
 const TOOL_OPTIONS: ToolOption[] = [
@@ -371,6 +387,7 @@ export function HeatLoadCanvasPanel({
   const measurementStartRef = useRef<Point | null>(null);
   const measurementEndRef = useRef<Point | null>(null);
   const measurementCompleteRef = useRef(false);
+  const hoveredSnapTargetRef = useRef<EditorSnapTarget | null>(null);
   const dragStateRef = useRef<EditorDragState>({ kind: "idle" });
   const idCounterRef = useRef(0);
   const undoStackRef = useRef<EditorSnapshot[]>([]);
@@ -586,6 +603,10 @@ export function HeatLoadCanvasPanel({
   useEffect(() => {
     editorToolRef.current = editorTool;
 
+    if (editorTool !== "measure" && editorTool !== "wall") {
+      hoveredSnapTargetRef.current = null;
+    }
+
     if (
       editorTool !== "wall" &&
       (draftWallStartRef.current !== null || draftWallEndRef.current !== null)
@@ -610,6 +631,7 @@ export function HeatLoadCanvasPanel({
     selectedEditorElementRef.current = null;
     dragStateRef.current = { kind: "idle" };
     clearEditorDraft();
+    hoveredSnapTargetRef.current = null;
     refreshEditorUi();
   }, [formValues]);
 
@@ -1038,6 +1060,14 @@ export function HeatLoadCanvasPanel({
 
         plan.laidOutChains.items.forEach((item) => {
           const totalOffset = addPoints(item.offset, plan.roomOffset);
+          drawWallChainSurface(
+            context,
+            item.geometry,
+            totalOffset,
+            originX,
+            originY,
+            pixelsPerMeter
+          );
 
           item.chain.segments.forEach((segment) => {
             const worldStart = addPoints(segment.start, totalOffset);
@@ -1052,7 +1082,6 @@ export function HeatLoadCanvasPanel({
 
             const start = translatePoint(worldStart, originX, originY, pixelsPerMeter);
             const end = translatePoint(worldEnd, originX, originY, pixelsPerMeter);
-            drawPlainWallSurface(context, segment, start, end, pixelsPerMeter);
 
             if (
               plan.isActive &&
@@ -1253,6 +1282,16 @@ export function HeatLoadCanvasPanel({
       const width = canvasElement.clientWidth;
       const height = canvasElement.clientHeight;
       const gridMetrics = getGridMetrics(scale);
+      const measurementViewport = getEditorPlanInteractionState(
+        width,
+        height,
+        gridMetrics.pixelsPerMeter,
+        offsetRef.current.x,
+        offsetRef.current.y,
+        rooms,
+        activeRoomId,
+        formValues
+      ).viewport;
 
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -1276,15 +1315,15 @@ export function HeatLoadCanvasPanel({
         offsetRef.current.y
       );
 
+      drawEditorSnapIndicator(
+        context,
+        measurementViewport,
+        hoveredSnapTargetRef.current
+      );
+
       drawMeasurementOverlay(
         context,
-        getEditorViewport(
-          width,
-          height,
-          gridMetrics.pixelsPerMeter,
-          offsetRef.current.x,
-          offsetRef.current.y
-        ),
+        measurementViewport,
         measurementStartRef.current,
         measurementEndRef.current,
         unitSystem
@@ -1313,68 +1352,56 @@ export function HeatLoadCanvasPanel({
 
     const getCanvasPoint = (event: MouseEvent): Point => {
       const bounds = canvas.getBoundingClientRect();
-      const scaleX = bounds.width > 0 ? canvas.width / bounds.width : 1;
-      const scaleY = bounds.height > 0 ? canvas.height / bounds.height : 1;
 
       return {
-        x: (event.clientX - bounds.left) * scaleX,
-        y: (event.clientY - bounds.top) * scaleY,
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
       };
     };
 
     const getEditorInteractionContext = (event: MouseEvent) => {
       const point = getCanvasPoint(event);
       const gridMetrics = getGridMetrics(scale);
-      const renderedPlanMetrics =
-        rooms && rooms.length > 0
-          ? getRenderedRoomPlanMetrics(
-              canvas.width,
-              canvas.height,
-              gridMetrics.pixelsPerMeter,
-              offsetRef.current.x,
-              offsetRef.current.y,
-              rooms,
-              activeRoomId,
-              formValues
-            )
-          : null;
-      const activePlan = renderedPlanMetrics?.roomPlans.find((plan) => plan.isActive);
-      const viewport =
-        renderedPlanMetrics && activePlan
-          ? {
-              x: renderedPlanMetrics.drawX,
-              y: renderedPlanMetrics.drawY,
-              width: renderedPlanMetrics.drawWidth,
-              height: renderedPlanMetrics.drawHeight,
-              centerX:
-                renderedPlanMetrics.originX +
-                activePlan.roomOffset.x * gridMetrics.pixelsPerMeter,
-              centerY:
-                renderedPlanMetrics.originY +
-                activePlan.roomOffset.y * gridMetrics.pixelsPerMeter,
-              pixelsPerMeter: gridMetrics.pixelsPerMeter,
-            }
-          : getEditorViewport(
-              canvas.width,
-              canvas.height,
-              gridMetrics.pixelsPerMeter,
-              offsetRef.current.x,
-              offsetRef.current.y
-            );
+      const planInteractionState = getEditorPlanInteractionState(
+        canvas.clientWidth,
+        canvas.clientHeight,
+        gridMetrics.pixelsPerMeter,
+        offsetRef.current.x,
+        offsetRef.current.y,
+        rooms,
+        activeRoomId,
+        formValues
+      );
+      const { activePlan, viewport } = planInteractionState;
       const insideViewport = isPointInsideViewport(point, viewport);
       const rawWorldPoint = insideViewport
         ? screenToEditorWorld(point, viewport)
         : null;
-      const worldPoint = rawWorldPoint
+      const gridWorldPoint = rawWorldPoint
         ? snapEditorPoint(rawWorldPoint, getEditorSnapStep(gridMetrics))
         : null;
+      const snapTarget =
+        rawWorldPoint !== null
+          ? findEditorSnapTarget(
+              point,
+              viewport,
+              editorWallsRef.current,
+              editorOpeningsRef.current,
+              editorObjectsRef.current,
+              activePlan
+            )
+          : null;
+      const cadWorldPoint = snapTarget?.point ?? gridWorldPoint;
 
       return {
         point,
         gridMetrics,
         viewport,
+        activePlan,
         insideViewport,
-        worldPoint,
+        worldPoint: gridWorldPoint,
+        cadWorldPoint,
+        snapTarget,
       };
     };
 
@@ -1409,19 +1436,20 @@ export function HeatLoadCanvasPanel({
       }
 
       if (tool === "measure") {
-        if (!interaction.worldPoint) {
+        if (!interaction.cadWorldPoint) {
           return;
         }
 
         if (!measurementStartRef.current || measurementCompleteRef.current) {
-          measurementStartRef.current = interaction.worldPoint;
-          measurementEndRef.current = interaction.worldPoint;
+          measurementStartRef.current = interaction.cadWorldPoint;
+          measurementEndRef.current = interaction.cadWorldPoint;
           measurementCompleteRef.current = false;
         } else {
-          measurementEndRef.current = interaction.worldPoint;
+          measurementEndRef.current = interaction.cadWorldPoint;
           measurementCompleteRef.current = true;
         }
 
+        hoveredSnapTargetRef.current = interaction.snapTarget;
         selectedEditorElementRef.current = null;
         dragStateRef.current = { kind: "idle" };
         refreshEditorUi();
@@ -1450,14 +1478,14 @@ export function HeatLoadCanvasPanel({
           : null;
 
       if (tool === "wall") {
-        if (!interaction.worldPoint) {
+        if (!interaction.cadWorldPoint) {
           return;
         }
 
         if (!draftWallStartRef.current) {
           selectedEditorElementRef.current = null;
-          draftWallStartRef.current = interaction.worldPoint;
-          draftWallEndRef.current = interaction.worldPoint;
+          draftWallStartRef.current = interaction.cadWorldPoint;
+          draftWallEndRef.current = interaction.cadWorldPoint;
           refreshEditorUi();
           redrawCanvas();
           return;
@@ -1465,7 +1493,7 @@ export function HeatLoadCanvasPanel({
 
         const endPoint = lockEditorWallPoint(
           draftWallStartRef.current,
-          interaction.worldPoint
+          interaction.cadWorldPoint
         );
 
         if (
@@ -1712,28 +1740,17 @@ export function HeatLoadCanvasPanel({
     const handleMouseMove = (event: MouseEvent) => {
       const interaction = getEditorInteractionContext(event);
       const dragState = dragStateRef.current;
+      const shouldShowSnapTarget =
+        editorToolRef.current === "measure" ||
+        (editorToolRef.current === "wall" && draftWallStartRef.current !== null);
+      const nextSnapTarget = shouldShowSnapTarget ? interaction.snapTarget : null;
+      const didSnapTargetChange = !doEditorSnapTargetsMatch(
+        hoveredSnapTargetRef.current,
+        nextSnapTarget
+      );
 
-      if (
-        editorToolRef.current === "measure" &&
-        measurementStartRef.current &&
-        !measurementCompleteRef.current &&
-        interaction.worldPoint
-      ) {
-        measurementEndRef.current = interaction.worldPoint;
-        redrawCanvas();
-        return;
-      }
-
-      if (
-        editorToolRef.current === "wall" &&
-        draftWallStartRef.current &&
-        interaction.worldPoint
-      ) {
-        draftWallEndRef.current = lockEditorWallPoint(
-          draftWallStartRef.current,
-          interaction.worldPoint
-        );
-        redrawCanvas();
+      if (didSnapTargetChange) {
+        hoveredSnapTargetRef.current = nextSnapTarget;
       }
 
       if (dragState.kind === "pan") {
@@ -1748,6 +1765,34 @@ export function HeatLoadCanvasPanel({
         };
         redrawCanvas();
         return;
+      }
+
+      if (
+        editorToolRef.current === "measure" &&
+        measurementStartRef.current &&
+        !measurementCompleteRef.current &&
+        interaction.cadWorldPoint
+      ) {
+        measurementEndRef.current = interaction.cadWorldPoint;
+        redrawCanvas();
+        return;
+      }
+
+      if (
+        editorToolRef.current === "wall" &&
+        draftWallStartRef.current &&
+        interaction.cadWorldPoint
+      ) {
+        draftWallEndRef.current = lockEditorWallPoint(
+          draftWallStartRef.current,
+          interaction.cadWorldPoint
+        );
+        redrawCanvas();
+        return;
+      }
+
+      if (didSnapTargetChange && dragState.kind === "idle") {
+        redrawCanvas();
       }
 
       if (dragState.kind === "wall" && interaction.worldPoint) {
@@ -1915,6 +1960,7 @@ export function HeatLoadCanvasPanel({
       if (event.key === "Escape") {
         if (draftWallStartRef.current || draftWallEndRef.current) {
           clearEditorDraft();
+          hoveredSnapTargetRef.current = null;
           refreshEditorUi();
           redrawCanvas();
         }
@@ -1922,6 +1968,7 @@ export function HeatLoadCanvasPanel({
           measurementStartRef.current = null;
           measurementEndRef.current = null;
           measurementCompleteRef.current = false;
+          hoveredSnapTargetRef.current = null;
           refreshEditorUi();
           redrawCanvas();
         }
@@ -2119,7 +2166,7 @@ export function HeatLoadCanvasPanel({
                 </div>
 
                 {showObjectMenu ? (
-                  <div className="absolute left-full top-0 z-50 ml-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl shadow-slate-900/20">
+                  <div className="absolute bottom-0 left-full z-50 ml-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl shadow-slate-900/20">
                     {OBJECT_TOOL_OPTIONS.map((option) => {
                       const isSelected = option.key === selectedObjectKind;
 
@@ -2153,6 +2200,7 @@ export function HeatLoadCanvasPanel({
 
           <div className="relative min-w-0 flex-1">
             <canvas
+              id="heat-load-2d-canvas"
               ref={canvasRef}
               className={`h-full w-full ${canvasCursorClass}`}
             />
@@ -2699,6 +2747,54 @@ function getEditorViewport(
   };
 }
 
+function getEditorPlanInteractionState(
+  width: number,
+  height: number,
+  pixelsPerMeter: number,
+  offsetX: number,
+  offsetY: number,
+  rooms: CanvasRoom[] | undefined,
+  activeRoomId: string | undefined,
+  formValues: CanvasFormValues
+): EditorPlanInteractionState {
+  const renderedPlanMetrics =
+    rooms && rooms.length > 0
+      ? getRenderedRoomPlanMetrics(
+          width,
+          height,
+          pixelsPerMeter,
+          offsetX,
+          offsetY,
+          rooms,
+          activeRoomId,
+          formValues
+        )
+      : null;
+  const activePlan = renderedPlanMetrics?.roomPlans.find((plan) => plan.isActive) ?? null;
+  const viewport =
+    renderedPlanMetrics && activePlan
+      ? {
+          x: renderedPlanMetrics.drawX,
+          y: renderedPlanMetrics.drawY,
+          width: renderedPlanMetrics.drawWidth,
+          height: renderedPlanMetrics.drawHeight,
+          centerX:
+            renderedPlanMetrics.originX +
+            activePlan.roomOffset.x * pixelsPerMeter,
+          centerY:
+            renderedPlanMetrics.originY +
+            activePlan.roomOffset.y * pixelsPerMeter,
+          pixelsPerMeter,
+        }
+      : getEditorViewport(width, height, pixelsPerMeter, offsetX, offsetY);
+
+  return {
+    renderedPlanMetrics,
+    activePlan,
+    viewport,
+  };
+}
+
 function isPointInsideViewport(point: Point, viewport: EditorViewport) {
   return (
     point.x >= viewport.x &&
@@ -2783,6 +2879,51 @@ function drawMeasurementOverlay(
   context.textAlign = "center";
   context.textBaseline = "middle";
   context.fillText(label, labelX, labelY);
+  context.restore();
+}
+
+function drawEditorSnapIndicator(
+  context: CanvasRenderingContext2D,
+  viewport: EditorViewport,
+  snapTarget: EditorSnapTarget | null
+) {
+  if (!snapTarget) {
+    return;
+  }
+
+  const point = worldToEditorScreen(snapTarget.point, viewport);
+
+  context.save();
+  context.beginPath();
+  context.rect(viewport.x, viewport.y, viewport.width, viewport.height);
+  context.clip();
+
+  context.strokeStyle = "#0ea5e9";
+  context.fillStyle = "#ffffff";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(point.x, point.y, 5.5, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = "#0f172a";
+  context.font = "11px sans-serif";
+  context.textAlign = "left";
+  context.textBaseline = "bottom";
+  const textWidth = context.measureText(snapTarget.label).width;
+  const labelX = point.x + 10;
+  const labelY = point.y - 10;
+
+  context.fillStyle = "rgba(255, 255, 255, 0.96)";
+  context.strokeStyle = "rgba(14, 165, 233, 0.4)";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.roundRect(labelX - 6, labelY - 16, textWidth + 12, 18, 5);
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = "#0f172a";
+  context.fillText(snapTarget.label, labelX, labelY - 2);
   context.restore();
 }
 
@@ -3090,6 +3231,166 @@ function drawEditorObject(
   drawEditorObjectDetails(context, object, viewport, objectStyle);
 
   context.restore();
+}
+
+function findEditorSnapTarget(
+  point: Point,
+  viewport: EditorViewport,
+  walls: EditableWall[],
+  openings: EditableOpening[],
+  objects: EditableObject[],
+  activePlan: RenderedRoomPlan | null
+): EditorSnapTarget | null {
+  const candidates: Array<{
+    point: Point;
+    kind: EditorSnapKind;
+    label: string;
+    priority: number;
+  }> = [];
+
+  const addCandidate = (
+    candidatePoint: Point,
+    kind: EditorSnapKind,
+    label: string,
+    priority: number
+  ) => {
+    candidates.push({
+      point: candidatePoint,
+      kind,
+      label,
+      priority,
+    });
+  };
+
+  if (activePlan) {
+    activePlan.laidOutChains.items.forEach((item) => {
+      item.chain.segments.forEach((segment, index) => {
+        const totalOffset = addPoints(item.offset, activePlan.roomOffset);
+        const segmentStart = addPoints(segment.start, totalOffset);
+        const segmentEnd = addPoints(segment.end, totalOffset);
+        const isFirstSegment = index === 0;
+        const isLastSegment = index === item.chain.segments.length - 1;
+        const startKind =
+          !item.chain.closed && isFirstSegment ? "endpoint" : "corner";
+        const endKind =
+          !item.chain.closed && isLastSegment ? "endpoint" : "corner";
+
+        addCandidate(
+          segmentStart,
+          startKind,
+          startKind === "endpoint" ? "Endpoint" : "Corner",
+          0
+        );
+        addCandidate(
+          segmentEnd,
+          endKind,
+          endKind === "endpoint" ? "Endpoint" : "Corner",
+          0
+        );
+        addCandidate(
+          {
+            x: (segmentStart.x + segmentEnd.x) / 2,
+            y: (segmentStart.y + segmentEnd.y) / 2,
+          },
+          "midpoint",
+          "Midpoint",
+          1
+        );
+      });
+    });
+  } else {
+    walls.forEach((wall) => {
+      addCandidate(wall.start, "endpoint", "Endpoint", 0);
+      addCandidate(wall.end, "endpoint", "Endpoint", 0);
+      addCandidate(
+        {
+          x: (wall.start.x + wall.end.x) / 2,
+          y: (wall.start.y + wall.end.y) / 2,
+        },
+        "midpoint",
+        "Midpoint",
+        1
+      );
+    });
+
+    openings.forEach((opening) => {
+      const ownerWall = walls.find((wall) => wall.id === opening.wallId);
+
+      if (!ownerWall) {
+        return;
+      }
+
+      const wallLength = getEditorWallLength(ownerWall);
+      if (wallLength <= 0.0001) {
+        return;
+      }
+
+      const alongWall = normalizeVector({
+        x: ownerWall.end.x - ownerWall.start.x,
+        y: ownerWall.end.y - ownerWall.start.y,
+      });
+      const openingStart = addPoints(
+        ownerWall.start,
+        scalePoint(alongWall, opening.offsetMeters)
+      );
+      const openingEnd = addPoints(
+        openingStart,
+        scalePoint(alongWall, opening.widthMeters)
+      );
+      const openingCenter = addPoints(
+        openingStart,
+        scalePoint(alongWall, opening.widthMeters / 2)
+      );
+
+      addCandidate(openingStart, "endpoint", "Endpoint", 0);
+      addCandidate(openingEnd, "endpoint", "Endpoint", 0);
+      addCandidate(openingCenter, "center", "Center", 2);
+    });
+
+    objects.forEach((object) => {
+      addCandidate(object.position, "center", "Center", 2);
+
+      getObjectPolygonFromCenter(
+        object.position,
+        object.kind,
+        object.rotationRadians,
+        1
+      ).forEach((corner) => {
+        addCandidate(corner, "corner", "Corner", 0);
+      });
+    });
+  }
+
+  const uniqueCandidates = dedupeEditorSnapCandidates(candidates);
+  let bestTarget: EditorSnapTarget | null = null;
+
+  uniqueCandidates.forEach((candidate) => {
+    const screenPoint = worldToEditorScreen(candidate.point, viewport);
+    const distance = getDistance(point, screenPoint);
+    const threshold =
+      candidate.kind === "midpoint" || candidate.kind === "center" ? 16 : 24;
+
+    if (distance > threshold) {
+      return;
+    }
+
+    if (
+      !bestTarget ||
+      candidate.priority < getEditorSnapPriority(bestTarget.kind) ||
+      (candidate.priority === getEditorSnapPriority(bestTarget.kind) &&
+        distance < bestTarget.distance)
+    ) {
+      bestTarget = {
+        point: candidate.point,
+        kind: candidate.kind,
+        label: candidate.label,
+        distance,
+        screenPoint,
+      };
+    }
+  });
+
+  return bestTarget;
 }
 
 function drawPlacedRoomObject(
@@ -4223,6 +4524,66 @@ function getPositiveModulo(value: number, divisor: number) {
   return ((value % divisor) + divisor) % divisor;
 }
 
+function dedupeEditorSnapCandidates(
+  candidates: Array<{
+    point: Point;
+    kind: EditorSnapKind;
+    label: string;
+    priority: number;
+  }>
+) {
+  const unique = new Map<
+    string,
+    {
+      point: Point;
+      kind: EditorSnapKind;
+      label: string;
+      priority: number;
+    }
+  >();
+
+  candidates.forEach((candidate) => {
+    const key = `${candidate.point.x.toFixed(4)}:${candidate.point.y.toFixed(4)}`;
+    const existing = unique.get(key);
+
+    if (!existing || candidate.priority < existing.priority) {
+      unique.set(key, candidate);
+    }
+  });
+
+  return [...unique.values()];
+}
+
+function getEditorSnapPriority(kind: EditorSnapKind) {
+  switch (kind) {
+    case "midpoint":
+      return 1;
+    case "center":
+      return 2;
+    default:
+      return 0;
+  }
+}
+
+function doEditorSnapTargetsMatch(
+  first: EditorSnapTarget | null,
+  second: EditorSnapTarget | null
+) {
+  if (first === second) {
+    return true;
+  }
+
+  if (!first || !second) {
+    return false;
+  }
+
+  return (
+    first.kind === second.kind &&
+    first.label === second.label &&
+    getDistance(first.point, second.point) <= 0.0001
+  );
+}
+
 function getGeometryPoints(geometry: ChainGeometry) {
   return geometry.closed
     ? [...geometry.outerPoints, ...geometry.innerPoints]
@@ -4803,6 +5164,49 @@ function drawPlainWallSurface(
   context.save();
   context.beginPath();
   addClosedPath(context, [start, end, outerEnd, outerStart]);
+  context.fillStyle = "#0f172b";
+  context.fill();
+  context.restore();
+}
+
+function drawWallChainSurface(
+  context: CanvasRenderingContext2D,
+  geometry: ChainGeometry,
+  totalOffset: Point,
+  originX: number,
+  originY: number,
+  pixelsPerMeter: number
+) {
+  const translateGeometryPoint = (point: Point) =>
+    translatePoint(addPoints(point, totalOffset), originX, originY, pixelsPerMeter);
+
+  context.save();
+  context.beginPath();
+
+  if (geometry.closed) {
+    const outerPoints = geometry.outerPoints.map(translateGeometryPoint);
+    const innerPoints = geometry.innerPoints.map(translateGeometryPoint);
+
+    if (outerPoints.length < 3 || innerPoints.length < 3) {
+      context.restore();
+      return;
+    }
+
+    addClosedPath(context, outerPoints);
+    addClosedPath(context, innerPoints);
+    context.fillStyle = "#0f172b";
+    context.fill("evenodd");
+    context.restore();
+    return;
+  }
+
+  const polygon = geometry.polygonPoints.map(translateGeometryPoint);
+  if (polygon.length < 3) {
+    context.restore();
+    return;
+  }
+
+  addClosedPath(context, polygon);
   context.fillStyle = "#0f172b";
   context.fill();
   context.restore();
