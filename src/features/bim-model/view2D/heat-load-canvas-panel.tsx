@@ -758,8 +758,10 @@ export function HeatLoadCanvasPanel({
     if (!ctx) return;
 
     const resize = () => {
-      canvas.width = canvas.clientWidth;
-      canvas.height = canvas.clientHeight;
+      const pixelRatio =
+        typeof window !== "undefined" ? Math.max(window.devicePixelRatio || 1, 1) : 1;
+      canvas.width = Math.max(Math.floor(canvas.clientWidth * pixelRatio), 1);
+      canvas.height = Math.max(Math.floor(canvas.clientHeight * pixelRatio), 1);
       draw(canvas, ctx);
     };
 
@@ -880,41 +882,47 @@ export function HeatLoadCanvasPanel({
 
       const minorStep = gridMetrics.subStepSpacing;
       const majorStep = gridMetrics.gridSpacing;
+      const alignToPixel = (value: number) => Math.round(value) + 0.5;
 
       context.strokeStyle = "rgba(59, 130, 246, 0.12)";
-      context.lineWidth = 1;
+      context.lineWidth = 0.75;
 
       const minorStartX = drawX + getOffsetWithinStep(offsetX, minorStep);
       for (let x = minorStartX; x < width; x += minorStep) {
+        const alignedX = alignToPixel(x);
         context.beginPath();
-        context.moveTo(x, drawY);
-        context.lineTo(x, height);
+        context.moveTo(alignedX, drawY);
+        context.lineTo(alignedX, drawY + drawHeight);
         context.stroke();
       }
 
       const minorStartY = drawY + getOffsetWithinStep(offsetY, minorStep);
       for (let y = minorStartY; y < height; y += minorStep) {
+        const alignedY = alignToPixel(y);
         context.beginPath();
-        context.moveTo(drawX, y);
-        context.lineTo(width, y);
+        context.moveTo(drawX, alignedY);
+        context.lineTo(drawX + drawWidth, alignedY);
         context.stroke();
       }
 
       context.strokeStyle = "rgba(29, 78, 216, 0.24)";
+      context.lineWidth = 0.9;
 
       const majorStartX = drawX + getOffsetWithinStep(offsetX, majorStep);
       for (let x = majorStartX; x < width; x += majorStep) {
+        const alignedX = alignToPixel(x);
         context.beginPath();
-        context.moveTo(x, drawY);
-        context.lineTo(x, height);
+        context.moveTo(alignedX, drawY);
+        context.lineTo(alignedX, drawY + drawHeight);
         context.stroke();
       }
 
       const majorStartY = drawY + getOffsetWithinStep(offsetY, majorStep);
       for (let y = majorStartY; y < height; y += majorStep) {
+        const alignedY = alignToPixel(y);
         context.beginPath();
-        context.moveTo(drawX, y);
-        context.lineTo(width, y);
+        context.moveTo(drawX, alignedY);
+        context.lineTo(drawX + drawWidth, alignedY);
         context.stroke();
       }
 
@@ -1240,11 +1248,15 @@ export function HeatLoadCanvasPanel({
     }
 
     function draw(canvasElement: HTMLCanvasElement, context: CanvasRenderingContext2D) {
-      const width = canvasElement.width;
-      const height = canvasElement.height;
+      const pixelRatio =
+        typeof window !== "undefined" ? Math.max(window.devicePixelRatio || 1, 1) : 1;
+      const width = canvasElement.clientWidth;
+      const height = canvasElement.clientHeight;
       const gridMetrics = getGridMetrics(scale);
 
-      context.clearRect(0, 0, width, height);
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
 
       drawGrid(
         context,
