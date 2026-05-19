@@ -47,6 +47,7 @@ export function useThreeRoom(
   const roomGroupRef = useRef<THREE.Group | null>(null);
   const axesHelperRef = useRef<THREE.Group | null>(null);
   const sunHelperRef = useRef<THREE.Group | null>(null);
+  const directionalLightRef = useRef<THREE.DirectionalLight | null>(null);
   const selectionHelperRef = useRef<THREE.BoxHelper | null>(null);
   const activeToolRef = useRef<ThreeRoomTool>("orbit");
   const roofAndCeilingVisibleRef = useRef(false);
@@ -217,6 +218,7 @@ export function useThreeRoom(
     directionalLight.shadow.normalBias = 0.03;
     directionalLight.shadow.camera.updateProjectionMatrix();
     directionalLight.target.position.set(0, 1.2, 0);
+    directionalLightRef.current = directionalLight;
     scene.add(ambientLight, directionalLight, directionalLight.target);
 
     const gridHelper = new THREE.GridHelper(60, 60, 0xcbd5e1, 0xe2e8f0);
@@ -275,6 +277,7 @@ export function useThreeRoom(
       sceneRef.current = null;
       cameraRef.current = null;
       controlsRef.current = null;
+      directionalLightRef.current = null;
     };
   }, [clearSelection]);
 
@@ -408,18 +411,9 @@ export function useThreeRoom(
 
   useEffect(() => {
     const scene = sceneRef.current;
+    const directionalLight = directionalLightRef.current;
 
-    if (!scene) {
-      return;
-    }
-
-    if (sunHelperRef.current) {
-      scene.remove(sunHelperRef.current);
-      disposeObject3D(sunHelperRef.current);
-      sunHelperRef.current = null;
-    }
-
-    if (!solarState || solarState.status !== "ready" || !solarState.snapshot || solarState.snapshot.altitude <= 0) {
+    if (!scene || !directionalLight) {
       return;
     }
 
@@ -429,6 +423,47 @@ export function useThreeRoom(
       height: 3,
       wallThickness: 0.2,
     };
+    const sceneScale = Math.max(
+      sceneDimensions.width,
+      sceneDimensions.depth,
+      sceneDimensions.height,
+      6
+    );
+    const lightTargetY = sceneDimensions.height * 0.4;
+
+    directionalLight.target.position.set(0, lightTargetY, 0);
+
+    const shadowCameraSpan = Math.max(sceneScale * 1.8, 12);
+    directionalLight.shadow.camera.near = 0.5;
+    directionalLight.shadow.camera.far = Math.max(sceneScale * 10, 60);
+    directionalLight.shadow.camera.left = -shadowCameraSpan;
+    directionalLight.shadow.camera.right = shadowCameraSpan;
+    directionalLight.shadow.camera.top = shadowCameraSpan;
+    directionalLight.shadow.camera.bottom = -shadowCameraSpan;
+
+    if (sunHelperRef.current) {
+      scene.remove(sunHelperRef.current);
+      disposeObject3D(sunHelperRef.current);
+      sunHelperRef.current = null;
+    }
+
+    if (!solarState || solarState.status !== "ready" || !solarState.snapshot || solarState.snapshot.altitude <= 0) {
+      directionalLight.position.set(sceneScale * 0.9, sceneScale * 1.4, sceneScale * 1.1);
+      directionalLight.intensity = 2.1;
+      directionalLight.shadow.camera.updateProjectionMatrix();
+      return;
+    }
+
+    const sunWorldPosition = getSunWorldPosition(solarState.snapshot, sceneScale);
+    const altitudeStrength = THREE.MathUtils.clamp(solarState.snapshot.altitude / 90, 0.35, 1);
+    directionalLight.position.set(
+      sunWorldPosition.x,
+      Math.max(sunWorldPosition.y, sceneScale * 0.35),
+      sunWorldPosition.z
+    );
+    directionalLight.intensity = 1.4 + altitudeStrength * 1.2;
+    directionalLight.shadow.camera.updateProjectionMatrix();
+
     const sunHelper = createSunHelper(solarState.snapshot, sceneDimensions);
 
     scene.add(sunHelper);
