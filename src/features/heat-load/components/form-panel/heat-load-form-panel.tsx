@@ -116,6 +116,8 @@ type OutdoorDesignCache = {
   stationCountry?: string;
   stationSourceEdition?: string;
   stationDistanceKm?: number;
+  standardPressureKPa?: number;
+  meanCoincidentWindSpeed?: number | null;
   hottestMonth?: number | null;
   matchedByCountry?: boolean;
 };
@@ -296,6 +298,14 @@ function parseOutdoorDesignCache(value: string | undefined): OutdoorDesignCache 
       stationDistanceKm:
         typeof parsed.stationDistanceKm === "number" && Number.isFinite(parsed.stationDistanceKm)
           ? parsed.stationDistanceKm
+          : undefined,
+      standardPressureKPa:
+        typeof parsed.standardPressureKPa === "number" && Number.isFinite(parsed.standardPressureKPa)
+          ? parsed.standardPressureKPa
+          : undefined,
+      meanCoincidentWindSpeed:
+        typeof parsed.meanCoincidentWindSpeed === "number" && Number.isFinite(parsed.meanCoincidentWindSpeed)
+          ? parsed.meanCoincidentWindSpeed
           : undefined,
       hottestMonth:
         typeof parsed.hottestMonth === "number" && Number.isFinite(parsed.hottestMonth)
@@ -706,6 +716,8 @@ export function HeatLoadFormPanel({
           solarAzimuth: solarSnapshot.solarAzimuth,
           percentile: formValues.dryBulbPercentile,
           year: String(year),
+          standardPressureKPa: 101.325,
+          meanCoincidentWindSpeed: null,
         };
 
         const serializedCache = JSON.stringify(cache);
@@ -801,6 +813,8 @@ export function HeatLoadFormPanel({
           stationCountry: ashraePayload.station.countryLabel,
           stationSourceEdition: ashraePayload.station.sourceEdition,
           stationDistanceKm: ashraePayload.distanceKm,
+          standardPressureKPa: ashraePayload.station.standardPressureKPa,
+          meanCoincidentWindSpeed: ashraePayload.cooling.meanCoincidentWindSpeed,
           hottestMonth: ashraePayload.cooling.hottestMonth,
           matchedByCountry: ashraePayload.matchedByCountry,
         };
