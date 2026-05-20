@@ -1,0 +1,27 @@
+{
+  "shgcByType": {
+    "Single Glass Clear": 0.86,
+    "Single Glass Heat Absorbing": 0.64,
+    "Insulating Glass Clear out Clear In": 0.76,
+    "Insulating Glass Heat Absorbing out Clear In": 0.5
+  },
+  "interiorAttenuationByShading": {
+    "No shading": 1,
+    "Venetian Blinds Medium": 0.74,
+    "Venetian Blinds Light": 0.67,
+    "Opaque Dark": 0.59,
+    "Opaque White": 0.35,
+    "Translucent": 0.45
+  },
+  "solarRtsPeakByDirection": {
+    "North": 0.82,
+    "Northeast": 0.78,
+    "East": 0.8,
+    "Southeast": 0.83,
+    "South": 0.85,
+    "Southwest": 0.83,
+    "West": 0.8,
+    "Northwest": 0.78,
+    "HOR": 0.85
+  }
+}

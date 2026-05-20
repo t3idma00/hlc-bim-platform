@@ -1,0 +1,11 @@
+{
+  "windowCrackRateLpsPerM": 1.3,
+  "residentialDoorRateLpsPerM2": 11,
+  "nonresidentialDoorRateLpsPerM2": 17,
+  "airDensityCp": 1.23,
+  "latentConstant": 3010,
+  "stackCoefficient": 0.000145,
+  "windCoefficient": 0.000319,
+  "maxMultiplier": 2.5,
+  "minMultiplier": 0.5
+}

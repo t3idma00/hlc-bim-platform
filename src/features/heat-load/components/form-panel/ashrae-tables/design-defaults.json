@@ -1,0 +1,6 @@
+{
+  "standardPressurePa": 101325,
+  "defaultWindSpeedMps": 3,
+  "defaultHottestMonth": 7,
+  "defaultGroundReflectance": 0.2
+}

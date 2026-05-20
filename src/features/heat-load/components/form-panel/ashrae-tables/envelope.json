@@ -1,0 +1,26 @@
+{
+  "surfaceAzimuthByDirection": {
+    "North": 0,
+    "Northeast": 45,
+    "East": 90,
+    "Southeast": 135,
+    "South": 180,
+    "Southwest": 225,
+    "West": 270,
+    "Northwest": 315,
+    "HOR": 180
+  },
+  "thermalMassResponse": {
+    "light": 0.75,
+    "medium": 0.65,
+    "heavy": 0.55
+  },
+  "absorptance": {
+    "brick": 0.65,
+    "cementBlock": 0.6,
+    "concrete": 0.6,
+    "roof": 0.75,
+    "default": 0.6
+  },
+  "outsideFilmCoefficientWPerM2K": 17
+}
