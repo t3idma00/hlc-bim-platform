@@ -2551,7 +2551,6 @@
   "infiltration": {
     "windowLeakageAreaCm2PerM": 0.31,
     "doorFrameLeakageAreaCm2Each": 12,
-    "doorBarrierLeakageAreaCm2PerM2": 0.15,
     "stackCoefficient": 0.00029,
     "windCoefficient": 0.000231,
     "airDensityCp": 1.23,

@@ -1,21 +1,26 @@
 import { Fragment, useState } from "react";
 
-import {
-  formatUnitValue,
-  toCanonicalUnitValue,
-  unitLabel,
-  type UnitSystem,
-} from "@/lib/units";
+import { formatUnitValue, toCanonicalUnitValue, unitLabel, type UnitSystem } from "@/lib/units";
 
-import type { Align, Column, Section, SheetValues, SummaryRow } from "./heat-load-sheet-types";
+import type { Align, Column, Section, SheetValues } from "./heat-load-sheet-types";
+import { FenestrationFramePickerCell } from "./fenestration-frame-picker-cell";
+import { getAshrae1997WallDropdownLabel, getWallCoreThicknessMm } from "./ashrae-wall-assemblies";
+import {
+  getAshraeTable5FrameOptions,
+  getAshraeTable5SkylightFrameOptions,
+  getAshraeTable5ThicknessOptions,
+} from "./ashrae-calculations/fenestration-u-table5";
+import {
+  getAshrae1997SolarGlassThicknessOptions,
+  getAshrae1997SolarShadingOptions,
+} from "./ashrae-calculations/section-2";
 import { normalizeSheetCellValue } from "./heat-load-sheet-normalization";
 import { rowLooksLikeWall } from "./heat-load-wall-thickness";
 import { RowReferenceToggle } from "./heat-load-reference-toggle";
 import { getAshraeZoneLabel } from "./heat-load-zone-labels";
+import { WallTypePickerCell } from "./wall-type-picker-cell";
 
 const numberColumnWidth = "5%";
-const summaryNoteWidth = "10%";
-const summaryValueWidth = "9%";
 const tableClass = "w-full table-fixed border-collapse text-[10px] leading-none text-slate-900";
 const cellClass = "border border-slate-300 px-1 py-1 align-middle";
 
@@ -85,8 +90,9 @@ export function SectionTable({
       <tbody>
         {rows.map((row) => {
           const referenceText = sheetValues[`${row.id}_reference`] ?? row.values.reference ?? "";
+          const calculationTrace = sheetValues[`${row.id}_calculationTrace`] ?? "";
           const referenceIsOpen = Boolean(openReferences[row.id]);
-
+          const rowWallType = row.values.type ?? row.values.typeA ?? row.values.typeB ?? "";
           return (
             <Fragment key={row.id}>
               <tr>
@@ -111,12 +117,41 @@ export function SectionTable({
                   const titleText = sourceTitle ? `${displayValue}\n${sourceTitle}` : displayValue;
                   const rawOptions = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
                   const options = normalizeSelectOptions(row, column.key, rawOptions);
-                  const hasSelect = options.length > 0;
+                  const locksWallThickness =
+                    column.key === "thickness" &&
+                    rowLooksLikeWall(row) &&
+                    getWallCoreThicknessMm(rowWallType) !== null;
+                  const hasSelect = options.length > 0 && !locksWallThickness;
+                  const showsWallDetailsToggle =
+                    hasSelect &&
+                    isWallTypeColumn(row, column);
+                  const showsFenestrationDetailsToggle =
+                    hasSelect &&
+                    rowUsesTable5Fenestration(row) &&
+                    column.key === "detail";
                   const fillClass = hasSelect || !column.editable ? "bg-[#fff4f7]" : "bg-white";
 
                   return (
                     <td key={column.key} className={`${cellClass} ${fillClass} p-0`}>
-                      {hasSelect ? (
+                      {showsWallDetailsToggle ? (
+                        <WallTypePickerCell
+                          ariaLabel={`${row.id} ${column.label || column.key}`}
+                          value={cellValue}
+                          title={titleText}
+                          align={column.align ?? "left"}
+                          options={options}
+                          onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
+                        />
+                      ) : showsFenestrationDetailsToggle ? (
+                        <FenestrationFramePickerCell
+                          ariaLabel={`${row.id} ${column.label || column.key}`}
+                          value={cellValue}
+                          title={titleText}
+                          align={column.align ?? "left"}
+                          options={options}
+                          onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
+                        />
+                      ) : hasSelect ? (
                         <SheetSelectCell
                           ariaLabel={`${row.id} ${column.label || column.key}`}
                           value={cellValue}
@@ -126,7 +161,7 @@ export function SectionTable({
                           getOptionLabel={(option) => formatSelectOptionLabel(row, column, option, unitSystem)}
                           onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
                         />
-                      ) : column.editable ? (
+                      ) : column.editable && !locksWallThickness ? (
                         <SheetInputCell
                           ariaLabel={`${row.id} ${column.label || column.key}`}
                           value={displayValue}
@@ -149,11 +184,20 @@ export function SectionTable({
                   );
                 })}
               </tr>
-              {referenceText && referenceIsOpen ? (
+              {(referenceText || calculationTrace) && referenceIsOpen ? (
                 <tr>
                   <td className={`${cellClass} bg-[#fff4f7] text-left text-slate-900`} colSpan={columns.length + 1}>
-                    <span className="font-semibold">ASHRAE 1997 reference: </span>
-                    <span>{referenceText}</span>
+                    {referenceText ? (
+                      <div>
+                        <span className="font-semibold">ASHRAE reference: </span>
+                        <span>{referenceText}</span>
+                      </div>
+                    ) : null}
+                    {calculationTrace ? (
+                      <div className="mt-2 whitespace-pre-wrap border-t border-slate-200 pt-2 leading-snug">
+                        {calculationTrace}
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               ) : null}
@@ -166,6 +210,32 @@ export function SectionTable({
 }
 
 function normalizeSelectOptions(row: Section["rows"][number], key: string, options: readonly string[]) {
+  if (rowUsesTable5Fenestration(row) && key === "thickness") {
+    const table5Options = getAshraeTable5ThicknessOptions(row.values.type);
+    return table5Options.length > 0 ? table5Options : Array.from(options);
+  }
+  if (rowUsesTable5Fenestration(row) && key === "detail") {
+    const table5Options = row.id === "1.5S"
+      ? getAshraeTable5SkylightFrameOptions(row.values.type, Number(row.values.thickness))
+      : getAshraeTable5FrameOptions(row.values.type, Number(row.values.thickness));
+    return table5Options.length > 0 ? table5Options : Array.from(options);
+  }
+  if (row.id === "3.1" && key === "thickness") {
+    const table5Options = getAshraeTable5ThicknessOptions(row.values.typeA);
+    return table5Options.length > 0 ? table5Options : Array.from(options);
+  }
+  if (row.id === "3.1" && key === "typeB") {
+    const table5Options = getAshraeTable5FrameOptions(row.values.typeA, Number(row.values.thickness));
+    const allowedOptions = Array.from(options).filter((option) => table5Options.includes(option));
+    return allowedOptions.length > 0 ? allowedOptions : table5Options;
+  }
+  if (rowUsesSolarFenestration(row) && key === "thickness") {
+    return getAshrae1997SolarGlassThicknessOptions(row.values.type);
+  }
+  if (rowUsesSolarFenestration(row) && key === "shading") {
+    return getAshrae1997SolarShadingOptions(row.values.type, Number(row.values.thickness));
+  }
+
   return Array.from(new Set(options.map((option) => normalizeSheetCellValue(row, key, option))));
 }
 
@@ -178,70 +248,38 @@ function formatSelectOptionLabel(
   if (column.key === "thickness" && rowLooksLikeWall(row)) {
     return `${option} mm`;
   }
+  if (rowUsesTable5Fenestration(row) && column.key === "thickness") {
+    return `${option} mm`;
+  }
+  if (rowUsesTable5Fenestration(row) && column.key === "detail") {
+    return option;
+  }
+  if (row.id === "3.1" && column.key === "thickness") {
+    return `${option} mm`;
+  }
+  if (row.id === "3.1" && column.key === "typeB") {
+    return option;
+  }
+  if (row.id === "3.3" && column.key === "typeB" && option === "100 mm concrete wall + finish + plaster") {
+    return "100 mm concrete floor slab + finish";
+  }
+  if (isWallTypeColumn(row, column)) {
+    return getAshrae1997WallDropdownLabel(option);
+  }
 
   return formatSheetCellValue(option, column, unitSystem);
 }
 
-export function SummaryTable({
-  rows,
-  unitSystem,
-  sheetValues,
-  onSheetChange,
-}: {
-  rows: SummaryRow[];
-  unitSystem: UnitSystem;
-  sheetValues: SheetValues;
-  onSheetChange: (key: string, value: string) => void;
-}) {
-  return (
-    <table className={tableClass}>
-      <colgroup>
-        <col style={{ width: `calc(100% - ${summaryNoteWidth} - ${summaryValueWidth})` }} />
-        <col style={{ width: summaryNoteWidth }} />
-        <col style={{ width: summaryValueWidth }} />
-      </colgroup>
-      <tbody>
-        {rows.map((row, index) => {
-          const fieldKey = `summary_${index}`;
-          const isPrimaryHeatLoad = index === 0;
-          const label = isPrimaryHeatLoad ? `${row.label} (${unitLabel(unitSystem, "heat")})` : row.label;
-          const value = sheetValues[fieldKey] ?? row.value ?? "";
-          const displayValue = isPrimaryHeatLoad ? formatUnitValue(value, unitSystem, "heat") : value;
+function isWallTypeColumn(row: Section["rows"][number], column: Column) {
+  return (column.key === "type" || column.key === "typeA" || column.key === "typeB") && rowLooksLikeWall(row);
+}
 
-          return (
-            <tr key={row.label}>
-              <th className={`${cellClass} bg-[#fff4f7] text-left text-[11px] font-semibold text-slate-900`}>
-                {label}
-              </th>
-              <td className={`${cellClass} bg-white p-0`}>
-                <input
-                  type="text"
-                  value={sheetValues[`${fieldKey}_note`] ?? row.note ?? ""}
-                  onChange={(event) => onSheetChange(`${fieldKey}_note`, event.target.value)}
-                  className="min-h-[24px] w-full bg-transparent px-2 py-1 text-right text-[10px] text-slate-900 outline-none"
-                />
-              </td>
-              <td className={`${cellClass} bg-white p-0`}>
-                <input
-                  type="text"
-                  value={displayValue}
-                  onChange={(event) =>
-                    onSheetChange(
-                      fieldKey,
-                      isPrimaryHeatLoad
-                        ? toCanonicalUnitValue(event.target.value, unitSystem, "heat")
-                        : event.target.value,
-                    )
-                  }
-                  className="min-h-[24px] w-full bg-transparent px-2 py-1 text-right text-[10px] text-slate-900 outline-none"
-                />
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
+function rowUsesTable5Fenestration(row: Section["rows"][number]) {
+  return row.id === "1.5" || row.id === "1.5S";
+}
+
+function rowUsesSolarFenestration(row: Section["rows"][number]) {
+  return row.id.startsWith("2.");
 }
 
 function SheetCell({

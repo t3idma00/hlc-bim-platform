@@ -36,7 +36,7 @@ type ConditionRow =
 const conditionRows: ConditionRow[] = [
   {
     kind: "outdoorDryBulb",
-    label: "Outdoor condition",
+    label: "Outdoor dry bulb temp",
     dryBulbName: "dryBulbTemp",
     percentageName: "dryBulbPercentile",
     yearName: "designYear",
@@ -53,7 +53,7 @@ const conditionRows: ConditionRow[] = [
   },
   {
     kind: "indoorDryBulb",
-    label: "Indoor dry bulb",
+    label: "Indoor dry bulb temp",
     indoorDryBulbName: "insideCondition",
     differenceName: "conditionDifference",
   },
@@ -104,7 +104,7 @@ export function DesignConditionsRow({
 
   if (conditionRow.kind === "outdoorDryBulb") {
     const percentageOptions =
-      designConditionSource === "ashrae-2017" ? ["0.4", "2"] : conditionRow.percentageOptions;
+      designConditionSource === "ashrae-2017" ? ["0.4", "1", "2"] : conditionRow.percentageOptions;
     const selectValue = values[conditionRow.percentageName] ?? percentageOptions[0];
     const yearValue = values[conditionRow.yearName] ?? conditionRow.yearOptions[0];
 
@@ -114,14 +114,14 @@ export function DesignConditionsRow({
           {conditionRow.label} ({temperatureLabel})
         </th>
         <td className="border border-slate-300 bg-white p-0">
-          <div className="grid min-h-[30px] grid-cols-[minmax(0,1fr)_46px_58px] items-stretch">
+          <div className="grid min-h-[30px] grid-cols-[minmax(58px,1fr)_44px_56px] items-stretch">
             <input
               aria-label="Outdoor dry bulb temperature"
               name={conditionRow.dryBulbName}
               type="text"
               value={formatUnitValue(values[conditionRow.dryBulbName], unitSystem, "temperature")}
               onChange={(event) => onFieldChange(conditionRow.dryBulbName, toCanonicalUnitValue(event.target.value, unitSystem, "temperature"))}
-              className="h-full min-h-[30px] min-w-0 w-full bg-transparent px-1 text-right text-[10px] leading-snug text-slate-900 outline-none"
+              className="h-full min-h-[30px] min-w-0 w-full bg-transparent px-2 text-right text-[10px] font-semibold leading-snug text-slate-900 outline-none"
             />
             <div className="border-l border-slate-200">
               <select

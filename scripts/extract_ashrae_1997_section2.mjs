@@ -65,6 +65,24 @@ const glassTypes = [
   },
 ];
 
+const domedHorizontalSkylights = [
+  domeSkylight("Clear dome with translucent diffuser - no curb", "Clear, tau 0.86", "Translucent, tau 0.58", 0, "infinity", 0.61),
+  domeSkylight("Clear dome with translucent diffuser - 9 in curb", "Clear, tau 0.86", "Translucent, tau 0.58", 9, "5", 0.58),
+  domeSkylight("Clear dome with translucent diffuser - 18 in curb", "Clear, tau 0.86", "Translucent, tau 0.58", 18, "2.5", 0.5),
+  domeSkylight("Clear dome without diffuser - no curb", "Clear, tau 0.86", "None", 0, "infinity", 0.99),
+  domeSkylight("Clear dome without diffuser - 9 in curb", "Clear, tau 0.86", "None", 9, "5", 0.88),
+  domeSkylight("Clear dome without diffuser - 18 in curb", "Clear, tau 0.86", "None", 18, "2.5", 0.8),
+  domeSkylight("Translucent dome - medium transmission - no curb", "Translucent, tau 0.52", "None", 0, "infinity", 0.57),
+  domeSkylight("Translucent dome - medium transmission - 18 in curb", "Translucent, tau 0.52", "None", 18, "2.5", 0.46),
+  domeSkylight("Translucent dome - low transmission - no curb", "Translucent, tau 0.27", "None", 0, "infinity", 0.34),
+  domeSkylight("Translucent dome - low transmission - 9 in curb", "Translucent, tau 0.27", "None", 9, "5", 0.3),
+  domeSkylight("Translucent dome - low transmission - 18 in curb", "Translucent, tau 0.27", "None", 18, "2.5", 0.28),
+];
+
+function domeSkylight(label, dome, lightDiffuser, curbHeightIn, widthToHeightRatio, shadingCoefficient) {
+  return { label, dome, lightDiffuser, curbHeightIn, widthToHeightRatio, shadingCoefficient };
+}
+
 function glassRecord(glassAloneSc, blindRollerSc, draperySc) {
   return { glassAloneSc, shadingSc: { "No inside shade": glassAloneSc, ...blindRollerSc, ...draperySc } };
 }
@@ -237,14 +255,18 @@ async function main() {
       extractionScript: "scripts/extract_ashrae_1997_section2.mjs",
       extractedTables: [
         "F28 Table 36 July Solar Cooling Load for Sunlit Glass at 40 deg North Latitude",
+        "F29 Table 11 Visible Transmission, SC, and SHGC glazing rows used for glass-alone SC",
         "F29 Tables 15-21 Solar Heat Gain Factors for 16-64 deg North Latitude",
+        "F29 Table 12 Shading Coefficients for Domed Horizontal Skylights",
         "F29 Table 25 Indoor Shading Coefficients for Single Glass",
         "F29 Table 26 Indoor Shading Coefficients for Insulating Glass",
         "F29 Table 29 Shading Coefficients for Single and Insulating Glass with Draperies",
       ],
       pdfChapterPages: {
         sclTable36: "28.50",
+        glassScTable11: "29.25-29.26",
         shgfTables15To21: "29.29-29.35",
+        domedSkylightTable12: "29.26",
         shadingTables25To26: "29.38",
         draperyTable29: "29.40",
       },
@@ -257,6 +279,7 @@ async function main() {
       zoneTypes: ["A", "B", "C", "D"],
     },
     glassTypes,
+    domedHorizontalSkylights,
     sclTable36WPerM2: parseSclTable(sclText),
     shgfTablesWPerM2: shgfTables,
   };

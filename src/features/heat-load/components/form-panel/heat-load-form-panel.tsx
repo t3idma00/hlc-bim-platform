@@ -65,7 +65,7 @@ type SolarDetailsResponse = {
 };
 
 type AshraeDesignConditionsResponse = {
-  percentile: "0.4" | "2";
+  percentile: "0.4" | "1" | "2";
   matchedByCountry: boolean;
   distanceKm: number;
   station: {
@@ -94,7 +94,7 @@ type AshraeDesignConditionsResponse = {
     meanCoincidentWindSpeed: number | null;
     prevailingWindDirection: number | null;
   };
-  supportedPercentiles: Array<"0.4" | "2">;
+  supportedPercentiles: Array<"0.4" | "1" | "2">;
 };
 
 type OutdoorDesignCache = {
@@ -128,7 +128,7 @@ type OutdoorDesignCache = {
 
 const topSectionRows = [0, 1, 2, 3];
 const CLTD_REFERENCE_MONTH = 7;
-const ASHRAE_SUPPORTED_PERCENTILES = ["0.4", "2"] as const;
+const ASHRAE_SUPPORTED_PERCENTILES = ["0.4", "1", "2"] as const;
 
 export const initialFormValues: FormValues = {
   selectedCountry: "",
@@ -137,24 +137,24 @@ export const initialFormValues: FormValues = {
   unitSystem: "imperial",
   wallNorthDirection: "North",
   wallNorthLength: "6.096",
-  wallNorthWidth: "100",
+  wallNorthWidth: "200",
   wallNorthHeight: "2.4384",
-  wallNorthType: "Cement block Wall",
+  wallNorthType: "W04 Reinforced concrete frame with 200 mm cement block infill",
   wallEastDirection: "East",
   wallEastLength: "3.048",
-  wallEastWidth: "100",
+  wallEastWidth: "200",
   wallEastHeight: "2.4384",
-  wallEastType: "Cement block Wall",
+  wallEastType: "W04 Reinforced concrete frame with 200 mm cement block infill",
   wallSouthDirection: "South",
   wallSouthLength: "6.096",
-  wallSouthWidth: "100",
+  wallSouthWidth: "200",
   wallSouthHeight: "2.4384",
-  wallSouthType: "Cement block Wall",
+  wallSouthType: "W04 Reinforced concrete frame with 200 mm cement block infill",
   wallWestDirection: "West",
   wallWestLength: "3.048",
-  wallWestWidth: "100",
+  wallWestWidth: "200",
   wallWestHeight: "2.4384",
-  wallWestType: "Cement block Wall",
+  wallWestType: "W04 Reinforced concrete frame with 200 mm cement block infill",
   windowNorthDirection: "North",
   windowNorthLength: "",
   windowNorthWidth: "",
@@ -513,11 +513,11 @@ export function HeatLoadFormPanel({
   const designConditionSourceSummary =
     designConditionSource === "current"
       ? currentOutdoorDesignCache?.year
-        ? `Current July historical source. Cached July percentile ${currentOutdoorDesignCache.percentile}% for year ${currentOutdoorDesignCache.year} to match the ASHRAE 1997 July CLTD tables.`
-        : "Current July Open-Meteo source matched to the ASHRAE 1997 July CLTD tables."
+        ? `Current July historical source. Cached July percentile ${currentOutdoorDesignCache.percentile}% for year ${currentOutdoorDesignCache.year} sets the ASHRAE 1997 July CLTD and SHGF month basis.`
+        : "Current July Open-Meteo source sets the ASHRAE 1997 July CLTD and SHGF month basis."
       : ashraeOutdoorDesignCache?.stationName
-        ? `ASHRAE July station source. ${ashraeOutdoorDesignCache.stationName}${ashraeOutdoorDesignCache.stationWmo ? ` (${ashraeOutdoorDesignCache.stationWmo})` : ""}${ashraeOutdoorDesignCache.stationLocation ? ` | ${ashraeOutdoorDesignCache.stationLocation}` : ""}${ashraeOutdoorDesignCache.stationSourceEdition ? ` | ASHRAE ${ashraeOutdoorDesignCache.stationSourceEdition}` : ""}${typeof ashraeOutdoorDesignCache.stationDistanceKm === "number" ? ` | ${ashraeOutdoorDesignCache.stationDistanceKm.toFixed(1)} km from selected city` : ""}.`
-        : "ASHRAE 2017 July station source matched to the ASHRAE 1997 July CLTD tables.";
+        ? `ASHRAE station source. ${ashraeOutdoorDesignCache.stationName}${ashraeOutdoorDesignCache.stationWmo ? ` (${ashraeOutdoorDesignCache.stationWmo})` : ""}${ashraeOutdoorDesignCache.stationLocation ? ` | ${ashraeOutdoorDesignCache.stationLocation}` : ""}${ashraeOutdoorDesignCache.stationSourceEdition ? ` | ASHRAE ${ashraeOutdoorDesignCache.stationSourceEdition}` : ""}${typeof ashraeOutdoorDesignCache.hottestMonth === "number" ? ` | design month ${ashraeOutdoorDesignCache.hottestMonth} linked to CLTD and SHGF` : ""}${typeof ashraeOutdoorDesignCache.latitude === "number" ? ` | station latitude ${ashraeOutdoorDesignCache.latitude.toFixed(2)} deg` : ""}${typeof ashraeOutdoorDesignCache.stationDistanceKm === "number" ? ` | ${ashraeOutdoorDesignCache.stationDistanceKm.toFixed(1)} km from selected city` : ""}.`
+        : "ASHRAE annual station design conditions link the station hottest month and latitude to CLTD correction and Section 2 SHGF.";
 
   const updateFieldIfChanged = (name: string, value: string) => {
     if ((formValues[name] ?? "") !== value) {
@@ -648,6 +648,9 @@ export function HeatLoadFormPanel({
   }
 
   function handleUnitSystemChange(nextUnitSystem: UnitSystem) {
+    if (designConditionSource === "ashrae-2017" && nextUnitSystem !== "si") {
+      return;
+    }
     if (nextUnitSystem !== unitSystem) {
       onFieldChange("unitSystem", nextUnitSystem);
     }
@@ -656,6 +659,9 @@ export function HeatLoadFormPanel({
   function handleDesignConditionSourceChange(nextSource: DesignConditionSource) {
     if (nextSource !== designConditionSource) {
       onFieldChange("designConditionSource", nextSource);
+    }
+    if (nextSource === "ashrae-2017" && unitSystem !== "si") {
+      onFieldChange("unitSystem", "si");
     }
   }
 
@@ -688,9 +694,15 @@ export function HeatLoadFormPanel({
       designConditionSource === "ashrae-2017" &&
       !ASHRAE_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof ASHRAE_SUPPORTED_PERCENTILES)[number])
     ) {
-      onFieldChange("dryBulbPercentile", "2");
+      onFieldChange("dryBulbPercentile", "1");
     }
   }, [designConditionSource, formValues.dryBulbPercentile, onFieldChange]);
+
+  useEffect(() => {
+    if (designConditionSource === "ashrae-2017" && unitSystem !== "si") {
+      onFieldChange("unitSystem", "si");
+    }
+  }, [designConditionSource, onFieldChange, unitSystem]);
 
   useEffect(() => {
     applyOutdoorDesignCache(activeOutdoorDesignCache);
@@ -836,7 +848,7 @@ export function HeatLoadFormPanel({
           `/api/ashrae-design-conditions?${ashraeParams.toString()}`,
           undefined,
           {
-            cacheKey: `ashrae-2017-july-cltd-design-conditions:${ashraeParams.toString()}`,
+            cacheKey: `ashrae-annual-station-design-conditions-v3:${ashraeParams.toString()}`,
             ttlMs: 24 * 60 * 60 * 1000,
           },
         );
@@ -861,7 +873,7 @@ export function HeatLoadFormPanel({
 
         const cache: OutdoorDesignCache = {
           source: "ashrae-2017",
-          label: "ASHRAE 2017 July Station Data",
+          label: `ASHRAE ${ashraePayload.station.sourceEdition} Station Data`,
           dryBulbTemp: formatConditionValue(ashraePayload.cooling.dryBulbTemp),
           wetBulbTemp: formatConditionValue(ashraePayload.cooling.meanCoincidentWetBulb),
           relativeHumidity: formatOptionalConditionValue(ashraePayload.cooling.relativeHumidity),
@@ -1062,9 +1074,11 @@ export function HeatLoadFormPanel({
               <button
                 type="button"
                 onClick={() => handleUnitSystemChange("imperial")}
+                disabled={designConditionSource === "ashrae-2017"}
+                title={designConditionSource === "ashrae-2017" ? "ASHRAE CLTD station mode uses SI units." : undefined}
                 className={`border-l border-rose-200 px-3 py-1.5 ${
                   unitSystem === "imperial" ? "bg-[#fff4f7] text-[#9f1239]" : "bg-white text-slate-700"
-                }`}
+                } disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}
               >
                 IP Units
               </button>

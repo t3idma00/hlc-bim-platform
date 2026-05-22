@@ -33,16 +33,10 @@ function useRoomAreaAutoFill({
     const directions = ["North", "East", "South", "West"] as const;
     const wallRow = { North: "1.1", East: "1.2", South: "1.3", West: "1.4" } as const;
     const glassRow = { North: "2.1", East: "2.2", South: "2.3", West: "2.4" } as const;
-    const windowAreaByDirection: Record<(typeof directions)[number], number> = {
-      North: 0,
-      East: 0,
-      South: 0,
-      West: 0,
-    };
 
     let totalWindowArea = 0;
     let totalWindowPerimeter = 0;
-    let totalDoorArea = 0;
+    let totalDoorCount = 0;
 
     directions.forEach((direction) => {
       const wallLength = getNum(formValues[`wall${direction}Length`]);
@@ -52,15 +46,14 @@ function useRoomAreaAutoFill({
       const windowWidth = getNum(formValues[`window${direction}Width`]);
       const windowHeight = getNum(formValues[`window${direction}Height`]);
       const windowArea = windowWidth * windowHeight;
-      windowAreaByDirection[direction] = windowArea;
 
       const doorWidth = getNum(formValues[`door${direction}Width`]);
       const doorHeight = getNum(formValues[`door${direction}Height`]);
       const doorArea = doorWidth * doorHeight;
 
       totalWindowArea += windowArea;
-      totalDoorArea += doorArea;
       totalWindowPerimeter += windowArea > 0 ? 2 * (windowWidth + windowHeight) : 0;
+      if (doorArea > 0) totalDoorCount += 1;
 
       setIfChanged(`${wallRow[direction]}_direction`, formValues[`wall${direction}Direction`] || direction);
       setIfChanged(`${glassRow[direction]}_direction`, formValues[`window${direction}Direction`] || direction);
@@ -73,27 +66,35 @@ function useRoomAreaAutoFill({
       }
     });
 
-    const floorArea = getNum(formValues.wallNorthLength) * getNum(formValues.wallEastLength);
+    const floorWidth = Math.max(getNum(formValues.wallNorthLength), getNum(formValues.wallSouthLength));
+    const floorDepth = Math.max(getNum(formValues.wallEastLength), getNum(formValues.wallWestLength));
+    const floorArea = floorWidth * floorDepth;
 
-    const selectedGlassDirection = sheetValues["1.5_direction"] ?? "East";
-    const selectedWindowArea =
-      selectedGlassDirection in windowAreaByDirection
-        ? windowAreaByDirection[selectedGlassDirection as keyof typeof windowAreaByDirection]
-        : totalWindowArea;
+    const skylightArea = getNum(sheetValues["2.5_areaQty"]);
+    const selectedGlassArea = totalWindowArea + skylightArea;
 
-    if (totalWindowArea > 0) setIfChanged("1.5_calcValue", selectedWindowArea.toFixed(2));
+    setIfChanged("1.5_direction", "All");
+    if (
+      totalWindowArea > 0 ||
+      skylightArea > 0 ||
+      sheetValues["1.5_calcValue"] ||
+      sheetValues["1.5_calcValue_source"]
+    ) {
+      setIfChanged("1.5_calcValue", selectedGlassArea.toFixed(2));
+      setIfChanged("1.5_calcValue_source", "All window area from Room Details plus Section 2 skylight area");
+    }
     if (floorArea > 0) {
       setIfChanged("1.6_calcValue", floorArea.toFixed(2));
       setIfChanged("3.3_calcValue", floorArea.toFixed(2));
       setIfChanged("6.1_areaQty", floorArea.toFixed(2));
+      setIfChanged("6.1_areaQty_source", "Room floor area from Room Details wall lengths");
     }
     if (totalWindowPerimeter > 0) {
       setIfChanged("4.1_qty", "1");
       setIfChanged("4.1_crackLength", totalWindowPerimeter.toFixed(2));
     }
-    if (totalDoorArea > 0) {
-      setIfChanged("4.1_qtySecondary", "1");
-      setIfChanged("4.1_doorArea", totalDoorArea.toFixed(2));
+    if (totalDoorCount > 0) {
+      setIfChanged("4.1_qtySecondary", String(totalDoorCount));
     }
 
     Object.entries(updates).forEach(([key, value]) => onSheetChange(key, value));

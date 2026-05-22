@@ -1,0 +1,96 @@
+[
+  {
+    "id": "face-brick-common-brick-100",
+    "label": "100 mm face brick + 100 mm common brick + plaster",
+    "legacyType": "Brick Wall",
+    "coreThicknessMm": 100,
+    "table30Category": "100-mm face brick + (brick)",
+    "table30Description": "100-mm common brick",
+    "layerCodes": ["A0", "A2", "C4", "E1", "E0"]
+  },
+  {
+    "id": "face-brick-common-brick-200",
+    "label": "100 mm face brick + 200 mm common brick + plaster",
+    "legacyType": "Brick Wall",
+    "coreThicknessMm": 200,
+    "table30Category": "100-mm face brick + (brick)",
+    "table30Description": "200-mm common brick",
+    "layerCodes": ["A0", "A2", "C9", "E1", "E0"]
+  },
+  {
+    "id": "face-brick-block-100",
+    "label": "100 mm face brick + 100 mm block + plaster",
+    "legacyType": "Cement block Wall",
+    "coreThicknessMm": 100,
+    "table30Category": "100-mm face brick + (light or heavyweight concrete block)",
+    "table30Description": "100-mm block",
+    "layerCodes": ["A0", "A2", "C2", "E1", "E0"]
+  },
+  {
+    "id": "face-brick-block-200",
+    "label": "100 mm face brick + 200 mm block + finish",
+    "legacyType": "Cement block Wall",
+    "coreThicknessMm": 200,
+    "table30Category": "100-mm face brick + (light or heavyweight concrete block)",
+    "table30Description": "200-mm block",
+    "layerCodes": ["A0", "A2", "C7", "A6", "E0"]
+  },
+  {
+    "id": "concrete-finish-100",
+    "label": "100 mm concrete wall + finish + plaster",
+    "legacyType": "Concrete Wall",
+    "coreThicknessMm": 100,
+    "table30Category": "Heavyweight concrete wall + (finish)",
+    "table30Description": "100-mm concrete",
+    "layerCodes": ["A0", "A1", "C5", "E1", "E0"]
+  },
+  {
+    "id": "concrete-finish-200",
+    "label": "200 mm concrete wall + finish + plaster",
+    "legacyType": "Concrete Wall",
+    "coreThicknessMm": 200,
+    "table30Category": "Heavyweight concrete wall + (finish)",
+    "table30Description": "200-mm concrete",
+    "layerCodes": ["A0", "A1", "C10", "E1", "E0"]
+  },
+  {
+    "id": "block-air-100",
+    "label": "100 mm block + air space + plaster",
+    "legacyType": "Cement block Wall",
+    "coreThicknessMm": 100,
+    "table30Category": "Light and heavyweight concrete block + (finish)",
+    "table30Description": "100-mm block + air space/insulation",
+    "layerCodes": ["A0", "A1", "C2", "B1", "E1", "E0"],
+    "uValueWPerM2K": 1.49
+  },
+  {
+    "id": "block-insulation-100",
+    "label": "100 mm block + 25 mm insulation + plaster",
+    "legacyType": "Cement block Wall",
+    "coreThicknessMm": 100,
+    "table30Category": "Light and heavyweight concrete block + (finish)",
+    "table30Description": "100-mm block + air space/insulation",
+    "layerCodes": ["A0", "A1", "C2", "B2", "E1", "E0"],
+    "uValueWPerM2K": 0.91
+  },
+  {
+    "id": "block-air-200",
+    "label": "200 mm block + air space + plaster",
+    "legacyType": "Cement block Wall",
+    "coreThicknessMm": 200,
+    "table30Category": "Light and heavyweight concrete block + (finish)",
+    "table30Description": "200-mm block + air space/insulation",
+    "layerCodes": ["A0", "A1", "C7/C8", "B1", "E1", "E0"],
+    "uValueWPerM2K": 0.98
+  },
+  {
+    "id": "block-insulation-200",
+    "label": "200 mm block + 25 mm insulation + plaster",
+    "legacyType": "Cement block Wall",
+    "coreThicknessMm": 200,
+    "table30Category": "Light and heavyweight concrete block + (finish)",
+    "table30Description": "200-mm block + air space/insulation",
+    "layerCodes": ["A0", "A1", "C7/C8", "B2", "E1", "E0"],
+    "uValueWPerM2K": 0.85
+  }
+]

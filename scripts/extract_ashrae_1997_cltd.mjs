@@ -144,9 +144,21 @@ function buildPayload(tables) {
         roofTypes: {
           "Concrete Slab Roof": {
             table: "Table 30",
-            roofNumber: "13",
+            roofNumber: "3",
             basis:
-              "Representative concrete roof with delayed heat response selected from Tables 30 and 31 for the app concrete slab roof.",
+              "Representative C12 heavy-concrete flat roof, mass evenly placed, R 0 to 0.9, with suspended ceiling from Table 31.",
+          },
+          "Clay Roof": {
+            table: "Table 30",
+            roofNumber: "1",
+            basis:
+              "Representative lightweight clay-tile roof surrogate, low-R Table 31 lightweight roof class.",
+          },
+          "Asbestos Roof": {
+            table: "Table 30",
+            roofNumber: "1",
+            basis:
+              "Representative lightweight asbestos-cement sheet roof surrogate, low-R Table 31 A3 steel-deck class.",
           },
         },
         glass: {

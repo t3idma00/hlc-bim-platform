@@ -1,28 +1,237 @@
 {
   "metadata": {
-    "source": "ASHRAE 1997 Handbook - Fundamentals, Ch25 and Ch28",
-    "basis": "Outdoor-air flow uses 1997 handbook text: 10 L/s per person for general applications, 8 L/s per occupant minimum discussion, 7 L/s per person for the drugstore/hardware example, and 6 ACH operating-room note converted with 3 m room height."
+    "source": "ANSI/ASHRAE Standard 62.1-2007, Ventilation for Acceptable Indoor Air Quality",
+    "table": "Table 03 - Minimum Ventilation Rates in Breathing Zone",
+    "basis": "Outdoor-air flow uses the provided breathing-zone table. Total breathing-zone outdoor air is calculated as people quantity x L/s per person plus area x L/s per m2. The table must be used with its accompanying notes."
   },
   "ventilation": {
-    "applications": {
-      "Bedroom / residential": { "sensible": 0.0, "latent": 0.0 },
-      "Drugstore / pharmacy": { "sensible": 0.0, "latent": 0.0 },
-      "General application": { "sensible": 0.0, "latent": 0.0 },
-      "Minimum occupant outdoor air": { "sensible": 0.0, "latent": 0.0 },
-      "Office": { "sensible": 0.0, "latent": 0.0 },
-      "Hospital operating room, 6 ACH at 3 m height": { "sensible": 0.0, "latent": 0.0 },
-      "Manual outdoor-air flow": { "sensible": 0.0, "latent": 0.0 }
-    },
     "default": { "sensible": 0.0, "latent": 0.0 }
   },
   "ventilationRates": {
-    "Bedroom / residential": { "perPerson": 8.0, "perArea": 0.0 },
-    "Drugstore / pharmacy": { "perPerson": 7.0, "perArea": 0.0 },
-    "General application": { "perPerson": 10.0, "perArea": 0.0 },
-    "Minimum occupant outdoor air": { "perPerson": 8.0, "perArea": 0.0 },
-    "Office": { "perPerson": 10.0, "perArea": 0.0 },
-    "Hospital operating room, 6 ACH at 3 m height": { "perPerson": 0.0, "perArea": 5.0 },
-    "Manual outdoor-air flow": { "perPerson": 0.0, "perArea": 0.0 },
-    "default": { "perPerson": 10.0, "perArea": 0.0 }
+    "Classrooms (age 9 plus)": {
+      "cfmPerPerson": 10.0,
+      "perPerson": 5.0,
+      "cfmPerFt2": 0.12,
+      "perArea": 0.6
+    },
+    "Lecture classroom": {
+      "cfmPerPerson": 7.5,
+      "perPerson": 3.8,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Wood/metal shop": {
+      "cfmPerPerson": 10.0,
+      "perPerson": 5.0,
+      "cfmPerFt2": 0.18,
+      "perArea": 0.9
+    },
+    "Computer lab (education)": {
+      "sourceCategory": "Computer lab",
+      "cfmPerPerson": 10.0,
+      "perPerson": 5.0,
+      "cfmPerFt2": 0.12,
+      "perArea": 0.6
+    },
+    "Music/theater/dance": {
+      "cfmPerPerson": 10.0,
+      "perPerson": 5.0,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Restaurant dining": {
+      "cfmPerPerson": 7.5,
+      "perPerson": 3.8,
+      "cfmPerFt2": 0.18,
+      "perArea": 0.9
+    },
+    "Cafeteria/fast food dining": {
+      "cfmPerPerson": 7.5,
+      "perPerson": 3.8,
+      "cfmPerFt2": 0.18,
+      "perArea": 0.9
+    },
+    "Bars, cocktail lounges": {
+      "cfmPerPerson": 7.5,
+      "perPerson": 3.8,
+      "cfmPerFt2": 0.18,
+      "perArea": 0.9
+    },
+    "Conference/meeting": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Corridors": {
+      "cfmPerPerson": 0.0,
+      "perPerson": 0.0,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Storage room": {
+      "cfmPerPerson": 0.0,
+      "perPerson": 0.0,
+      "cfmPerFt2": 0.12,
+      "perArea": 0.6
+    },
+    "Bed room, Living Room": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Office space": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "reception areas": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Telephone/data entry": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Main entry lobbies": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Bank vaults / safe": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Computer lab (office/business)": {
+      "sourceCategory": "Computer lab",
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Pharmacy": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.18,
+      "perArea": 0.9
+    },
+    "Photo studio": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.12,
+      "perArea": 0.6
+    },
+    "Warehouses": {
+      "cfmPerPerson": 0.0,
+      "perPerson": 0.0,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Auditorium seating area": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Courtrooms": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Library": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.12,
+      "perArea": 0.6
+    },
+    "lobbies": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Sales": {
+      "cfmPerPerson": 7.5,
+      "perPerson": 3.8,
+      "cfmPerFt2": 0.12,
+      "perArea": 0.6
+    },
+    "Barbershop": {
+      "cfmPerPerson": 7.5,
+      "perPerson": 3.8,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Super market": {
+      "cfmPerPerson": 7.5,
+      "perPerson": 3.8,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Sport arena": {
+      "cfmPerPerson": 0.0,
+      "perPerson": 0.0,
+      "cfmPerFt2": 0.3,
+      "perArea": 1.5
+    },
+    "Gym": {
+      "cfmPerPerson": 0.0,
+      "perPerson": 0.0,
+      "cfmPerFt2": 0.3,
+      "perArea": 1.2
+    },
+    "Casino dance": {
+      "cfmPerPerson": 20.0,
+      "perPerson": 10.0,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "aerobics room": {
+      "cfmPerPerson": 20.0,
+      "perPerson": 10.0,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Weight room": {
+      "cfmPerPerson": 20.0,
+      "perPerson": 10.0,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "gambling casino": {
+      "cfmPerPerson": 7.5,
+      "perPerson": 3.8,
+      "cfmPerFt2": 0.18,
+      "perArea": 0.9
+    },
+    "stage studio": {
+      "cfmPerPerson": 10.0,
+      "perPerson": 5.0,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    },
+    "Manual outdoor-air flow": {
+      "sourceCategory": "Manual user override",
+      "cfmPerPerson": 0.0,
+      "perPerson": 0.0,
+      "cfmPerFt2": 0.0,
+      "perArea": 0.0
+    },
+    "default": {
+      "cfmPerPerson": 5.0,
+      "perPerson": 2.5,
+      "cfmPerFt2": 0.06,
+      "perArea": 0.3
+    }
   }
 }

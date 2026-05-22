@@ -1,0 +1,124 @@
+{
+  "metadata": {
+    "source": "ASHRAE 1997 Fundamentals Handbook (SI), Chapter 24",
+    "surfaceResistanceReference": "Table 1, p.24.2",
+    "airSpaceReference": "Table 3, p.24.3",
+    "materialReference": "Table 4, pp.24.4-24.7",
+    "note": "Table 4 values are design values for dry materials at the handbook basis. Product-tested assembly U-factors remain preferred where framing, ties, metal ribs, or curtain-wall framing create thermal bridges."
+  },
+  "surfaceResistancesM2KPerW": {
+    "outsideSummer": 0.044,
+    "insideVertical": 0.12
+  },
+  "materials": [
+    {
+      "id": "gypsum-board-12-7",
+      "label": "Gypsum or plaster board, 12.7 mm",
+      "fixedResistanceM2KPerW": 0.079,
+      "reference": "Table 4, p.24.4"
+    },
+    {
+      "id": "cement-plaster-10",
+      "label": "Cement plaster with sand aggregate, 10 mm",
+      "fixedResistanceM2KPerW": 0.013,
+      "reference": "Table 4, p.24.5"
+    },
+    {
+      "id": "cement-plaster-20",
+      "label": "Cement plaster with sand aggregate, 20 mm",
+      "fixedResistanceM2KPerW": 0.026,
+      "reference": "Table 4, p.24.5"
+    },
+    {
+      "id": "wood-bevel-siding-13",
+      "label": "Wood bevel siding, 13 by 200 mm lapped",
+      "fixedResistanceM2KPerW": 0.14,
+      "reference": "Table 4, p.24.7"
+    },
+    {
+      "id": "mineral-fiber-batt-90",
+      "label": "Mineral fiber batt, approximately 90 mm",
+      "fixedResistanceM2KPerW": 2.29,
+      "reference": "Table 4, p.24.4"
+    },
+    {
+      "id": "mineral-fiber-batt-75-100",
+      "label": "Mineral fiber batt, approximately 75 to 100 mm",
+      "fixedResistanceM2KPerW": 1.94,
+      "reference": "Table 4, p.24.4"
+    },
+    {
+      "id": "mineral-fiber-batt-210-250",
+      "label": "Mineral fiber batt, approximately 210 to 250 mm",
+      "fixedResistanceM2KPerW": 5.34,
+      "reference": "Table 4, p.24.4"
+    },
+    {
+      "id": "wood-stud-90-example",
+      "label": "Wood framing path, 90 mm stud",
+      "fixedResistanceM2KPerW": 0.63,
+      "reference": "Chapter 24 Example 1, p.24.8"
+    },
+    {
+      "id": "spruce-framing-conservative",
+      "label": "Spruce-pine-fir framing, conservative conductivity",
+      "conductivityWPerMK": 0.13,
+      "reference": "Table 4, p.24.7"
+    },
+    {
+      "id": "xps-board",
+      "label": "Extruded expanded polystyrene board",
+      "conductivityWPerMK": 0.029,
+      "reference": "Table 4, p.24.5"
+    },
+    {
+      "id": "molded-eps-board",
+      "label": "Molded-bead expanded polystyrene, 32 kg/m3",
+      "conductivityWPerMK": 0.033,
+      "reference": "Table 4, p.24.5"
+    },
+    {
+      "id": "polyiso-board-conservative",
+      "label": "Cellular polyurethane/polyisocyanurate board, conservative end of range",
+      "conductivityWPerMK": 0.026,
+      "reference": "Table 4, p.24.5"
+    },
+    {
+      "id": "fired-clay-brick-1920",
+      "label": "Fired clay brick, 1920 kg/m3, conservative end of range",
+      "conductivityWPerMK": 0.98,
+      "reference": "Table 4, p.24.6"
+    },
+    {
+      "id": "concrete-block-low-mass-200",
+      "label": "Low-mass aggregate concrete block, 200 mm, empty cores",
+      "fixedResistanceM2KPerW": 0.33,
+      "reference": "Table 4, p.24.6",
+      "note": "Uses the conservative low-resistance end of the listed 0.56 to 0.33 m2.K/W range."
+    },
+    {
+      "id": "cellular-concrete-640",
+      "label": "Foam/cellular concrete, 640 kg/m3",
+      "conductivityWPerMK": 0.2,
+      "reference": "Table 4, p.24.7"
+    },
+    {
+      "id": "dense-concrete-2400",
+      "label": "Sand and gravel or stone aggregate concrete, 2400 kg/m3, conservative end of range",
+      "conductivityWPerMK": 2.9,
+      "reference": "Table 4, p.24.7"
+    },
+    {
+      "id": "air-space-20-vertical-summer",
+      "label": "20 mm vertical nonreflective air space",
+      "fixedResistanceM2KPerW": 0.15,
+      "reference": "Table 3, p.24.3"
+    },
+    {
+      "id": "architectural-glass",
+      "label": "Architectural soda-lime float glass",
+      "fixedResistanceM2KPerW": 0.018,
+      "reference": "Table 4, p.24.7"
+    }
+  ]
+}

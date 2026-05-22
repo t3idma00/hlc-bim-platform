@@ -14,13 +14,13 @@ function parseRequiredNumber(value: string | null, name: string) {
 }
 
 function parsePercentile(value: string | null): AshraePercentile {
-  if (value === "0.4" || value === "2") {
+  if (value === "0.4" || value === "1" || value === "2") {
     return value;
   }
   if (!value) {
-    return "2";
+    return "1";
   }
-  throw new Error("ASHRAE July monthly station data supports only 0.4% and 2% dry-bulb rows.");
+  throw new Error("ASHRAE annual station data supports only 0.4%, 1%, and 2% dry-bulb rows.");
 }
 
 export async function GET(request: NextRequest) {

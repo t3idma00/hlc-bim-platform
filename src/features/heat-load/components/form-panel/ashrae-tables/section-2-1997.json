@@ -10,14 +10,18 @@
     "extractionScript": "scripts/extract_ashrae_1997_section2.mjs",
     "extractedTables": [
       "F28 Table 36 July Solar Cooling Load for Sunlit Glass at 40 deg North Latitude",
+      "F29 Table 11 Visible Transmission, SC, and SHGC glazing rows used for glass-alone SC",
       "F29 Tables 15-21 Solar Heat Gain Factors for 16-64 deg North Latitude",
+      "F29 Table 12 Shading Coefficients for Domed Horizontal Skylights",
       "F29 Table 25 Indoor Shading Coefficients for Single Glass",
       "F29 Table 26 Indoor Shading Coefficients for Insulating Glass",
       "F29 Table 29 Shading Coefficients for Single and Insulating Glass with Draperies"
     ],
     "pdfChapterPages": {
       "sclTable36": "28.50",
+      "glassScTable11": "29.25-29.26",
       "shgfTables15To21": "29.29-29.35",
+      "domedSkylightTable12": "29.26",
       "shadingTables25To26": "29.38",
       "draperyTable29": "29.40"
     },
@@ -383,6 +387,96 @@
           }
         }
       }
+    }
+  ],
+  "domedHorizontalSkylights": [
+    {
+      "label": "Clear dome with translucent diffuser - no curb",
+      "dome": "Clear, tau 0.86",
+      "lightDiffuser": "Translucent, tau 0.58",
+      "curbHeightIn": 0,
+      "widthToHeightRatio": "infinity",
+      "shadingCoefficient": 0.61
+    },
+    {
+      "label": "Clear dome with translucent diffuser - 9 in curb",
+      "dome": "Clear, tau 0.86",
+      "lightDiffuser": "Translucent, tau 0.58",
+      "curbHeightIn": 9,
+      "widthToHeightRatio": "5",
+      "shadingCoefficient": 0.58
+    },
+    {
+      "label": "Clear dome with translucent diffuser - 18 in curb",
+      "dome": "Clear, tau 0.86",
+      "lightDiffuser": "Translucent, tau 0.58",
+      "curbHeightIn": 18,
+      "widthToHeightRatio": "2.5",
+      "shadingCoefficient": 0.5
+    },
+    {
+      "label": "Clear dome without diffuser - no curb",
+      "dome": "Clear, tau 0.86",
+      "lightDiffuser": "None",
+      "curbHeightIn": 0,
+      "widthToHeightRatio": "infinity",
+      "shadingCoefficient": 0.99
+    },
+    {
+      "label": "Clear dome without diffuser - 9 in curb",
+      "dome": "Clear, tau 0.86",
+      "lightDiffuser": "None",
+      "curbHeightIn": 9,
+      "widthToHeightRatio": "5",
+      "shadingCoefficient": 0.88
+    },
+    {
+      "label": "Clear dome without diffuser - 18 in curb",
+      "dome": "Clear, tau 0.86",
+      "lightDiffuser": "None",
+      "curbHeightIn": 18,
+      "widthToHeightRatio": "2.5",
+      "shadingCoefficient": 0.8
+    },
+    {
+      "label": "Translucent dome - medium transmission - no curb",
+      "dome": "Translucent, tau 0.52",
+      "lightDiffuser": "None",
+      "curbHeightIn": 0,
+      "widthToHeightRatio": "infinity",
+      "shadingCoefficient": 0.57
+    },
+    {
+      "label": "Translucent dome - medium transmission - 18 in curb",
+      "dome": "Translucent, tau 0.52",
+      "lightDiffuser": "None",
+      "curbHeightIn": 18,
+      "widthToHeightRatio": "2.5",
+      "shadingCoefficient": 0.46
+    },
+    {
+      "label": "Translucent dome - low transmission - no curb",
+      "dome": "Translucent, tau 0.27",
+      "lightDiffuser": "None",
+      "curbHeightIn": 0,
+      "widthToHeightRatio": "infinity",
+      "shadingCoefficient": 0.34
+    },
+    {
+      "label": "Translucent dome - low transmission - 9 in curb",
+      "dome": "Translucent, tau 0.27",
+      "lightDiffuser": "None",
+      "curbHeightIn": 9,
+      "widthToHeightRatio": "5",
+      "shadingCoefficient": 0.3
+    },
+    {
+      "label": "Translucent dome - low transmission - 18 in curb",
+      "dome": "Translucent, tau 0.27",
+      "lightDiffuser": "None",
+      "curbHeightIn": 18,
+      "widthToHeightRatio": "2.5",
+      "shadingCoefficient": 0.28
     }
   ],
   "sclTable36WPerM2": {

@@ -1,12 +1,7 @@
-import { calculateSHGF } from "@/lib/calculations";
-
-import defaults from "../ashrae-tables/design-defaults.json";
-import envelope from "../ashrae-tables/envelope.json";
-import references from "../ashrae-tables/references.json";
 import section2Tables from "../ashrae-tables/section-2-1997.json";
 import { getAshraeZoneCode } from "../heat-load-zone-labels";
 
-import { formatSource, getTableNumber, matchesText } from "./common";
+import { formatSource, matchesText } from "./common";
 import type { DesignConditionContext, FactorResult, Section2Factors } from "./types";
 
 type GlassRecord = {
@@ -21,8 +16,18 @@ type GlassType = {
   thicknesses: Record<string, GlassRecord>;
 };
 
+type DomedHorizontalSkylight = {
+  label: string;
+  dome: string;
+  lightDiffuser: string;
+  curbHeightIn: number;
+  widthToHeightRatio: string;
+  shadingCoefficient: number;
+};
+
 type Section2Tables = {
   glassTypes: GlassType[];
+  domedHorizontalSkylights: DomedHorizontalSkylight[];
   sclTable36WPerM2: Record<string, Record<string, number[]>>;
   shgfTablesWPerM2: Record<string, Record<string, Record<string, Record<string, number>>>>;
 };
@@ -30,8 +35,29 @@ type Section2Tables = {
 const tables = section2Tables as unknown as Section2Tables;
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const latitudes = [16, 24, 32, 40, 48, 56, 64];
-const source1997 =
-  "ASHRAE 1997 Ch28 Table 36 and Ch29 Tables 15-21, 25, 26, 29";
+const shadingCoefficientSource1997 = "ASHRAE 1997 Ch29 Tables 11, 25, 26, 29";
+const solarHeatGainFactorSource1997 = "ASHRAE 1997 Ch29 Tables 15-21";
+const solarCoolingLoadSource1997 = "ASHRAE 1997 Ch28 Tables 35B and 36";
+const domedSkylightSource = "ASHRAE 1997 Ch29 Table 12, p.29.26";
+const removedIndoorShadeLabels = new Set([
+  "Drapery A",
+  "Drapery B",
+  "Drapery C",
+  "Drapery D",
+  "Drapery E",
+  "Drapery F",
+  "Drapery G",
+  "Drapery H",
+  "Drapery I",
+  "Drapery J",
+]);
+
+export const ASHRAE_DOMED_SKYLIGHT_COEFFICIENT_LABEL =
+  "ASHRAE Table 12 dome coefficient";
+
+export const ashrae1997SolarGlassTypeOptions = tables.glassTypes.map((record) => record.label);
+export const ashrae1997DomedHorizontalSkylightOptions =
+  tables.domedHorizontalSkylights.map((record) => record.label);
 
 const directionCodeByLabel: Record<string, string> = {
   North: "N",
@@ -53,17 +79,39 @@ function hourKey(hour: number) {
   return String(Math.min(24, Math.max(1, Math.round(hour || 15))));
 }
 
-function monthName(context: DesignConditionContext) {
-  const rawMonth = Math.min(12, Math.max(1, Math.round(context.hottestMonth || 7)));
-  const shiftedForSouthern = context.latitude < 0 ? ((rawMonth + 5) % 12) + 1 : rawMonth;
-  return months[shiftedForSouthern - 1] ?? "Jul";
+function shgfMonthBasis(context: DesignConditionContext) {
+  const designMonth = Math.min(12, Math.max(1, Math.round(context.hottestMonth || 7)));
+  const tableMonth = context.latitude < 0 ? ((designMonth + 5) % 12) + 1 : designMonth;
+  const designLabel = months[designMonth - 1] ?? "Jul";
+  const tableLabel = months[tableMonth - 1] ?? "Jul";
+  const sourceLabel =
+    context.source === "ashrae-2017" ? "ASHRAE station design month" : "current design month";
+
+  return {
+    tableLabel,
+    sourceText:
+      designMonth === tableMonth
+        ? `${sourceLabel} ${designLabel}`
+        : `${sourceLabel} ${designLabel}; equivalent northern SHGF month ${tableLabel}`,
+  };
 }
 
 function nearestLatitude(latitude: number) {
-  const absoluteLatitude = Math.abs(latitude || 40);
+  const absoluteLatitude = Number.isFinite(latitude) ? Math.abs(latitude) : 40;
   return latitudes.reduce((best, item) =>
     Math.abs(item - absoluteLatitude) < Math.abs(best - absoluteLatitude) ? item : best,
   );
+}
+
+function latitudeTableNote(latitude: number, tableLatitude: number) {
+  const absoluteLatitude = Number.isFinite(latitude) ? Math.abs(latitude) : 40;
+  const warning =
+    absoluteLatitude > 64 && tableLatitude === 64
+      ? "warning: absolute latitude above 64 deg; "
+      : "";
+  if (absoluteLatitude === tableLatitude) return `${warning}${tableLatitude} deg North latitude table`;
+
+  return `${warning}${absoluteLatitude.toFixed(2)} deg station latitude mapped to ${tableLatitude} deg North latitude table`;
 }
 
 function findGlassType(type: string) {
@@ -74,18 +122,66 @@ function findGlassType(type: string) {
   );
 }
 
-function closestThickness(glassType: GlassType, thicknessMm: number) {
-  const thicknesses = Object.keys(glassType.thicknesses);
-  const selected = thicknesses.reduce((best, item) => {
-    const bestDistance = Math.abs(Number(best) - thicknessMm);
-    const itemDistance = Math.abs(Number(item) - thicknessMm);
+function findDomedHorizontalSkylight(type: string) {
+  return tables.domedHorizontalSkylights.find((record) => matchesText(type, record.label)) ?? null;
+}
+
+function isRemovedIndoorShadeLabel(value: string) {
+  return Array.from(removedIndoorShadeLabels).some((label) => matchesText(label, value));
+}
+
+export function isAshrae1997DomedHorizontalSkylightType(type: string) {
+  return findDomedHorizontalSkylight(type) !== null;
+}
+
+function glassThicknessKeys(glassType: GlassType) {
+  return Object.keys(glassType.thicknesses).sort((left, right) => Number(left) - Number(right));
+}
+
+function resolveGlassThickness(glassType: GlassType, requestedThicknessMm: number) {
+  const thicknesses = glassThicknessKeys(glassType);
+  const supportedThickness = thicknesses.find((item) => Number(item) === requestedThicknessMm);
+  const selected = supportedThickness ?? thicknesses.reduce((best, item) => {
+    const bestDistance = Math.abs(Number(best) - requestedThicknessMm);
+    const itemDistance = Math.abs(Number(item) - requestedThicknessMm);
     return itemDistance < bestDistance ? item : best;
   }, thicknesses[0]);
 
   return {
     key: selected,
     record: glassType.thicknesses[selected],
+    isExact: Boolean(supportedThickness),
   };
+}
+
+export function getAshrae1997SolarGlassThicknessOptions(type: string) {
+  if (isAshrae1997DomedHorizontalSkylightType(type)) return ["N/A"];
+  return glassThicknessKeys(findGlassType(type));
+}
+
+export function getAshrae1997SolarShadingOptions(type: string, thicknessMm = 6) {
+  if (isAshrae1997DomedHorizontalSkylightType(type)) {
+    return [ASHRAE_DOMED_SKYLIGHT_COEFFICIENT_LABEL];
+  }
+
+  const glassType = findGlassType(type);
+  const thickness = resolveGlassThickness(glassType, thicknessMm || 6);
+  return Object.keys(thickness.record.shadingSc).filter((label) => !removedIndoorShadeLabels.has(label));
+}
+
+export function normalizeAshrae1997SolarGlassThickness(type: string, value: string) {
+  const options = getAshrae1997SolarGlassThicknessOptions(type);
+  const requestedThicknessMm = Number.parseFloat(value);
+  return options.find((option) => Number(option) === requestedThicknessMm) ?? options[0] ?? value;
+}
+
+export function normalizeAshrae1997SolarShading(type: string, thicknessMm: number, value: string) {
+  const options = getAshrae1997SolarShadingOptions(type, thicknessMm);
+  if (isRemovedIndoorShadeLabel(value)) {
+    return "No inside shade";
+  }
+
+  return options.find((option) => matchesText(option, value)) ?? options[0] ?? value;
 }
 
 function resolveShadingCoefficient(input: {
@@ -93,52 +189,41 @@ function resolveShadingCoefficient(input: {
   shading: string;
   thicknessMm: number;
 }): FactorResult {
+  const domedSkylight = findDomedHorizontalSkylight(input.type);
+
+  if (domedSkylight) {
+    const ratio =
+      domedSkylight.widthToHeightRatio === "infinity"
+        ? "no curb"
+        : `curb width/height ratio ${domedSkylight.widthToHeightRatio}`;
+
+    return {
+      value: domedSkylight.shadingCoefficient,
+      source: formatSource(
+        domedSkylightSource,
+        `${domedSkylight.label}; ${domedSkylight.dome}; diffuser ${domedSkylight.lightDiffuser}; ${ratio}`,
+      ),
+    };
+  }
+
   const glassType = findGlassType(input.type);
-  const thickness = closestThickness(glassType, input.thicknessMm || 6);
+  const requestedThicknessMm = input.thicknessMm || 6;
+  const thickness = resolveGlassThickness(glassType, requestedThicknessMm);
   const exactShading = Object.keys(thickness.record.shadingSc).find((key) =>
     matchesText(input.shading, key),
   );
   const value = exactShading
     ? thickness.record.shadingSc[exactShading]
     : thickness.record.glassAloneSc;
+  const thicknessDetail = thickness.isExact
+    ? `${thickness.key} mm`
+    : `${thickness.key} mm supported row for requested ${requestedThicknessMm} mm`;
 
   return {
     value,
     source: formatSource(
-      source1997,
-      `${glassType.label}, ${thickness.key} mm, ${exactShading ?? "No inside shade"} SC`,
-    ),
-  };
-}
-
-function resolveNasaPlaneOfArray(input: {
-  direction: string;
-  context: DesignConditionContext;
-}): FactorResult | null {
-  if (!input.context.solar.hasData) return null;
-
-  const isHorizontal = input.direction === "HOR";
-  const surfaceAzimuth = getTableNumber(
-    envelope.surfaceAzimuthByDirection,
-    input.direction,
-    envelope.surfaceAzimuthByDirection.South,
-  );
-  const surface = calculateSHGF({
-    dni: input.context.solar.dni,
-    dhi: input.context.solar.dhi,
-    ghi: input.context.solar.ghi,
-    zenith: input.context.solar.zenith,
-    azimuth: input.context.solar.azimuth,
-    surfaceTilt: isHorizontal ? 0 : 90,
-    surfaceAzimuth,
-    albedo: defaults.defaultGroundReflectance,
-  });
-
-  return {
-    value: surface.poa,
-    source: formatSource(
-      `${references.nasaSolar}; ${references.orientation}`,
-      `NASA/current plane-of-array SHGF for ${input.direction}`,
+      shadingCoefficientSource1997,
+      `${glassType.label}, ${thicknessDetail}, ${exactShading ?? "No inside shade"} SC`,
     ),
   };
 }
@@ -148,19 +233,18 @@ function resolveAshrae1997Shgf(input: {
   context: DesignConditionContext;
 }): FactorResult | null {
   const latitude = nearestLatitude(input.context.latitude);
-  const month = monthName(input.context);
+  const month = shgfMonthBasis(input.context);
   const hour = hourKey(input.context.designHour);
   const code = directionCode(input.direction);
-  const value = tables.shgfTablesWPerM2[String(latitude)]?.[month]?.[hour]?.[code];
+  const value = tables.shgfTablesWPerM2[String(latitude)]?.[month.tableLabel]?.[hour]?.[code];
 
   if (typeof value !== "number") return null;
 
-  const hemisphereNote = input.context.latitude < 0 ? "southern-hemisphere month shift, " : "";
   return {
     value,
     source: formatSource(
-      source1997,
-      `${hemisphereNote}${latitude} deg North ${month}, hour ${hour}, ${code} SHGF`,
+      solarHeatGainFactorSource1997,
+      `${month.sourceText}; ${latitudeTableNote(input.context.latitude, latitude)}; solar hour ${hour}; ${code} SHGF`,
     ),
   };
 }
@@ -169,17 +253,15 @@ export function resolveAshraeSolarHeatGain(input: {
   direction: string;
   context: DesignConditionContext;
 }): FactorResult {
-  if (input.context.source === "current") {
-    const nasaValue = resolveNasaPlaneOfArray(input);
-    if (nasaValue) return nasaValue;
-  }
-
   const ashraeValue = resolveAshrae1997Shgf(input);
   if (ashraeValue) return ashraeValue;
 
   return {
-    value: 150,
-    source: formatSource(source1997, "Fallback SHGF because solar table/live solar data is unavailable"),
+    value: 0,
+    source: formatSource(
+      solarHeatGainFactorSource1997,
+      "No Table 15-21 SHGF row for the selected 1997 latitude/month/hour/direction",
+    ),
   };
 }
 
@@ -198,7 +280,7 @@ function resolveSolarCoolingLoadFactor(input: {
   return {
     value,
     source: formatSource(
-      source1997,
+      solarCoolingLoadSource1997,
       `CLF from Table 36 Zone ${zone} ${code} hour ${hour}: SCL ${scl} / SHGF ${referenceShgf}`,
     ),
   };
@@ -206,28 +288,29 @@ function resolveSolarCoolingLoadFactor(input: {
 
 export function resolveCurrentGlassFactors(type: string, shading: string, thicknessMm = 6) {
   const sc = resolveShadingCoefficient({ type, shading, thicknessMm });
+  const context: DesignConditionContext = {
+    source: "current",
+    outdoorDryBulbC: 0,
+    indoorDryBulbC: 0,
+    deltaTC: 0,
+    pressurePa: 101325,
+    windSpeedMps: 3,
+    hottestMonth: 7,
+    hottestMonthDryBulbRangeC: 0,
+    designHour: 15,
+    latitude: 40,
+    longitude: 0,
+    solar: { dni: 0, dhi: 0, ghi: 0, zenith: 0, azimuth: 0, hasData: false },
+  };
   const clf = resolveSolarCoolingLoadFactor({
     direction: "North",
     zoneType: "C",
-    context: {
-      source: "current",
-      outdoorDryBulbC: 0,
-      indoorDryBulbC: 0,
-      deltaTC: 0,
-      pressurePa: 101325,
-      windSpeedMps: 3,
-      hottestMonth: 7,
-      hottestMonthDryBulbRangeC: 0,
-      designHour: 15,
-      latitude: 40,
-      longitude: 0,
-      solar: { dni: 0, dhi: 0, ghi: 0, zenith: 0, azimuth: 0, hasData: false },
-    },
+    context,
   });
 
   return {
     sc,
-    shg: { value: 150, source: "Default editable SHGF placeholder" },
+    shg: resolveAshraeSolarHeatGain({ direction: "North", context }),
     clf,
   };
 }

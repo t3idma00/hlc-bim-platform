@@ -6,6 +6,10 @@ import {
   calculateAshraeSection1,
   calculateAshraeSection3,
   getNum,
+  SECTION3_ASSEMBLY_U_FACTOR,
+  SECTION3_GROUND_ADJACENT_SPACE,
+  SECTION3_MANUAL_U_FACTOR,
+  SECTION3_UNKNOWN_ADJACENT_SPACE,
   resolveAshraeInternalClf,
   resolveAshraeInternalHeatGain,
   resolveAshraeSection2Factors,
@@ -13,11 +17,26 @@ import {
   resolveCurrentTransmissionGlassUFactor,
   resolveCurrentUFactor,
   resolveSection1GlassSelection,
+  section3FloorUsesGroundReview,
 } from "./ashrae-calculations";
 import { buildInitialSections, summaryRows } from "./heat-load-sheet-data";
+import { getWallCoreThicknessMm } from "./ashrae-wall-assemblies";
+import { getDefaultRoofThicknessMm, normalizeRoofDetail } from "./ashrae-roof-assemblies";
+import {
+  getAshraeTable5FrameOptions,
+  getAshraeTable5NominalThicknessMm,
+  getAshraeTable5SkylightFrameOptions,
+} from "./ashrae-calculations/fenestration-u-table5";
+import {
+  ASHRAE_DOMED_SKYLIGHT_COEFFICIENT_LABEL,
+  isAshrae1997DomedHorizontalSkylightType,
+  normalizeAshrae1997SolarGlassThickness,
+  normalizeAshrae1997SolarShading,
+} from "./ashrae-calculations/section-2";
 import { getDefaultVentilation } from "./heat-load-sheet-section-builders";
 import { normalizeSheetCellValue, normalizeSheetRowValues } from "./heat-load-sheet-normalization";
-import { SectionTable, SummaryTable } from "./heat-load-sheet-tables";
+import { SectionTable } from "./heat-load-sheet-tables";
+import { SummaryTable } from "./heat-load-summary-table";
 import type { HeatLoadSheetProps, Row, Section, SheetValues } from "./heat-load-sheet-types";
 import { useHeatLoadAutoFill } from "./use-heat-load-auto-fill";
 import { useHeatLoadCalculations } from "./use-heat-load-calculations";
@@ -132,6 +151,8 @@ function updateDependentValues(input: {
     "hoursAfterStart",
     "application",
     "item",
+    "uFactorMode",
+    "adjacentSpaceType",
   ];
 
   if (!reactiveKeys.includes(input.changedKey)) {
@@ -142,10 +163,106 @@ function updateDependentValues(input: {
     normalizeSheetCellValue(
       input.row,
       key,
-      key === input.changedKey
+      input.updates[`${input.row.id}_${key}`] ??
+      (key === input.changedKey
         ? input.changedValue
-        : input.sheetValues[`${input.row.id}_${key}`] ?? input.row.values[key] ?? "",
+        : input.sheetValues[`${input.row.id}_${key}`] ?? input.row.values[key] ?? ""),
     );
+
+  if (["type", "typeA", "typeB"].includes(input.changedKey)) {
+    const assemblyThicknessMm = getWallCoreThicknessMm(input.changedValue);
+    if (assemblyThicknessMm) {
+      input.updates[`${input.row.id}_thickness`] = String(assemblyThicknessMm);
+    }
+  }
+
+  if (input.row.id === "3.3" && input.changedKey === "typeA") {
+    const usesGroundReview = section3FloorUsesGroundReview(input.changedValue);
+    input.updates[`${input.row.id}_adjacentSpaceType`] = usesGroundReview
+      ? SECTION3_GROUND_ADJACENT_SPACE
+      : SECTION3_UNKNOWN_ADJACENT_SPACE;
+    input.updates[`${input.row.id}_uFactorMode`] = usesGroundReview
+      ? SECTION3_MANUAL_U_FACTOR
+      : SECTION3_ASSEMBLY_U_FACTOR;
+    if (usesGroundReview) {
+      input.updates[`${input.row.id}_typeB`] = "Not applicable";
+      input.updates[`${input.row.id}_thickness`] = "N/A";
+      input.updates[`${input.row.id}_uFactor`] = "";
+    } else if (rowValue("typeB") === "Not applicable") {
+      input.updates[`${input.row.id}_typeB`] = "100 mm concrete wall + finish + plaster";
+      input.updates[`${input.row.id}_thickness`] = "100";
+    }
+  }
+
+  if (rowUsesTable5Fenestration(input.row) && input.changedKey === "type") {
+    const glazingThicknessMm = getAshraeTable5NominalThicknessMm(input.changedValue);
+    if (glazingThicknessMm) {
+      input.updates[`${input.row.id}_thickness`] = String(glazingThicknessMm);
+    }
+  }
+
+  if (rowUsesTable5Fenestration(input.row) && ["type", "thickness"].includes(input.changedKey)) {
+    const frameOptions = input.row.id === "1.5S"
+      ? getAshraeTable5SkylightFrameOptions(rowValue("type"), getNum(rowValue("thickness")))
+      : getAshraeTable5FrameOptions(rowValue("type"), getNum(rowValue("thickness")));
+    const detail = rowValue("detail");
+
+    if (frameOptions.length > 0 && !frameOptions.includes(detail)) {
+      input.updates[`${input.row.id}_detail`] = frameOptions[0];
+    }
+  }
+
+  if (input.row.id === "3.1" && input.changedKey === "typeA") {
+    const glazingThicknessMm = getAshraeTable5NominalThicknessMm(input.changedValue);
+    if (glazingThicknessMm) {
+      input.updates[`${input.row.id}_thickness`] = String(glazingThicknessMm);
+    }
+  }
+
+  if (input.row.id === "3.1" && ["typeA", "thickness"].includes(input.changedKey)) {
+    const frameOptions = getAshraeTable5FrameOptions(rowValue("typeA"), getNum(rowValue("thickness")));
+    const detail = rowValue("typeB");
+
+    if (frameOptions.length > 0 && !frameOptions.includes(detail)) {
+      input.updates[`${input.row.id}_typeB`] = frameOptions[0];
+    }
+  }
+
+  if (input.row.id === "2.5" && input.changedKey === "type") {
+    input.updates[`${input.row.id}_direction`] = "HOR";
+
+    if (isAshrae1997DomedHorizontalSkylightType(input.changedValue)) {
+      input.updates[`${input.row.id}_shading`] = ASHRAE_DOMED_SKYLIGHT_COEFFICIENT_LABEL;
+      input.updates[`${input.row.id}_thickness`] = "N/A";
+    } else {
+      if (rowValue("shading") === ASHRAE_DOMED_SKYLIGHT_COEFFICIENT_LABEL) {
+        input.updates[`${input.row.id}_shading`] = "No inside shade";
+      }
+      if (rowValue("thickness") === "N/A") {
+        input.updates[`${input.row.id}_thickness`] = "6";
+      }
+    }
+  }
+
+  if (input.row.id === "1.6" && ["type", "detail"].includes(input.changedKey)) {
+    const roofType = rowValue("type");
+    input.updates[`${input.row.id}_direction`] = "HOR";
+    input.updates[`${input.row.id}_detail`] = normalizeRoofDetail(rowValue("detail"));
+    input.updates[`${input.row.id}_thickness`] = String(getDefaultRoofThicknessMm(roofType));
+  }
+
+  if (input.sectionNumber === "2" && ["type", "thickness", "shading"].includes(input.changedKey)) {
+    const type = rowValue("type");
+    const thickness = normalizeAshrae1997SolarGlassThickness(type, rowValue("thickness"));
+    const shading = normalizeAshrae1997SolarShading(type, getNum(thickness), rowValue("shading"));
+
+    if (thickness !== rowValue("thickness")) {
+      input.updates[`${input.row.id}_thickness`] = thickness;
+    }
+    if (shading !== rowValue("shading")) {
+      input.updates[`${input.row.id}_shading`] = shading;
+    }
+  }
 
   if (input.sectionNumber === "1") {
     updateSection1Factors(input.row, rowValue, input.designContext, input.updates);
@@ -157,6 +274,8 @@ function updateDependentValues(input: {
     updateSection5Factors(input.row, rowValue, input.updates);
   } else if (input.sectionNumber === "6") {
     const values = getDefaultVentilation(rowValue("application"));
+    input.updates[`${input.row.id}_peopleOutdoorAirRate`] = values.peopleOutdoorAirRate;
+    input.updates[`${input.row.id}_areaOutdoorAirRate`] = values.areaOutdoorAirRate;
     input.updates[`${input.row.id}_sensible`] = values.sensible;
     input.updates[`${input.row.id}_latent`] = values.latent;
   }
@@ -188,11 +307,12 @@ function updateSection1Factors(
     updates[`${row.id}_cltd`] = result.td.value.toFixed(2);
     updates[`${row.id}_uFactor_source`] = result.uFactor.source;
     updates[`${row.id}_cltd_source`] = result.td.source;
+    updates[`${row.id}_calculationTrace`] = result.calculationTrace ?? "";
     return;
   }
 
   const glassSelection = resolveSection1GlassSelection({ direction, type, detail });
-  const uFactor = item.toLowerCase().includes("glass")
+  const uFactor = itemUsesFenestrationUFactor(item)
     ? resolveCurrentTransmissionGlassUFactor({
         glazingType: glassSelection.glazingType,
         frameType: glassSelection.frameType,
@@ -201,13 +321,27 @@ function updateSection1Factors(
     : resolveCurrentUFactor(type, detail, thicknessMm);
 
   updates[`${row.id}_uFactor`] = uFactor.value.toFixed(2);
-  updates[`${row.id}_cltd`] = resolveCorrectedCltd({
+  updates[`${row.id}_uFactor_source`] = uFactor.source;
+  updates[`${row.id}_calculationTrace`] = "";
+  const correctedCltd = resolveCorrectedCltd({
     item,
     type,
     direction,
     detail,
+    thicknessMm,
     context: designContext,
-  }).value.toFixed(2);
+  });
+  updates[`${row.id}_cltd`] = correctedCltd.value.toFixed(2);
+  updates[`${row.id}_cltd_source`] = correctedCltd.source;
+}
+
+function rowUsesTable5Fenestration(row: Row) {
+  return row.id === "1.5" || row.id === "1.5S";
+}
+
+function itemUsesFenestrationUFactor(item: string) {
+  const normalized = item.toLowerCase();
+  return normalized.includes("glass") || normalized.includes("sky");
 }
 
 function updateSection2Factors(
@@ -276,31 +410,39 @@ function updateSection3Factors(
   designContext: ReturnType<typeof useHeatLoadCalculations>,
   updates: Record<string, string>,
 ) {
+  const item = rowValue("item");
   const typeA = rowValue("typeA");
   const typeB = rowValue("typeB");
-  const type = typeA === "Intermediate Floor" ? typeB : typeA || typeB;
+  const requestedAdjacentSpaceType = rowValue("adjacentSpaceType");
+  const usesGroundReview =
+    item === "Floor" &&
+    section3FloorUsesGroundReview(typeA) &&
+    requestedAdjacentSpaceType === SECTION3_UNKNOWN_ADJACENT_SPACE;
+  const adjacentSpaceType = usesGroundReview
+    ? SECTION3_GROUND_ADJACENT_SPACE
+    : requestedAdjacentSpaceType;
 
-  if (designContext.source === "ashrae-2017") {
-    const result = calculateAshraeSection3({
-      item: rowValue("item"),
-      typeA,
-      typeB,
-      thicknessMm: getNum(rowValue("thickness")),
-      areaM2: getNum(rowValue("calcValue")),
-      context: designContext,
-    });
-    updates[`${row.id}_uFactor`] = result.uFactor.value.toFixed(2);
-    updates[`${row.id}_cltd`] = result.td.value.toFixed(2);
-    updates[`${row.id}_uFactor_source`] = result.uFactor.source;
-    updates[`${row.id}_cltd_source`] = result.td.source;
-    return;
-  }
-
-  updates[`${row.id}_uFactor`] = resolveCurrentUFactor(type, undefined, getNum(rowValue("thickness"))).value.toFixed(2);
-  updates[`${row.id}_cltd`] = resolveCorrectedCltd({
-    item: rowValue("item"),
-    type,
-    direction: rowValue("direction"),
+  const result = calculateAshraeSection3({
+    item,
+    floorType: item === "Floor" ? typeA : undefined,
+    assemblyType: item === "Floor" ? typeB || typeA : typeA || typeB,
+    assemblyDetail: typeB,
+    uFactorMode: rowValue("uFactorMode"),
+    manualUFactor: getNum(rowValue("uFactor")),
+    adjacentSpaceType,
+    manualAdjacentTemperatureC: getNum(rowValue("adjacentTemperature")),
+    thicknessMm: getNum(rowValue("thickness")),
+    areaM2: getNum(rowValue("calcValue")),
     context: designContext,
-  }).value.toFixed(2);
+  });
+
+  updates[`${row.id}_uFactor`] = result.uFactor.value.toFixed(2);
+  updates[`${row.id}_adjacentTemperature`] = result.adjacentTemperature.value.toFixed(2);
+  updates[`${row.id}_indoorTemperature`] = result.indoorTemperature.value.toFixed(2);
+  updates[`${row.id}_cltd`] = result.td.value.toFixed(2);
+  updates[`${row.id}_uFactor_source`] = result.uFactor.source;
+  updates[`${row.id}_adjacentTemperature_source`] = result.adjacentTemperature.source;
+  updates[`${row.id}_indoorTemperature_source`] = result.indoorTemperature.source;
+  updates[`${row.id}_cltd_source`] = result.td.source;
+  if (usesGroundReview) updates[`${row.id}_adjacentSpaceType`] = SECTION3_GROUND_ADJACENT_SPACE;
 }

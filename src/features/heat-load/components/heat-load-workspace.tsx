@@ -14,6 +14,7 @@ import { downloadRoomsDxf } from "../../bim-model/view2D/export-dxf";
 import { HeatLoad3DPanel } from "../../bim-model/view3D";
 import { type WorkspaceView } from "../../bim-model/workspace-view-toggle";
 import { HeatLoadFormPanel, initialFormValues, type FormValues } from "./form-panel";
+import { downloadHeatLoadPdf, downloadHeatLoadSpreadsheet } from "../export-heat-load-report";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/actions/auth";
 import { saveProject, updateProject, getUserProjects } from "@/actions/projects";
@@ -47,12 +48,16 @@ type ProjectRecord = Omit<Project, "data"> & {
 };
 
 type ExportSelection = {
+  heatLoadPdf: boolean;
+  heatLoadSpreadsheet: boolean;
   export2dJpg: boolean;
   export2dPdf: boolean;
   export2dDxf: boolean;
 };
 
 const DEFAULT_EXPORT_SELECTION: ExportSelection = {
+  heatLoadPdf: true,
+  heatLoadSpreadsheet: true,
   export2dJpg: true,
   export2dPdf: true,
   export2dDxf: false,
@@ -251,9 +256,22 @@ export default function HeatLoadWorkspace() {
     []
   );
 
-  const applyExportPreset = useCallback((preset: "2d" | "3d" | "all" | "none") => {
+  const applyExportPreset = useCallback((preset: "heat-load" | "2d" | "all" | "none") => {
+    if (preset === "heat-load") {
+      setExportSelection({
+        heatLoadPdf: true,
+        heatLoadSpreadsheet: true,
+        export2dJpg: false,
+        export2dPdf: false,
+        export2dDxf: false,
+      });
+      return;
+    }
+
     if (preset === "2d") {
       setExportSelection({
+        heatLoadPdf: false,
+        heatLoadSpreadsheet: false,
         export2dJpg: true,
         export2dPdf: true,
         export2dDxf: true,
@@ -263,6 +281,8 @@ export default function HeatLoadWorkspace() {
 
     if (preset === "all") {
       setExportSelection({
+        heatLoadPdf: true,
+        heatLoadSpreadsheet: true,
         export2dJpg: true,
         export2dPdf: true,
         export2dDxf: true,
@@ -271,6 +291,8 @@ export default function HeatLoadWorkspace() {
     }
 
     setExportSelection({
+      heatLoadPdf: false,
+      heatLoadSpreadsheet: false,
       export2dJpg: false,
       export2dPdf: false,
       export2dDxf: false,
@@ -323,6 +345,20 @@ export default function HeatLoadWorkspace() {
         downloadRoomsDxf(roomsToExport, {
           projectName: exportBaseName,
           fileName: `${exportBaseName}-2d-plan.dxf`,
+        });
+      }
+
+      if (exportSelection.heatLoadPdf) {
+        downloadHeatLoadPdf({
+          projectName: exportBaseName,
+          rooms: roomsToExport,
+        });
+      }
+
+      if (exportSelection.heatLoadSpreadsheet) {
+        downloadHeatLoadSpreadsheet({
+          projectName: exportBaseName,
+          rooms: roomsToExport,
         });
       }
 
@@ -709,13 +745,31 @@ export default function HeatLoadWorkspace() {
       {/* Export Modal */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="mx-4 w-full max-w-2xl rounded-2xl bg-white p-8 shadow-xl">
+          <div className="mx-4 w-full max-w-3xl rounded-2xl bg-white p-8 shadow-xl">
             <h2 className="text-2xl font-semibold text-slate-900">Export Options</h2>
             <p className="mt-2 text-sm text-slate-600">
-              Choose what to export from the 2D workspace.
+              Choose calculation reports and drawing files for all rooms in this project.
             </p>
 
-            <div className="mt-6">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <section className="rounded-2xl border border-rose-100 bg-rose-50/60 p-5">
+                <h3 className="text-lg font-semibold text-slate-900">Heat Load Calculation</h3>
+                <div className="mt-4 space-y-3">
+                  <ExportCheckbox
+                    checked={exportSelection.heatLoadPdf}
+                    onChange={(checked) => updateExportSelection("heatLoadPdf", checked)}
+                    label="Report PDF"
+                    description="Formatted calculation report with room summaries, inputs, tables, and references."
+                  />
+                  <ExportCheckbox
+                    checked={exportSelection.heatLoadSpreadsheet}
+                    onChange={(checked) => updateExportSelection("heatLoadSpreadsheet", checked)}
+                    label="Excel Workbook"
+                    description="Editable XLSX workbook with overview and room-by-room calculation sheets."
+                  />
+                </div>
+              </section>
+
               <section className="rounded-2xl border border-rose-100 bg-rose-50/60 p-5">
                 <h3 className="text-lg font-semibold text-slate-900">2D Canvas</h3>
                 <div className="mt-4 space-y-3">
@@ -744,6 +798,13 @@ export default function HeatLoadWorkspace() {
             <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm font-semibold text-slate-900">Quick Actions</p>
               <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => applyExportPreset("heat-load")}
+                  type="button"
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Heat Load Only
+                </button>
                 <button
                   onClick={() => applyExportPreset("2d")}
                   type="button"
@@ -777,7 +838,7 @@ export default function HeatLoadWorkspace() {
                   <p className="mt-1 text-sm text-red-600">{exportError}</p>
                 ) : (
                   <p className="mt-1 text-sm text-slate-500">
-                    JPG and PDF export the 2D canvas view. DXF exports the 2D drawing data.
+                    PDF and XLSX export heat-load calculations. Drawing options export the 2D workspace.
                   </p>
                 )}
               </div>
@@ -1000,7 +1061,12 @@ function getRoomPlanWallThickness(formValues: FormValues | undefined, wall: Room
   return parseWallThicknessMeters(formValues?.[getWallWidthFieldName(wall)], 0.2);
 }
 
-function getAttachedRoomPosition(targetRoom: any, formValues: FormValues, targetWall: RoomWall, offsetMeters: number) {
+function getAttachedRoomPosition(
+  targetRoom: ProjectData["rooms"][number],
+  formValues: FormValues,
+  targetWall: RoomWall,
+  offsetMeters: number
+) {
   const targetPlacement = targetRoom.placement ?? { x: 0, y: 0 };
   const targetWidth = getRoomPlanWidth(targetRoom.formValues);
   const targetDepth = getRoomPlanDepth(targetRoom.formValues);
@@ -1046,11 +1112,20 @@ function createRoomFormValuesForSharedWall(targetFormValues: FormValues | undefi
   const ownWall = OPPOSITE_ROOM_WALL[targetWall];
   const nextFormValues: FormValues = { ...initialFormValues };
 
-  ["wallNorthType", "wallEastType", "wallSouthType", "wallWestType",
-   "wallNorthWidth", "wallEastWidth", "wallSouthWidth", "wallWestWidth",
-   "roofType", "roofThickness"].forEach(key => {
-    if (targetFormValues[key as keyof FormValues]) {
-      (nextFormValues as any)[key] = targetFormValues[key as keyof FormValues];
+  [
+    "wallNorthType",
+    "wallEastType",
+    "wallSouthType",
+    "wallWestType",
+    "wallNorthWidth",
+    "wallEastWidth",
+    "wallSouthWidth",
+    "wallWestWidth",
+    "roofType",
+    "roofThickness",
+  ].forEach((key) => {
+    if (targetFormValues[key]) {
+      nextFormValues[key] = targetFormValues[key];
     }
   });
 

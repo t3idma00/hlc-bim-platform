@@ -1,15 +1,38 @@
+import { ashrae1997WallArchetypeLabels } from "./ashrae-wall-assemblies";
+import { roofAssemblyLabels } from "./ashrae-roof-assemblies";
+import {
+  ashraeTable5FrameOptions,
+  ashraeTable5GlazingOptions,
+  ashraeTable5ThicknessOptions,
+} from "./ashrae-calculations/fenestration-u-table5";
+import {
+  ashrae1997DomedHorizontalSkylightOptions,
+  ashrae1997SolarGlassTypeOptions,
+} from "./ashrae-calculations/section-2";
+import section6Data from "./section-6-data.json";
+
+const ventilationApplications = Object.keys(section6Data.ventilationRates).filter((key) => key !== "default");
+const interiorTransmissionGlassTypes = [
+  "Single glazing - glass",
+  "Double glazing - 6.4 mm air space",
+  "Double glazing - 12.7 mm air space",
+].filter((type) => ashraeTable5GlazingOptions.includes(type));
+const interiorPartitionWallTypes = [
+  "W11 Simple 200 mm brick wall with cement plaster",
+  "W12 Simple 200 mm concrete wall with cement plaster",
+  "W13 Simple 200 mm cement block wall with cement plaster",
+].filter((type) => ashrae1997WallArchetypeLabels.includes(type));
+
 // Centralized lookup lists make it straightforward to replace prototype values
 // with researched datasets later without rewriting the table structure.
 export const heatLoadLookupOptions = {
   directions: ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest", "HOR"],
-  wallTypes: ["Brick Wall", "Cement block Wall", "Concrete Wall"],
-  roofTypes: ["Concrete Slab Roof", "Clay Roof", "Asbestos Roof"],
-  glassSolarTypes: [
-    "Single clear glass",
-    "Single heat-absorbing glass",
-    "Insulating clear glass, 6 mm air space",
-    "Insulating clear glass, 13 mm air space",
-    "Insulating heat-absorbing out / clear in",
+  wallTypes: ashrae1997WallArchetypeLabels,
+  roofTypes: roofAssemblyLabels,
+  glassSolarTypes: ashrae1997SolarGlassTypeOptions,
+  horizontalSkylightSolarTypes: [
+    ...ashrae1997SolarGlassTypeOptions,
+    ...ashrae1997DomedHorizontalSkylightOptions,
   ],
   glassShadingTypes: [
     "No inside shade",
@@ -20,16 +43,6 @@ export const heatLoadLookupOptions = {
     "Roller shade - opaque dark",
     "Roller shade - opaque white",
     "Roller shade - translucent light",
-    "Drapery A",
-    "Drapery B",
-    "Drapery C",
-    "Drapery D",
-    "Drapery E",
-    "Drapery F",
-    "Drapery G",
-    "Drapery H",
-    "Drapery I",
-    "Drapery J",
   ],
   glassThicknesses: ["3", "6", "10", "13"],
   ashraeZoneTypes: ["A", "B", "C", "D"],
@@ -40,22 +53,14 @@ export const heatLoadLookupOptions = {
   ],
   internalLoadDurations: ["2", "4", "6", "8", "10", "12", "14", "16", "18"],
   internalLightDurations: ["8", "10", "12", "14", "16"],
-  wallThicknesses: ["100", "215"],
-  transmissionGlassTypes: [
-    "Single glass",
-    "Single glass / acrylic-polycarbonate / single glass",
-    "Acrylic-polycarbonate / single glass / acrylic-polycarbonate",
-    "Single glass / acrylic-polycarbonate",
-    "Single glass / polycarbonate",
-    "6.4 mm air space",
-    "12.7 mm air space",
-    "6.4 mm argon space",
-    "12.7 mm argon space",
-  ],
-  glassFrameTypes: ["Glass only (Centre of Glass)", "OperableWood/Vinyl", "Fixed Wood/Vinyl"],
+  wallThicknesses: ["100", "200"],
+  transmissionGlassTypes: ashraeTable5GlazingOptions,
+  transmissionGlassThicknesses: ashraeTable5ThicknessOptions,
+  glassFrameTypes: ashraeTable5FrameOptions,
+  interiorTransmissionGlassTypes,
+  interiorPartitionWallTypes,
   infiltrationComponents: ["Window", "Door"],
   infiltrationOccupancies: ["Residential", "Non residential"],
-  infiltrationDoorComponents: ["Residential door", "Nonresidential door"],
   peopleApplications: [
     "Seated at theater",
     "Seated at theater, night",
@@ -90,13 +95,5 @@ export const heatLoadLookupOptions = {
     "Microwave oven",
     "Water cooler",
   ],
-  ventilationApplications: [
-    "Bedroom / residential",
-    "Drugstore / pharmacy",
-    "General application",
-    "Minimum occupant outdoor air",
-    "Office",
-    "Hospital operating room, 6 ACH at 3 m height",
-    "Manual outdoor-air flow",
-  ],
+  ventilationApplications,
 } as const;

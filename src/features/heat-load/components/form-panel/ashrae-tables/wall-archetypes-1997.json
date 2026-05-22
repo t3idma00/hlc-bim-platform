@@ -1,0 +1,393 @@
+[
+  {
+    "id": "W01",
+    "label": "W01 Timber frame insulated wall",
+    "dropdownLabel": "Timber wall (with insulation)",
+    "thicknessSummary": "wood 13 mm + insulation 110 mm + board 12.7 mm",
+    "optionLabel": "Timber wall (wood outside layer 13 mm + rigid insulation 20 mm + wall insulation 90 mm + inside board 12.7 mm)",
+    "dropdownOrder": 70,
+    "legacyType": "Cement block Wall",
+    "scope": "opaque-wall",
+    "regions": "Europe, North America, Japan",
+    "massClass": "Light",
+    "coreThicknessMm": 90,
+    "method": "parallel-paths",
+    "paths": [
+      {
+        "fraction": 0.75,
+        "layers": [
+          { "materialId": "wood-bevel-siding-13" },
+          { "materialId": "xps-board", "thicknessMm": 20 },
+          { "materialId": "mineral-fiber-batt-90" },
+          { "materialId": "gypsum-board-12-7" }
+        ]
+      },
+      {
+        "fraction": 0.25,
+        "layers": [
+          { "materialId": "wood-bevel-siding-13" },
+          { "materialId": "xps-board", "thicknessMm": 20 },
+          { "materialId": "wood-stud-90-example" },
+          { "materialId": "gypsum-board-12-7" }
+        ]
+      }
+    ],
+    "cltdTable30Category": "Frame wall",
+    "cltdTable30Description": "25-mm to 75-mm insulation",
+    "uFactorBasis": "Parallel-path wood-frame model follows Chapter 24 Example 1 framing fractions and Table 1/Table 4 layer resistances.",
+    "auditNote": "Framing fraction changes the U-factor. The listed value assumes 75% insulated cavity and 25% wood framing."
+  },
+  {
+    "id": "W02",
+    "label": "W02 Light-gauge steel-frame wall",
+    "dropdownLabel": "Steel wall (with insulation)",
+    "thicknessSummary": "board 13 mm + insulation 90 mm + board 13 mm",
+    "optionLabel": "Steel wall (inside board 13 mm + wall insulation 90 mm + inside board 13 mm)",
+    "dropdownOrder": 80,
+    "legacyType": "Cement block Wall",
+    "scope": "opaque-wall",
+    "regions": "Asia, Middle East, global modular",
+    "massClass": "Light",
+    "coreThicknessMm": 90,
+    "method": "fixed-resistance",
+    "fixedResistanceWithoutSurfacesM2KPerW": 1.037,
+    "cltdTable30Category": "Frame wall",
+    "cltdTable30Description": "25-mm to 75-mm insulation",
+    "uFactorBasis": "Steel-frame assembly resistance follows Chapter 24 Example 3 isothermal-plane result before Table 1 surface resistances.",
+    "auditNote": "Metal thermal bridging controls this wall. Product or tested assembly U-factor should replace the example value when available."
+  },
+  {
+    "id": "W03",
+    "label": "W03 Concrete sandwich wall with 50 mm extruded polystyrene insulation",
+    "dropdownLabel": "Concrete wall (with middle insulation)",
+    "thicknessSummary": "concrete 80 mm + insulation 50 mm + concrete 120 mm",
+    "optionLabel": "Concrete wall (concrete 80 mm + middle insulation 50 mm + concrete 120 mm)",
+    "dropdownOrder": 30,
+    "legacyType": "Concrete Wall",
+    "scope": "opaque-wall",
+    "regions": "Europe, Finland, public buildings",
+    "massClass": "Heavy",
+    "coreThicknessMm": 200,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "dense-concrete-2400", "thicknessMm": 80 },
+      { "materialId": "xps-board", "thicknessMm": 50 },
+      { "materialId": "dense-concrete-2400", "thicknessMm": 120 }
+    ],
+    "cltdTable30Category": "Heavyweight concrete wall + (finish)",
+    "cltdTable30Description": "50-mm insulation + 200-mm concrete",
+    "uFactorBasis": "Idealized 80 mm concrete + 50 mm extruded polystyrene insulation + 120 mm concrete series path from Table 4.",
+    "auditNote": "Metal ties and panel joints are not included in the one-dimensional series resistance."
+  },
+  {
+    "id": "W04",
+    "label": "W04 Reinforced concrete frame with 200 mm cement block infill",
+    "dropdownLabel": "Cement block wall (with concrete frame)",
+    "thicknessSummary": "plaster 20 mm + block 200 mm + plaster 20 mm",
+    "optionLabel": "Cement block wall (concrete frame + plaster 20 mm + cement block 200 mm + plaster 20 mm)",
+    "dropdownOrder": 50,
+    "legacyType": "Cement block Wall",
+    "scope": "opaque-wall",
+    "regions": "South Asia, Southeast Asia, Africa",
+    "massClass": "Medium/heavy",
+    "coreThicknessMm": 200,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "cement-plaster-20" },
+      { "materialId": "concrete-block-low-mass-200" },
+      { "materialId": "cement-plaster-20" }
+    ],
+    "cltdTable30Category": "Light and heavyweight concrete block + (finish)",
+    "cltdTable30Description": "200-mm block",
+    "uFactorBasis": "Infill path uses 20 mm cement plaster both sides and the conservative Table 4 200 mm low-mass block resistance.",
+    "auditNote": "Reinforced concrete columns and beams are separate thermal bridges; the listed value is for the cement block infill path."
+  },
+  {
+    "id": "W05",
+    "label": "W05 200 mm autoclaved aerated concrete block wall with plaster",
+    "dropdownLabel": "Light concrete block wall",
+    "thicknessSummary": "plaster 20 mm + block 200 mm + plaster 20 mm",
+    "optionLabel": "Light concrete block wall (plaster 20 mm + block 200 mm + plaster 20 mm)",
+    "dropdownOrder": 60,
+    "legacyType": "Cement block Wall",
+    "scope": "opaque-wall",
+    "regions": "Asia, Middle East, Europe",
+    "massClass": "Medium",
+    "coreThicknessMm": 200,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "cement-plaster-20" },
+      { "materialId": "cellular-concrete-640", "thicknessMm": 200 },
+      { "materialId": "cement-plaster-20" }
+    ],
+    "cltdTable30Category": "Light and heavyweight concrete block + (finish)",
+    "cltdTable30Description": "200-mm block",
+    "uFactorBasis": "Autoclaved aerated concrete block is represented by the Table 4 foam/cellular concrete 640 kg/m3 material row.",
+    "auditNote": "Use manufacturer conductivity for the selected autoclaved aerated concrete product when available."
+  },
+  {
+    "id": "W06",
+    "label": "W06 Double-leaf brick cavity wall",
+    "dropdownLabel": "Brick wall (with air gap)",
+    "thicknessSummary": "brick 100 mm + air gap 20 mm + brick 100 mm",
+    "optionLabel": "Brick wall (brick 100 mm + air gap 20 mm + brick 100 mm + plaster 20 mm)",
+    "dropdownOrder": 10,
+    "legacyType": "Brick Wall",
+    "scope": "opaque-wall",
+    "regions": "UK, Europe, Australia, South Africa",
+    "massClass": "Medium/heavy",
+    "coreThicknessMm": 200,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "fired-clay-brick-1920", "thicknessMm": 100 },
+      { "materialId": "air-space-20-vertical-summer" },
+      { "materialId": "fired-clay-brick-1920", "thicknessMm": 100 },
+      { "materialId": "cement-plaster-20" }
+    ],
+    "cltdTable30Category": "100-mm face brick + (brick)",
+    "cltdTable30Description": "25-mm insulation or air space + 100-mm common brick",
+    "uFactorBasis": "Double-leaf brick path uses two 100 mm fired-clay brick leaves, one 20 mm air space, and internal plaster.",
+    "auditNote": "Cavity width and ties vary by practice; the listed air-space resistance is the Table 3 20 mm vertical nonreflective case."
+  },
+  {
+    "id": "W07",
+    "label": "W07 Brick wall with 50 mm external expanded polystyrene insulation",
+    "dropdownLabel": "Brick wall (with outside insulation)",
+    "thicknessSummary": "brick 200 mm + outside insulation 50 mm",
+    "optionLabel": "Brick wall (outside finish 10 mm + outside insulation 50 mm + brick 200 mm + plaster 20 mm)",
+    "dropdownOrder": 20,
+    "legacyType": "Brick Wall",
+    "scope": "opaque-wall",
+    "regions": "Europe, renovations, China",
+    "massClass": "Heavy",
+    "coreThicknessMm": 200,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "cement-plaster-10" },
+      { "materialId": "molded-eps-board", "thicknessMm": 50 },
+      { "materialId": "fired-clay-brick-1920", "thicknessMm": 200 },
+      { "materialId": "cement-plaster-20" }
+    ],
+    "cltdTable30Category": "100-mm face brick + (brick)",
+    "cltdTable30Description": "Insulation or air space + 200-mm common brick",
+    "uFactorBasis": "External insulated brick wall path uses 10 mm exterior render, 50 mm molded expanded polystyrene insulation, 200 mm brick, and 20 mm internal plaster.",
+    "auditNote": "Anchors, adhesive pattern, and the exact external insulation product are not represented."
+  },
+  {
+    "id": "W08",
+    "label": "W08 100 mm insulated metal sandwich panel",
+    "dropdownLabel": "Metal panel wall (with insulation)",
+    "thicknessSummary": "insulation 100 mm",
+    "optionLabel": "Metal panel wall (insulation 100 mm)",
+    "dropdownOrder": 90,
+    "legacyType": "Cement block Wall",
+    "scope": "opaque-wall",
+    "regions": "Global industrial buildings",
+    "massClass": "Very light",
+    "coreThicknessMm": 100,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "polyiso-board-conservative", "thicknessMm": 100 }
+    ],
+    "cltdTable30Category": "Metal curtain wall",
+    "cltdTable30Description": "With/without air space + 25- to 75-mm insulation",
+    "uFactorBasis": "Idealized one-dimensional panel path uses 100 mm polyisocyanurate core; metal skin resistance is neglected.",
+    "auditNote": "Chapter 24 warns ribs and stiffeners create complicated heat paths. Use tested panel U-factor for precision."
+  },
+  {
+    "id": "W09",
+    "label": "W09 Curtain wall or glazed facade",
+    "dropdownLabel": "Glass facade",
+    "thicknessSummary": "architectural glass layer",
+    "optionLabel": "Glass facade (architectural glass layer)",
+    "dropdownOrder": 100,
+    "legacyType": "Brick Wall",
+    "scope": "fenestration",
+    "regions": "Global commercial buildings",
+    "massClass": "Very light",
+    "coreThicknessMm": 6,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "architectural-glass" }
+    ],
+    "cltdTable30Category": "Metal curtain wall",
+    "cltdTable30Description": "With/without air space + 25- to 75-mm insulation",
+    "uFactorBasis": "Table 4 provides only architectural glass resistance for this path.",
+    "auditNote": "Curtain walls are fenestration systems. Use glass/frame U-factor and solar inputs instead of an opaque-wall option."
+  },
+  {
+    "id": "W10",
+    "label": "W10 Insulated concrete form wall with 150 mm concrete core",
+    "dropdownLabel": "Concrete wall (insulation both sides)",
+    "thicknessSummary": "insulation 50 mm each side + concrete 150 mm",
+    "optionLabel": "Concrete wall (insulation 50 mm + concrete 150 mm + insulation 50 mm + plaster 20 mm)",
+    "dropdownOrder": 40,
+    "legacyType": "Concrete Wall",
+    "scope": "opaque-wall",
+    "regions": "North America, Europe, high-performance",
+    "massClass": "Heavy",
+    "coreThicknessMm": 150,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "xps-board", "thicknessMm": 50 },
+      { "materialId": "dense-concrete-2400", "thicknessMm": 150 },
+      { "materialId": "xps-board", "thicknessMm": 50 },
+      { "materialId": "cement-plaster-20" }
+    ],
+    "cltdTable30Category": "Heavyweight concrete wall + (finish)",
+    "cltdTable30Description": "200-mm concrete + 25-mm or 50-mm insulation",
+    "uFactorBasis": "Idealized insulated concrete form wall path uses 50 mm extruded polystyrene insulation each side, 150 mm concrete core, and 20 mm internal plaster.",
+    "auditNote": "Form webs, ties, and the selected insulated concrete form wall product are not included in the one-dimensional path."
+  },
+  {
+    "id": "W11",
+    "label": "W11 Simple 200 mm brick wall with cement plaster",
+    "dropdownLabel": "Brick wall (plaster both sides)",
+    "thicknessSummary": "brick 200 mm + plaster 20 mm both sides",
+    "optionLabel": "Brick wall (cement plaster 20 mm + brick 200 mm + cement plaster 20 mm)",
+    "dropdownOrder": 5,
+    "legacyType": "Brick Wall",
+    "scope": "opaque-wall",
+    "regions": "General masonry construction",
+    "massClass": "Heavy",
+    "coreThicknessMm": 200,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "cement-plaster-20" },
+      { "materialId": "fired-clay-brick-1920", "thicknessMm": 200 },
+      { "materialId": "cement-plaster-20" }
+    ],
+    "cltdTable30Category": "100-mm face brick + (brick)",
+    "cltdTable30Description": "200-mm common brick",
+    "uFactorBasis": "Simple brick wall path uses 20 mm cement plaster both sides and 200 mm fired-clay brick from Table 4.",
+    "auditNote": "Table 30 provides the nearest available 200 mm brick wall cooling-load group for this simple wall."
+  },
+  {
+    "id": "W12",
+    "label": "W12 Simple 200 mm concrete wall with cement plaster",
+    "dropdownLabel": "Concrete wall (plaster both sides)",
+    "thicknessSummary": "concrete 200 mm + plaster 20 mm both sides",
+    "optionLabel": "Concrete wall (cement plaster 20 mm + concrete 200 mm + cement plaster 20 mm)",
+    "dropdownOrder": 25,
+    "legacyType": "Concrete Wall",
+    "scope": "opaque-wall",
+    "regions": "General concrete wall construction",
+    "massClass": "Heavy",
+    "coreThicknessMm": 200,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "cement-plaster-20" },
+      { "materialId": "dense-concrete-2400", "thicknessMm": 200 },
+      { "materialId": "cement-plaster-20" }
+    ],
+    "cltdTable30Category": "Heavyweight concrete wall + (finish)",
+    "cltdTable30Description": "200-mm concrete",
+    "uFactorBasis": "Simple concrete wall path uses 20 mm cement plaster both sides and 200 mm dense concrete from Table 4.",
+    "auditNote": "Concrete density and reinforcement detailing should be replaced by project data when available."
+  },
+  {
+    "id": "W13",
+    "label": "W13 Simple 200 mm cement block wall with cement plaster",
+    "dropdownLabel": "Cement block wall (plaster both sides)",
+    "thicknessSummary": "cement block 200 mm + plaster 20 mm both sides",
+    "optionLabel": "Cement block wall (cement plaster 20 mm + cement block 200 mm + cement plaster 20 mm)",
+    "dropdownOrder": 45,
+    "legacyType": "Cement block Wall",
+    "scope": "opaque-wall",
+    "regions": "General cement block construction",
+    "massClass": "Medium/heavy",
+    "coreThicknessMm": 200,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "cement-plaster-20" },
+      { "materialId": "concrete-block-low-mass-200" },
+      { "materialId": "cement-plaster-20" }
+    ],
+    "cltdTable30Category": "Light and heavyweight concrete block + (finish)",
+    "cltdTable30Description": "200-mm block",
+    "uFactorBasis": "Simple cement block wall path uses 20 mm cement plaster both sides and the conservative Table 4 200 mm concrete block resistance.",
+    "auditNote": "Concrete block core fill, mortar joints, and product density can change the final wall U-factor."
+  },
+  {
+    "id": "W14",
+    "label": "W14 Finland home timber-framed external wall",
+    "dropdownLabel": "Timber wall (thick insulation)",
+    "thicknessSummary": "wood 13 mm + insulation 210 to 250 mm + board 12.7 mm",
+    "optionLabel": "Timber wall (wood outside layer 13 mm + wall insulation 210 to 250 mm + inside board 12.7 mm)",
+    "dropdownOrder": 75,
+    "legacyType": "Cement block Wall",
+    "scope": "opaque-wall",
+    "regions": "Finland homes, one-family houses, row houses",
+    "massClass": "Light",
+    "coreThicknessMm": 240,
+    "method": "parallel-paths",
+    "paths": [
+      {
+        "fraction": 0.75,
+        "layers": [
+          { "materialId": "wood-bevel-siding-13" },
+          { "materialId": "mineral-fiber-batt-210-250" },
+          { "materialId": "gypsum-board-12-7" }
+        ]
+      },
+      {
+        "fraction": 0.25,
+        "layers": [
+          { "materialId": "wood-bevel-siding-13" },
+          { "materialId": "spruce-framing-conservative", "thicknessMm": 240 },
+          { "materialId": "gypsum-board-12-7" }
+        ]
+      }
+    ],
+    "cltdTable30Category": "Frame wall",
+    "cltdTable30Description": "25-mm to 75-mm insulation",
+    "uFactorBasis": "Finland home timber-wall option uses wood siding, mineral fiber insulation, gypsum board, and parallel framing paths using Table 4 resistances.",
+    "auditNote": "Finnish timber walls commonly include a ventilated cladding gap, sheathing, vapour or air barrier, and interior finishing; these product-dependent thin layers are not credited in this U-factor."
+  },
+  {
+    "id": "W15",
+    "label": "W15 Finland commercial precast concrete sandwich wall",
+    "dropdownLabel": "Concrete wall (insulated panel)",
+    "thicknessSummary": "concrete 80 mm + insulation 240 mm + concrete 120 mm",
+    "optionLabel": "Concrete wall (concrete 80 mm + insulation 240 mm + concrete 120 mm)",
+    "dropdownOrder": 35,
+    "legacyType": "Concrete Wall",
+    "scope": "opaque-wall",
+    "regions": "Finland office and commercial facades",
+    "massClass": "Heavy",
+    "coreThicknessMm": 440,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "dense-concrete-2400", "thicknessMm": 80 },
+      { "materialId": "mineral-fiber-batt-210-250" },
+      { "materialId": "dense-concrete-2400", "thicknessMm": 120 }
+    ],
+    "cltdTable30Category": "Heavyweight concrete wall + (finish)",
+    "cltdTable30Description": "50-mm insulation + 200-mm concrete",
+    "uFactorBasis": "Finland commercial concrete sandwich wall option uses an 80 mm outer concrete layer, mineral fiber insulation at the Table 4 210 to 250 mm resistance level, and an assumed 120 mm inner concrete layer.",
+    "auditNote": "Finnish concrete sandwich panels use connectors and project-specific inner concrete thickness. Replace this academic wall option with the panel schedule or tested U-factor when available."
+  },
+  {
+    "id": "W16",
+    "label": "W16 Finland apartment precast concrete sandwich wall",
+    "dropdownLabel": "Concrete wall (insulated panel, thicker inside)",
+    "thicknessSummary": "concrete 80 mm + insulation 240 mm + concrete 150 mm",
+    "optionLabel": "Concrete wall (concrete 80 mm + insulation 240 mm + concrete 150 mm)",
+    "dropdownOrder": 34,
+    "legacyType": "Concrete Wall",
+    "scope": "opaque-wall",
+    "regions": "Finland apartment buildings and blocks of flats",
+    "massClass": "Heavy",
+    "coreThicknessMm": 470,
+    "method": "series-layers",
+    "layers": [
+      { "materialId": "dense-concrete-2400", "thicknessMm": 80 },
+      { "materialId": "mineral-fiber-batt-210-250" },
+      { "materialId": "dense-concrete-2400", "thicknessMm": 150 }
+    ],
+    "cltdTable30Category": "Heavyweight concrete wall + (finish)",
+    "cltdTable30Description": "50-mm insulation + 200-mm concrete",
+    "uFactorBasis": "Finland apartment concrete sandwich wall option uses an 80 mm outer concrete layer, mineral fiber insulation at the Table 4 210 to 250 mm resistance level, and an assumed 150 mm load-bearing inner concrete layer.",
+    "auditNote": "Blocks of flats in Finland commonly use concrete sandwich facades, but inner panel thickness and connectors are project-specific. Replace this academic option with apartment panel drawings or a tested U-factor when available."
+  }
+]

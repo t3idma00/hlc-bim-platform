@@ -1,10 +1,16 @@
 import {
-  infiltrationMethodOptions,
+  SECTION3_ASSEMBLY_U_FACTOR,
+  SECTION3_INTERMEDIATE_FLOOR,
+  SECTION3_UNKNOWN_ADJACENT_SPACE,
   resolveAshraeInternalClf,
   resolveAshraeInternalHeatGain,
-  resolveCurrentTd,
   resolveCurrentUFactor,
+  section3FloorTypes,
 } from "./ashrae-calculations";
+import {
+  ASHRAE_TABLE5_DEFAULT_FRAME_LABEL,
+  ASHRAE_TABLE5_DEFAULT_GLAZING_LABEL,
+} from "./ashrae-calculations/fenestration-u-table5";
 import { heatLoadLookupOptions } from "./heat-load-options";
 import {
   SECTION4_REFERENCE,
@@ -15,28 +21,32 @@ import {
 import section6Data from "./section-6-data.json";
 import type { Section, SelectOptionsByKey } from "./heat-load-sheet-types";
 
+type VentilationRate = {
+  perPerson: number;
+  perArea: number;
+};
+
 const allGlassesCellSelects: SelectOptionsByKey = {
-  typeA: heatLoadLookupOptions.transmissionGlassTypes,
-  typeB: heatLoadLookupOptions.glassFrameTypes,
-  thickness: heatLoadLookupOptions.glassThicknesses,
+  typeA: heatLoadLookupOptions.interiorTransmissionGlassTypes,
+  typeB: [ASHRAE_TABLE5_DEFAULT_FRAME_LABEL],
+  thickness: heatLoadLookupOptions.transmissionGlassThicknesses,
 };
 
 const wallPartitionCellSelects: SelectOptionsByKey = {
-  typeA: heatLoadLookupOptions.wallTypes,
-  thickness: heatLoadLookupOptions.wallThicknesses,
+  typeA: heatLoadLookupOptions.interiorPartitionWallTypes,
+  typeB: ["Not applicable"],
 };
 
 const floorCellSelects: SelectOptionsByKey = {
-  typeB: heatLoadLookupOptions.wallTypes,
-  thickness: heatLoadLookupOptions.wallThicknesses,
+  typeA: section3FloorTypes,
+  typeB: [
+    "100 mm concrete wall + finish + plaster",
+    "Not applicable",
+  ],
 };
 
 function uFactor(type: string, thicknessMm = 0) {
   return resolveCurrentUFactor(type, undefined, thicknessMm).value.toFixed(2);
-}
-
-function td(type: string) {
-  return resolveCurrentTd(type).value.toFixed(2);
 }
 
 export function getDefaultInternalGain(item: string, application: string, isLatent = false) {
@@ -60,12 +70,19 @@ export function getDefaultClf(
 }
 
 export function getDefaultVentilation(application: string) {
-  const apps = section6Data.ventilation.applications as Record<string, { sensible: number; latent: number }>;
-  const vent = apps[application] ?? section6Data.ventilation.default;
+  const rate = getVentilationRate(application);
+  const vent = section6Data.ventilation.default;
   return {
+    peopleOutdoorAirRate: rate.perPerson.toFixed(2),
+    areaOutdoorAirRate: rate.perArea.toFixed(2),
     sensible: vent.sensible.toFixed(2),
     latent: vent.latent.toFixed(2),
   };
+}
+
+export function getVentilationRate(application: string) {
+  const rates = section6Data.ventilationRates as Record<string, VentilationRate>;
+  return rates[application] ?? rates.default;
 }
 
 export function buildSection3(): Section {
@@ -73,26 +90,30 @@ export function buildSection3(): Section {
     number: "3",
     title: "Transmission heat gain Except outside wall and roof",
     columns: [
-      { key: "item", label: "Item", width: "14%" },
-      { key: "typeA", label: "Type", wrap: true, width: "14%" },
-      { key: "typeB", label: "Detail", wrap: true, width: "16%" },
-      { key: "thickness", label: "Thick.", unit: "thickness", align: "center", width: "16%", editable: true },
-      { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "10%", editable: true },
-      { key: "cltd", label: "CLTD/TD", unit: "temperatureDelta", align: "right", width: "11%", editable: true },
-      { key: "calcValue", label: "Area / Qty", unit: "area", align: "right", width: "10%", editable: true },
-      { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "9%", editable: true },
+      { key: "item", label: "Item", wrap: true, width: "13%" },
+      { key: "typeA", label: "Type", wrap: true, width: "17%", editable: true },
+      { key: "typeB", label: "Construction", wrap: true, width: "19%", editable: true },
+      { key: "thickness", label: "Nominal thick.", unit: "thickness", align: "center", width: "8%" },
+      { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "10%" },
+      { key: "cltd", label: "TD", unit: "temperatureDelta", align: "right", width: "8%" },
+      { key: "calcValue", label: "Area", unit: "area", align: "right", width: "10%", editable: true },
+      { key: "heatLoad", label: "Heat gain", unit: "heat", align: "right", width: "10%" },
     ],
     rows: [
       {
         id: "3.1",
         values: {
           item: "All Glasses",
-          typeA: "Single glass",
-          typeB: "Glass only (Centre of Glass)",
+          typeA: ASHRAE_TABLE5_DEFAULT_GLAZING_LABEL,
+          typeB: ASHRAE_TABLE5_DEFAULT_FRAME_LABEL,
           thickness: "6",
+          uFactorMode: SECTION3_ASSEMBLY_U_FACTOR,
+          adjacentSpaceType: SECTION3_UNKNOWN_ADJACENT_SPACE,
+          adjacentTemperature: "",
+          indoorTemperature: "",
           reference: getSection3Reference("All Glasses"),
-          uFactor: uFactor("Single glass"),
-          cltd: td("Single glass"),
+          uFactor: "",
+          cltd: "",
           calcValue: "",
           heatLoad: "",
         },
@@ -102,12 +123,16 @@ export function buildSection3(): Section {
         id: "3.2",
         values: {
           item: "Wall Partition",
-          typeA: "Concrete Wall",
+          typeA: "W12 Simple 200 mm concrete wall with cement plaster",
           typeB: "Not applicable",
-          thickness: "215",
+          thickness: "200",
+          uFactorMode: SECTION3_ASSEMBLY_U_FACTOR,
+          adjacentSpaceType: SECTION3_UNKNOWN_ADJACENT_SPACE,
+          adjacentTemperature: "",
+          indoorTemperature: "",
           reference: getSection3Reference("Wall Partition"),
-          uFactor: uFactor("Concrete Wall", 215),
-          cltd: td("Concrete Wall"),
+          uFactor: uFactor("W12 Simple 200 mm concrete wall with cement plaster", 200),
+          cltd: "",
           calcValue: "",
           heatLoad: "",
         },
@@ -117,12 +142,16 @@ export function buildSection3(): Section {
         id: "3.3",
         values: {
           item: "Floor",
-          typeA: "Intermediate Floor",
-          typeB: "Concrete Wall",
+          typeA: SECTION3_INTERMEDIATE_FLOOR,
+          typeB: "100 mm concrete wall + finish + plaster",
           thickness: "100",
-          reference: getSection3Reference("Floor"),
-          uFactor: uFactor("Concrete Wall", 100),
-          cltd: td("Concrete Wall"),
+          uFactorMode: SECTION3_ASSEMBLY_U_FACTOR,
+          adjacentSpaceType: SECTION3_UNKNOWN_ADJACENT_SPACE,
+          adjacentTemperature: "",
+          indoorTemperature: "",
+          reference: getSection3Reference("Floor", SECTION3_INTERMEDIATE_FLOOR),
+          uFactor: uFactor("100 mm concrete wall + finish + plaster", 100),
+          cltd: "",
           calcValue: "",
           heatLoad: "",
         },
@@ -138,31 +167,25 @@ export function buildSection4(): Section {
     title: "Infiltration",
     columns: [
       { key: "method", label: "Method", wrap: true, width: "14%" },
-      { key: "componentA", label: "Component", width: "12%" },
-      { key: "qty", label: "Qty", align: "right", width: "9%", editable: true },
-      { key: "crackLength", label: "Crack length", unit: "length", align: "right", width: "13%", editable: true },
-      { key: "componentB", label: "Component", wrap: true, width: "17%" },
-      { key: "qtySecondary", label: "QTY", align: "right", width: "8%", editable: true },
-      { key: "doorArea", label: "Door Area", unit: "area", align: "right", width: "10%", editable: true },
-      { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "10%", editable: true },
+      { key: "componentA", label: "Window Component", width: "14%" },
+      { key: "qty", label: "Window Qty", align: "right", width: "9%", editable: true },
+      { key: "crackLength", label: "Window Crack Length", unit: "length", align: "right", width: "18%", editable: true },
+      { key: "componentB", label: "Door Component", wrap: true, width: "16%" },
+      { key: "qtySecondary", label: "Door Frame Qty", align: "right", width: "12%", editable: true },
+      { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "12%", editable: true },
     ],
     rows: [
       {
         id: "4.1",
         values: {
-          method: "Crack + Door",
-          componentA: "Window",
+          method: "ASHRAE Stack-Wind",
+          componentA: "Window crack",
           qty: "1",
           crackLength: "",
-          componentB: "Residential door",
+          componentB: "Door frame",
           qtySecondary: "1",
-          doorArea: "",
           reference: SECTION4_REFERENCE,
           heatLoad: "",
-        },
-        selectOptions: {
-          method: infiltrationMethodOptions,
-          componentB: heatLoadLookupOptions.infiltrationDoorComponents,
         },
       },
     ],
@@ -226,28 +249,30 @@ export function buildSection6(): Section {
     number: "6",
     title: "Ventilation",
     columns: [
-      { key: "application", label: "Application", width: "13%" },
-      { key: "item", label: "Item", width: "10%" },
-      { key: "quantity", label: "Quantity", align: "right", width: "8%", editable: true },
-      { key: "area", label: "Area", width: "8%" },
-      { key: "areaQty", label: "Area quantity", unit: "area", align: "right", width: "9%", editable: true },
-      { key: "totalFlowRate", label: "Total flowrate", unit: "airflow", align: "right", width: "11%", editable: true },
+      { key: "application", label: "Occupancy category", wrap: true, width: "17%" },
+      { key: "item", label: "Item", width: "7%" },
+      { key: "quantity", label: "People", align: "right", width: "7%", editable: true },
+      { key: "peopleOutdoorAirRate", label: "People OA rate (L/s-person)", align: "right", width: "8%" },
+      { key: "area", label: "Area", width: "5%" },
+      { key: "areaQty", label: "Floor area", unit: "area", align: "right", width: "8%" },
+      { key: "areaOutdoorAirRate", label: "Area OA rate (L/s-m2)", align: "right", width: "8%" },
+      { key: "totalFlowRate", label: "Total flowrate", unit: "airflow", align: "right", width: "10%", editable: true },
       { key: "sensible", label: "Sensible heat", unit: "heat", align: "right", width: "8%", editable: true },
       { key: "latent", label: "Latent heat", unit: "heat", align: "right", width: "9%", editable: true },
-      { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "19%", editable: true },
+      { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "12%", editable: true },
     ],
     rows: [
       {
         id: "6.1",
         values: {
-          application: "Bedroom / residential",
+          application: "Bed room, Living Room",
           item: "People",
           quantity: "2",
           area: "Area",
           areaQty: "",
           totalFlowRate: "",
           reference: SECTION6_REFERENCE,
-          ...getDefaultVentilation("Bedroom / residential"),
+          ...getDefaultVentilation("Bed room, Living Room"),
           heatLoad: "",
         },
         selectOptions: { application: heatLoadLookupOptions.ventilationApplications },

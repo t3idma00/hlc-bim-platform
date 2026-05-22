@@ -1,11 +1,10 @@
 import "server-only";
 
 import baseStationsPayload from "@/data/ashrae2005/ashrae-design-conditions.json";
-import julyCltdPayload from "@/data/ashrae2005/july-cltd-design-conditions.json";
+import sriLanka2025StationsPayload from "@/data/ashrae2025-sri-lanka/ashrae-design-conditions.json";
 import { calculateRelativeHumidityFromWetBulb } from "@/lib/calculations/psychrometrics";
 
-export type AshraePercentile = "0.4" | "2";
-type AnnualAshraePercentile = AshraePercentile | "1";
+export type AshraePercentile = "0.4" | "1" | "2";
 
 type StationRecord = {
   stationName: string;
@@ -24,10 +23,10 @@ type StationRecord = {
   cooling: {
     hottestMonth: number | null;
     hottestMonthDryBulbRange: number | null;
-    dryBulb: Record<AnnualAshraePercentile, number | null>;
-    meanCoincidentWetBulb: Record<AnnualAshraePercentile, number | null>;
-    wetBulb: Record<AnnualAshraePercentile, number | null>;
-    meanCoincidentDryBulbFromWetBulb: Record<AnnualAshraePercentile, number | null>;
+    dryBulb: Record<AshraePercentile, number | null>;
+    meanCoincidentWetBulb: Record<AshraePercentile, number | null>;
+    wetBulb: Record<AshraePercentile, number | null>;
+    meanCoincidentDryBulbFromWetBulb: Record<AshraePercentile, number | null>;
     meanCoincidentWindTo0_4DryBulb: {
       windSpeed: number | null;
       prevailingDirection: number | null;
@@ -42,17 +41,11 @@ type StationsPayload = {
   stations: StationRecord[];
 };
 
-type JulyCltdRecord = {
-  dryBulb: Record<AshraePercentile, number | null>;
-  meanCoincidentWetBulb: Record<AshraePercentile, number | null>;
-  meanDailyDryBulbRange: number | null;
-};
-
-type JulyCltdPayload = {
-  metadata: {
-    referenceMonth: number;
-  };
-  stations: Record<string, JulyCltdRecord>;
+type CoolingDesignValues = {
+  dryBulbTemp: number | null | undefined;
+  meanCoincidentWetBulb: number | null | undefined;
+  hottestMonthDryBulbRange: number | null | undefined;
+  hottestMonth: number | null | undefined;
 };
 
 const COUNTRY_ALIASES: Record<string, string> = {
@@ -64,9 +57,11 @@ const COUNTRY_ALIASES: Record<string, string> = {
 };
 
 const baseStations = (baseStationsPayload as StationsPayload).stations;
-const stations = baseStations;
-const julyCltdData = julyCltdPayload as JulyCltdPayload;
-const julyCltdStations = julyCltdData.stations;
+const sriLanka2025Stations = (sriLanka2025StationsPayload as StationsPayload).stations;
+const stations = [
+  ...baseStations.filter((station) => normalizeCountryLabel(station.countryLabel) !== "srilanka"),
+  ...sriLanka2025Stations,
+];
 
 function normalizeCountryLabel(value: string | undefined) {
   const compact = (value ?? "").toLowerCase().replace(/[^a-z]/g, "");
@@ -101,16 +96,29 @@ function isFiniteNumber(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function getCoolingDesignValues(
+  station: StationRecord,
+  percentile: AshraePercentile,
+): CoolingDesignValues {
+  return {
+    dryBulbTemp: station.cooling.dryBulb[percentile],
+    meanCoincidentWetBulb: station.cooling.meanCoincidentWetBulb[percentile],
+    hottestMonthDryBulbRange: station.cooling.hottestMonthDryBulbRange,
+    hottestMonth: station.cooling.hottestMonth,
+  };
+}
+
 function isStationUsable(station: StationRecord, percentile: AshraePercentile) {
-  const julyValues = julyCltdStations[station.wmo];
+  const coolingValues = getCoolingDesignValues(station, percentile);
 
   return (
     isFiniteNumber(station.latitude) &&
     isFiniteNumber(station.longitude) &&
     isFiniteNumber(station.standardPressurePa) &&
-    isFiniteNumber(julyValues?.dryBulb[percentile]) &&
-    isFiniteNumber(julyValues?.meanCoincidentWetBulb[percentile]) &&
-    isFiniteNumber(julyValues?.meanDailyDryBulbRange)
+    isFiniteNumber(coolingValues.dryBulbTemp) &&
+    isFiniteNumber(coolingValues.meanCoincidentWetBulb) &&
+    isFiniteNumber(coolingValues.hottestMonthDryBulbRange) &&
+    isFiniteNumber(coolingValues.hottestMonth)
   );
 }
 
@@ -164,11 +172,11 @@ export function getAshraeDesignConditions(input: {
     input.countryLabel,
   );
 
-  const julyValues = julyCltdStations[match.station.wmo];
-  const dryBulbTemp = julyValues?.dryBulb[input.percentile];
-  const meanCoincidentWetBulb = julyValues?.meanCoincidentWetBulb[input.percentile];
-  const hottestMonthDryBulbRange = julyValues?.meanDailyDryBulbRange;
-  const hottestMonth = julyCltdData.metadata.referenceMonth;
+  const coolingValues = getCoolingDesignValues(match.station, input.percentile);
+  const dryBulbTemp = coolingValues.dryBulbTemp;
+  const meanCoincidentWetBulb = coolingValues.meanCoincidentWetBulb;
+  const hottestMonthDryBulbRange = coolingValues.hottestMonthDryBulbRange;
+  const hottestMonth = coolingValues.hottestMonth;
 
   if (
     !isFiniteNumber(dryBulbTemp) ||
@@ -217,6 +225,6 @@ export function getAshraeDesignConditions(input: {
       prevailingWindDirection:
         match.station.cooling.meanCoincidentWindTo0_4DryBulb.prevailingDirection,
     },
-    supportedPercentiles: ["0.4", "2"] as AshraePercentile[],
+    supportedPercentiles: ["0.4", "1", "2"] as AshraePercentile[],
   };
 }

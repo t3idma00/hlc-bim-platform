@@ -1,15 +1,28 @@
 import references from "../ashrae-tables/references.json";
-import { heatLoadLookupOptions } from "../heat-load-options";
 import { defaultWallThicknessMmForType, normalizeWallThicknessMm } from "../heat-load-wall-thickness";
+import { getWallTypeFamily } from "../ashrae-wall-assemblies";
+import { resolveRoofAssemblyUFactor } from "../ashrae-roof-assemblies";
 import section1Data from "../section-1-data.json";
 
+import {
+  ASHRAE_TABLE5_DEFAULT_FRAME_LABEL,
+  ASHRAE_TABLE5_FENESTRATION_SOURCE,
+  findAshraeTable5Record,
+  lookupAshraeTable5VerticalUFactor,
+  normalizeAshraeTable5FrameLabel,
+  normalizeAshraeTable5GlazingLabel,
+} from "./fenestration-u-table5";
 import { formatSource, getNum, matchesText } from "./common";
+import { resolveBaseCltd } from "./cltd";
 import type { FactorResult } from "./types";
+import { resolveAshrae1989WallUFactor } from "./wall-cltd-1989";
+import { resolveAshrae1997WallUFactor } from "./wall-u-1997";
 
 const CURRENT_SOURCE = "Current application lookup data";
-const DEFAULT_GLASS_FRAME = "Glass only (Centre of Glass)";
+const DEFAULT_GLASS_FRAME = ASHRAE_TABLE5_DEFAULT_FRAME_LABEL;
 
 function wallMaterialKey(type: string) {
+  type = getWallTypeFamily(type);
   if (type.includes("Brick")) return "brick_wall_CLTD_C";
   if (type.includes("Cement")) return "cement_block_wall_CLTD_C";
   if (type.includes("Concrete")) return "concrete_wall_CLTD_C";
@@ -17,6 +30,7 @@ function wallMaterialKey(type: string) {
 }
 
 function resolveWallUFromCurrent(type: string): FactorResult | null {
+  type = getWallTypeFamily(type);
   const uFactors = section1Data.wall_corrected_cltd_month_may.u_factors_W_per_m2K;
 
   if (type === "Brick Wall") {
@@ -38,7 +52,13 @@ function matchesRoofMaterial(type: string, materialType: string) {
   );
 }
 
-function resolveRoofUFactor(type: string, source: string, detail?: string): FactorResult | null {
+function resolveRoofUFactor(type: string, source: string, detail?: string, thicknessMm = 0): FactorResult | null {
+  const assembly = resolveRoofAssemblyUFactor(type, detail, thicknessMm, source);
+
+  if (assembly) {
+    return assembly;
+  }
+
   const roof = section1Data.roof_material_u_factor.records.find((record) =>
     matchesRoofMaterial(type, record.material_type),
   );
@@ -65,6 +85,21 @@ function resolveGlassUFactor(input: {
   thicknessMm: number;
   source: string;
 }): FactorResult | null {
+  const table5 = lookupAshraeTable5VerticalUFactor(input);
+
+  if (table5 && typeof table5.value === "number") {
+    const source =
+      input.source === CURRENT_SOURCE ? ASHRAE_TABLE5_FENESTRATION_SOURCE : input.source;
+
+    return {
+      value: table5.value,
+      source: formatSource(
+        source,
+        `Table 5 ID ${table5.ashraeId}, ${table5.recordLabel}, ${table5.frameLabel}`,
+      ),
+    };
+  }
+
   const record = section1Data.fenestration_u_factors_exterior_to_interior.records.find((item) => {
     const thicknessMatches =
       item.thickness_mm == null ||
@@ -83,9 +118,11 @@ function resolveGlassUFactor(input: {
     record.fixed_wood_vinyl_W_per_m2K ??
     record.operable_wood_vinyl_W_per_m2K;
 
-  if (input.frameType?.includes("Operable")) {
+  const frameType = normalizeAshraeTable5FrameLabel(input.frameType);
+
+  if (frameType.includes("Operable")) {
     value = record.operable_wood_vinyl_W_per_m2K ?? value;
-  } else if (input.frameType?.includes("Fixed")) {
+  } else if (frameType.includes("Fixed")) {
     value = record.fixed_wood_vinyl_W_per_m2K ?? value;
   }
 
@@ -122,18 +159,19 @@ export function resolveSection1GlassSelection(input: {
   type: string;
   detail?: string;
 }) {
-  const legacyDirectionIsGlassType = heatLoadLookupOptions.transmissionGlassTypes.includes(
-    input.direction as (typeof heatLoadLookupOptions.transmissionGlassTypes)[number],
-  );
+  const legacyDirectionIsGlassType = Boolean(findAshraeTable5Record(input.direction));
+  const glazingType = legacyDirectionIsGlassType ? input.direction : input.type;
+  const frameType = legacyDirectionIsGlassType ? input.type : input.detail || DEFAULT_GLASS_FRAME;
 
   return {
-    direction: legacyDirectionIsGlassType ? "North" : input.direction,
-    glazingType: legacyDirectionIsGlassType ? input.direction : input.type,
-    frameType: legacyDirectionIsGlassType ? input.type : input.detail || DEFAULT_GLASS_FRAME,
+    direction: legacyDirectionIsGlassType ? "All" : input.direction,
+    glazingType: normalizeAshraeTable5GlazingLabel(glazingType),
+    frameType: normalizeAshraeTable5FrameLabel(frameType),
   };
 }
 
 function resolveWallUFromLayer(type: string, thicknessMm: number, source: string): FactorResult | null {
+  type = getWallTypeFamily(type);
   const record = section1Data.wall_u_factor_exterior_to_interior.records.find((item) =>
     matchesText(type, item.material_type),
   );
@@ -176,7 +214,7 @@ export function resolveCurrentUFactor(type: string, detail?: string, thicknessMm
     return wall;
   }
 
-  const roof = resolveRoofUFactor(type, CURRENT_SOURCE, detail);
+  const roof = resolveRoofUFactor(type, CURRENT_SOURCE, detail, thicknessMm);
   if (roof) {
     return roof;
   }
@@ -195,6 +233,16 @@ export function resolveCurrentUFactor(type: string, detail?: string, thicknessMm
 }
 
 export function resolveCurrentTd(type: string, direction = "North"): FactorResult {
+  type = getWallTypeFamily(type);
+
+  if (type.includes("Roof")) {
+    return resolveBaseCltd({
+      item: "Roof",
+      type,
+      direction,
+    });
+  }
+
   const row = section1Data.wall_corrected_cltd_month_may.records.find((record) =>
     matchesText(record.orientation, direction),
   );
@@ -206,7 +254,6 @@ export function resolveCurrentTd(type: string, direction = "North"): FactorResul
   if (type.includes("Brick")) return { value: 15.9, source: "Current application CLTD/TD lookup data" };
   if (type.includes("Cement")) return { value: 19.1, source: "Current application CLTD/TD lookup data" };
   if (type.includes("Concrete Wall")) return { value: 14.1, source: "Current application CLTD/TD lookup data" };
-  if (type.includes("Roof")) return { value: 20.7, source: "Current application CLTD/TD lookup data" };
   if (type.toLowerCase().includes("glass")) return { value: 14.1, source: "Current application CLTD/TD lookup data" };
   return { value: 10, source: "Current application CLTD/TD lookup data" };
 }
@@ -220,6 +267,7 @@ export function resolveAshraeUFactor(input: {
 }): FactorResult {
   const isGlass =
     input.item.toLowerCase().includes("glass") ||
+    input.item.toLowerCase().includes("sky") ||
     input.detail?.includes("Glass") ||
     input.type.toLowerCase().includes("glass");
 
@@ -249,10 +297,20 @@ export function resolveAshraeUFactor(input: {
   }
 
   if (input.item.toLowerCase().includes("roof") || input.type.includes("Roof")) {
-    const roof = resolveRoofUFactor(input.type, references.opaqueCts, input.detail);
+    const roof = resolveRoofUFactor(input.type, references.opaqueCts, input.detail, input.thicknessMm);
     if (roof) {
       return roof;
     }
+  }
+
+  const wall1989 = resolveAshrae1989WallUFactor(input.type, input.thicknessMm);
+  if (wall1989) {
+    return wall1989;
+  }
+
+  const wall1997 = resolveAshrae1997WallUFactor(input.type);
+  if (wall1997) {
+    return wall1997;
   }
 
   const wall = resolveWallUFromLayer(input.type, input.thicknessMm, references.opaqueCts);

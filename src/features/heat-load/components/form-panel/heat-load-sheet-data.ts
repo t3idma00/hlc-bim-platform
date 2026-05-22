@@ -4,10 +4,19 @@ import {
   resolveCurrentTd,
   resolveCurrentUFactor,
 } from "./ashrae-calculations";
+import {
+  ASHRAE_TABLE5_DEFAULT_FRAME_LABEL,
+  ASHRAE_TABLE5_DEFAULT_GLAZING_LABEL,
+} from "./ashrae-calculations/fenestration-u-table5";
 import { heatLoadLookupOptions } from "./heat-load-options";
 import { getSection1Reference, getSection2Reference } from "./heat-load-row-references";
+import { getDefaultRoofThicknessMm, getRoofAssemblyReference, roofDetailOptions } from "./ashrae-roof-assemblies";
 import { buildSection3, buildSection4, buildSection5, buildSection6 } from "./heat-load-sheet-section-builders";
 import type { Section, SelectOptionsByKey, SummaryRow } from "./heat-load-sheet-types";
+
+const defaultRoofType = "Concrete Slab Roof";
+const defaultRoofDetail = roofDetailOptions[0];
+const defaultRoofThickness = String(getDefaultRoofThicknessMm(defaultRoofType));
 
 const wallCellSelects: SelectOptionsByKey = {
   direction: heatLoadLookupOptions.directions,
@@ -16,10 +25,9 @@ const wallCellSelects: SelectOptionsByKey = {
 };
 
 const transmissionGlassCellSelects: SelectOptionsByKey = {
-  direction: ["All", ...heatLoadLookupOptions.directions],
   type: heatLoadLookupOptions.transmissionGlassTypes,
   detail: heatLoadLookupOptions.glassFrameTypes,
-  thickness: heatLoadLookupOptions.glassThicknesses,
+  thickness: heatLoadLookupOptions.transmissionGlassThicknesses,
 };
 
 const solarGlassCellSelects: SelectOptionsByKey = {
@@ -30,13 +38,18 @@ const solarGlassCellSelects: SelectOptionsByKey = {
   zone: heatLoadLookupOptions.ashraeZoneTypes,
 };
 
+const solarSkylightCellSelects: SelectOptionsByKey = {
+  direction: ["HOR"],
+  type: heatLoadLookupOptions.horizontalSkylightSolarTypes,
+  shading: heatLoadLookupOptions.glassShadingTypes,
+  thickness: heatLoadLookupOptions.glassThicknesses,
+  zone: heatLoadLookupOptions.ashraeZoneTypes,
+};
+
 const roofCellSelects: SelectOptionsByKey = {
   type: heatLoadLookupOptions.roofTypes,
-  detail: [
-    "With ceiling / ASHRAE roof no. 13",
-    "Without ceiling / ASHRAE roof no. 13",
-  ],
-  thickness: ["6", "80", "150"],
+  detail: roofDetailOptions,
+  thickness: ["6", "25", "150"],
 };
 
 function getDefaultUFactor(type: string, detail?: string, thicknessMm = 0) {
@@ -78,31 +91,33 @@ export function buildInitialSections(): Section[] {
       number: "1",
       title: "Solar & Trans. Heat gain through the Glass-Wall & Roof",
       columns: [
-        { key: "item", label: "Item", width: "7%" },
-        { key: "direction", label: "Direction", wrap: true, width: "9%" },
-        { key: "type", label: "Type", wrap: true, width: "20%" },
-        { key: "detail", label: "Detail", wrap: true, width: "13%" },
-        { key: "thickness", label: "Thickness", unit: "thickness", align: "center", width: "11%", editable: true },
-        { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "9%", editable: true },
-        { key: "cltd", label: "CLTD/TD", unit: "temperatureDelta", align: "right", width: "10%", editable: true },
-        { key: "calcValue", label: "Area / Qty", unit: "area", align: "right", width: "10%", editable: true },
-        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "9%", editable: true },
+        { key: "item", label: "Item", width: "8%" },
+        { key: "direction", label: "Direction", wrap: true, width: "10%" },
+        { key: "type", label: "Type", wrap: true, width: "35%" },
+        { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "10%", editable: true },
+        { key: "cltd", label: "CLTD/TD", unit: "temperatureDelta", align: "right", width: "11%", editable: true },
+        { key: "calcValue", label: "Area / Qty", unit: "area", align: "right", width: "12%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "12%", editable: true },
       ],
       rows: [
-        wallRow("1.1", "North", "Cement block Wall", "100"),
-        wallRow("1.2", "East", "Cement block Wall", "100"),
-        wallRow("1.3", "South", "Cement block Wall", "100"),
-        wallRow("1.4", "West", "Cement block Wall", "100"),
+        wallRow("1.1", "North", "W04 Reinforced concrete frame with 200 mm cement block infill", "200"),
+        wallRow("1.2", "East", "W04 Reinforced concrete frame with 200 mm cement block infill", "200"),
+        wallRow("1.3", "South", "W04 Reinforced concrete frame with 200 mm cement block infill", "200"),
+        wallRow("1.4", "West", "W04 Reinforced concrete frame with 200 mm cement block infill", "200"),
         {
           id: "1.5",
           values: {
             item: "Glass",
-            direction: "East",
-            type: "Single glass",
-            detail: "Glass only (Centre of Glass)",
-            thickness: "6",
-            reference: getSection1Reference("Glass", "Single glass", "All"),
-            uFactor: getDefaultTransmissionGlassUFactor("Single glass", "Glass only (Centre of Glass)", 6),
+            direction: "All",
+            type: ASHRAE_TABLE5_DEFAULT_GLAZING_LABEL,
+            detail: ASHRAE_TABLE5_DEFAULT_FRAME_LABEL,
+            thickness: "3",
+            reference: getSection1Reference("Glass", ASHRAE_TABLE5_DEFAULT_GLAZING_LABEL, "All"),
+            uFactor: getDefaultTransmissionGlassUFactor(
+              ASHRAE_TABLE5_DEFAULT_GLAZING_LABEL,
+              ASHRAE_TABLE5_DEFAULT_FRAME_LABEL,
+              3,
+            ),
             cltd: getDefaultTd("Single glass"),
             calcValue: "",
             heatLoad: "",
@@ -114,12 +129,12 @@ export function buildInitialSections(): Section[] {
           values: {
             item: "Roof",
             direction: "HOR",
-            type: "Concrete Slab Roof",
-            detail: "With ceiling / ASHRAE roof no. 13",
-            thickness: "150",
-            reference: getSection1Reference("Roof", "Concrete Slab Roof", "HOR"),
-            uFactor: getDefaultUFactor("Concrete Slab Roof", "With ceiling / ASHRAE roof no. 13", 150),
-            cltd: getDefaultTd("Concrete Slab Roof", "HOR"),
+            type: defaultRoofType,
+            detail: defaultRoofDetail,
+            thickness: defaultRoofThickness,
+            reference: getRoofAssemblyReference(defaultRoofType, defaultRoofDetail),
+            uFactor: getDefaultUFactor(defaultRoofType, defaultRoofDetail, Number(defaultRoofThickness)),
+            cltd: getDefaultTd(defaultRoofType, "HOR"),
             calcValue: "",
             heatLoad: "",
           },
@@ -155,7 +170,12 @@ function wallRow(id: string, direction: string, type: string, thickness: string)
 }
 
 function buildSection2(): Section {
-  const row = (id: string, item: string, direction: string) => ({
+  const row = (
+    id: string,
+    item: string,
+    direction: string,
+    selectOptions = solarGlassCellSelects,
+  ) => ({
     id,
     values: {
       item,
@@ -164,27 +184,27 @@ function buildSection2(): Section {
       shading: "No inside shade",
       thickness: "6",
       zone: "C",
-      reference: getSection2Reference(direction),
+      reference: getSection2Reference(direction, "C", item),
       ...getDefaultGlassFactors("Single clear glass", "No inside shade", 6),
       areaQty: "",
       result: "",
     },
-    selectOptions: solarGlassCellSelects,
+    selectOptions,
   });
 
   return {
     number: "2",
-    title: "Solar Heat gain through the Glass",
+    title: "Solar Cooling Load through Glass and Skylights",
     columns: [
       { key: "item", label: "Item", width: "7%" },
       { key: "direction", label: "Direction", width: "8%" },
       { key: "type", label: "Type", wrap: true, width: "20%" },
-      { key: "shading", label: "Interior Shading type", wrap: true, width: "10%" },
+      { key: "shading", label: "Shading detail", wrap: true, width: "10%" },
       { key: "thickness", label: "Thick.", unit: "thickness", align: "center", width: "7%" },
-      { key: "zone", label: "Room mass", align: "center", width: "9%" },
-      { key: "sc", label: "SC/SHGC", align: "right", width: "8%", editable: true },
-      { key: "shg", label: "SHG", unit: "heatFlux", align: "right", width: "8%", editable: true },
-      { key: "clf", label: "CLF/RTS", align: "right", width: "8%", editable: true },
+      { key: "zone", label: "Solar zone", align: "center", width: "9%" },
+      { key: "sc", label: "SC", align: "right", width: "8%" },
+      { key: "shg", label: "SHGF", unit: "heatFlux", align: "right", width: "8%" },
+      { key: "clf", label: "CLF", align: "right", width: "8%" },
       { key: "areaQty", label: "Area / Qty", unit: "area", align: "right", width: "10%", editable: true },
       { key: "result", label: "Total Heat load", unit: "heat", align: "right", width: "9%", editable: true },
     ],
@@ -193,7 +213,7 @@ function buildSection2(): Section {
       row("2.2", "Glass", "East"),
       row("2.3", "Glass", "South"),
       row("2.4", "Glass", "West"),
-      row("2.5", "Sky light", "HOR"),
+      row("2.5", "Skylight", "HOR", solarSkylightCellSelects),
     ],
   };
 }

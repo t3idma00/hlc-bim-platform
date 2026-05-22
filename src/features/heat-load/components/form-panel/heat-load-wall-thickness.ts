@@ -1,4 +1,5 @@
 import type { Row } from "./heat-load-sheet-types";
+import { getWallCoreThicknessMm } from "./ashrae-wall-assemblies";
 
 const MIN_PLAUSIBLE_MASONRY_THICKNESS_MM = 50;
 export const DEFAULT_THIN_MASONRY_THICKNESS_MM = 100;
@@ -38,11 +39,21 @@ export function normalizeWallThicknessCell(value: string) {
 }
 
 export function defaultWallThicknessMmForType(type: string) {
+  const assemblyThicknessMm = getWallCoreThicknessMm(type);
+  if (assemblyThicknessMm) {
+    return assemblyThicknessMm;
+  }
+
   return type.includes("Brick") ? DEFAULT_BRICK_WALL_THICKNESS_MM : DEFAULT_THIN_MASONRY_THICKNESS_MM;
 }
 
 export function normalizeWallRowThicknessCell(row: Row, value: string) {
   const type = row.values.type ?? row.values.typeA ?? row.values.typeB ?? "";
+  const assemblyThicknessMm = getWallCoreThicknessMm(type);
+  if (assemblyThicknessMm) {
+    return String(assemblyThicknessMm);
+  }
+
   const normalized = normalizeWallThicknessMm(value, defaultWallThicknessMmForType(type));
 
   if (typeof normalized === "string") {

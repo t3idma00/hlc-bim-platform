@@ -1,7 +1,12 @@
 import cltd1997 from "../ashrae-tables/cltd-1997.json";
+import { resolveRoofCltdMapping } from "../ashrae-roof-assemblies";
 
 import { clamp, formatSource, matchesText } from "./common";
 import type { DesignConditionContext, FactorResult } from "./types";
+import {
+  resolveAshrae1989WallBaseCltd,
+  resolveAshrae1989WallLatitudeMonthCorrection,
+} from "./wall-cltd-1989";
 
 const CLTD_REFERENCE_OUTDOOR_MEAN_C = cltd1997.metadata.referenceConditions.outdoorMeanDryBulbC;
 const CLTD_REFERENCE_INDOOR_C = cltd1997.metadata.referenceConditions.insideDryBulbC;
@@ -31,15 +36,21 @@ function wallMapping(type: string): WallMapping {
 }
 
 function roofNumberFromDetail(detail: string | undefined) {
-  const match = detail?.match(/roof\s*(?:no\.?|number)?\s*(\d+)/i);
+  const match = detail?.match(/manual\s+(?:ashrae\s+)?roof\s*(?:no\.?|number)?\s*(\d+)/i);
   return match?.[1];
 }
 
 function roofMapping(type: string, detail?: string): RoofMapping {
+  const assemblyMapping = resolveRoofCltdMapping(type, detail);
+  const detailRoofNumber = roofNumberFromDetail(detail);
+
+  if (assemblyMapping && !detailRoofNumber) {
+    return assemblyMapping;
+  }
+
   const mappings = cltd1997.metadata.appMappings.roofTypes as Record<string, RoofMapping>;
   const match = Object.entries(mappings).find(([key]) => matchesText(type, key));
   const mapping = match?.[1] ?? mappings["Concrete Slab Roof"];
-  const detailRoofNumber = roofNumberFromDetail(detail);
 
   if (!detailRoofNumber) {
     return mapping;
@@ -92,13 +103,14 @@ export function resolveBaseCltd(input: {
   type: string;
   direction: string;
   detail?: string;
+  thicknessMm?: number;
   designHour?: number;
 }): FactorResult {
   const item = input.item.toLowerCase();
   const type = input.type;
   const designHour = input.designHour ?? 15;
 
-  if (item.includes("glass") || type.toLowerCase().includes("glass")) {
+  if (item.includes("glass") || item.includes("sky") || type.toLowerCase().includes("glass")) {
     return {
       value: resolveGlassCltd(designHour),
       source: formatSource(
@@ -118,6 +130,17 @@ export function resolveBaseCltd(input: {
         `Base roof CLTD roof number ${roof.mapping.roofNumber}; ${roof.mapping.basis}`,
       ),
     };
+  }
+
+  const wall1989 = resolveAshrae1989WallBaseCltd({
+    type,
+    direction: input.direction,
+    thicknessMm: input.thicknessMm,
+    designHour,
+  });
+
+  if (wall1989) {
+    return wall1989;
   }
 
   const wall = resolveWallCltd({
@@ -141,11 +164,23 @@ function outdoorMeanDryBulbC(context: DesignConditionContext) {
     : context.outdoorDryBulbC;
 }
 
+function latitudeMonthDirection(item: string, type: string, direction: string) {
+  const itemText = item.toLowerCase();
+  const typeText = type.toLowerCase();
+
+  if (itemText.includes("roof") || itemText.includes("sky") || typeText.includes("roof") || direction === "HOR") {
+    return "HOR";
+  }
+
+  return direction === "All" ? "HOR" : direction;
+}
+
 export function resolveCorrectedCltd(input: {
   item: string;
   type: string;
   direction: string;
   detail?: string;
+  thicknessMm?: number;
   context: DesignConditionContext;
 }): FactorResult {
   const base = resolveBaseCltd({
@@ -153,22 +188,30 @@ export function resolveCorrectedCltd(input: {
     type: input.type,
     direction: input.direction,
     detail: input.detail,
+    thicknessMm: input.thicknessMm,
     designHour: input.context.designHour,
   });
   const outdoorMeanC = outdoorMeanDryBulbC(input.context);
   const outdoorCorrection = outdoorMeanC - CLTD_REFERENCE_OUTDOOR_MEAN_C;
   const indoorCorrection = CLTD_REFERENCE_INDOOR_C - input.context.indoorDryBulbC;
-  const corrected = Math.max(0, base.value + outdoorCorrection + indoorCorrection);
+  const lmDirection = latitudeMonthDirection(input.item, input.type, input.direction);
+  const latitudeMonthCorrection = resolveAshrae1989WallLatitudeMonthCorrection({
+    direction: lmDirection,
+    context: input.context,
+  });
+  const table32Correction = latitudeMonthCorrection.value;
+  const corrected = Math.max(0, base.value + table32Correction + outdoorCorrection + indoorCorrection);
   const sourceName =
     input.context.source === "ashrae-2017"
-      ? "ASHRAE July station outdoor DB"
-      : "Current/NASA July outdoor DB";
+      ? "ASHRAE station outdoor DB"
+      : "Current/NASA outdoor DB";
+  const latitudeMonthText = ` + (Table 32 ${lmDirection} latitude/month ${table32Correction.toFixed(2)})`;
 
   return {
     value: corrected,
     source: formatSource(
-      base.source,
-      `Corrected CLTD = ${base.value.toFixed(2)} + (${sourceName} mean ${outdoorMeanC.toFixed(2)} - 29.4) + (25.5 - indoor ${input.context.indoorDryBulbC.toFixed(2)})`,
+      `${base.source}; ${latitudeMonthCorrection.source}`,
+      `Corrected CLTD = ${base.value.toFixed(2)}${latitudeMonthText} + (${sourceName} mean ${outdoorMeanC.toFixed(2)} - 29.4) + (25.5 - indoor ${input.context.indoorDryBulbC.toFixed(2)})`,
     ),
   };
 }

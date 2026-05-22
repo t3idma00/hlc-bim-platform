@@ -32,6 +32,7 @@ export type Section1Result = {
   uFactor: FactorResult;
   td: FactorResult;
   heatLoad: FactorResult;
+  calculationTrace?: string;
 };
 
 export type Section2Factors = {
@@ -42,6 +43,8 @@ export type Section2Factors = {
 
 export type Section3Result = {
   uFactor: FactorResult;
+  adjacentTemperature: FactorResult;
+  indoorTemperature: FactorResult;
   td: FactorResult;
   heatLoad: FactorResult;
 };
