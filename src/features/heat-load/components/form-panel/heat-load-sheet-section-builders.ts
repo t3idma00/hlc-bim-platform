@@ -1,6 +1,17 @@
-import { infiltrationMethodOptions, resolveCurrentTd, resolveCurrentUFactor } from "./ashrae-calculations";
+import {
+  infiltrationMethodOptions,
+  resolveAshraeInternalClf,
+  resolveAshraeInternalHeatGain,
+  resolveCurrentTd,
+  resolveCurrentUFactor,
+} from "./ashrae-calculations";
 import { heatLoadLookupOptions } from "./heat-load-options";
-import section5Data from "./section-5-data.json";
+import {
+  SECTION4_REFERENCE,
+  SECTION6_REFERENCE,
+  getSection3Reference,
+  getSection5Reference,
+} from "./heat-load-row-references";
 import section6Data from "./section-6-data.json";
 import type { Section, SelectOptionsByKey } from "./heat-load-sheet-types";
 
@@ -20,8 +31,8 @@ const floorCellSelects: SelectOptionsByKey = {
   thickness: heatLoadLookupOptions.wallThicknesses,
 };
 
-function uFactor(type: string) {
-  return resolveCurrentUFactor(type).value.toFixed(2);
+function uFactor(type: string, thicknessMm = 0) {
+  return resolveCurrentUFactor(type, undefined, thicknessMm).value.toFixed(2);
 }
 
 function td(type: string) {
@@ -29,38 +40,23 @@ function td(type: string) {
 }
 
 export function getDefaultInternalGain(item: string, application: string, isLatent = false) {
-  if (item === "Motor power (Name plate)") {
-    const motorPower = section5Data.internalGains.motorPower as Record<string, number>;
-    const power = motorPower[application];
-    if (power !== undefined) return power.toFixed(2);
-
-    const parsedPower = Number.parseFloat(application.replace(/[()]/g, ""));
-    if (Number.isFinite(parsedPower)) return (parsedPower * 1000).toFixed(2);
-  }
-
-  if (item === "People (sensible)" || item === "People (latent)" || item === "People") {
-    const people = section5Data.internalGains.people as Record<string, { sensible: number; latent: number }>;
-    const gains = people[application] ?? section5Data.internalGains.people.default;
-    return (item === "People (latent)" || isLatent ? gains.latent : gains.sensible).toFixed(2);
-  }
-
-  if (item === "compact fluorescent lamp" || item === "Lamp") {
-    const lamps = section5Data.internalGains.lamps as Record<string, number>;
-    return (lamps[application] ?? section5Data.internalGains.lamps.default).toFixed(2);
-  }
-
-  if (item === "Appliance etc.") {
-    const appliances = section5Data.internalGains.appliances as Record<string, number>;
-    return (appliances[application] ?? section5Data.internalGains.appliances.default).toFixed(2);
-  }
-
-  const items = section5Data.internalGains.items as Record<string, number>;
-  return (items[item] ?? section5Data.internalGains.items.default).toFixed(2);
+  return resolveAshraeInternalHeatGain({ item, application, isLatent }).value.toFixed(2);
 }
 
-export function getDefaultClf(item: string) {
-  const values = section5Data.internalGains.clf as Record<string, number>;
-  return (values[item] ?? section5Data.internalGains.clf.default).toFixed(2);
+export function getDefaultClf(
+  item: string,
+  zoneType = "C",
+  hoursInUse = "10",
+  hoursAfterStart = "8",
+  isLatent = false,
+) {
+  return resolveAshraeInternalClf({
+    item,
+    zoneType,
+    hoursInUse: Number(hoursInUse),
+    hoursAfterStart: Number(hoursAfterStart),
+    isLatent,
+  }).value.toFixed(2);
 }
 
 export function getDefaultVentilation(application: string) {
@@ -94,6 +90,7 @@ export function buildSection3(): Section {
           typeA: "Single glass",
           typeB: "Glass only (Centre of Glass)",
           thickness: "6",
+          reference: getSection3Reference("All Glasses"),
           uFactor: uFactor("Single glass"),
           cltd: td("Single glass"),
           calcValue: "",
@@ -108,7 +105,8 @@ export function buildSection3(): Section {
           typeA: "Concrete Wall",
           typeB: "Not applicable",
           thickness: "215",
-          uFactor: uFactor("Concrete Wall"),
+          reference: getSection3Reference("Wall Partition"),
+          uFactor: uFactor("Concrete Wall", 215),
           cltd: td("Concrete Wall"),
           calcValue: "",
           heatLoad: "",
@@ -122,7 +120,8 @@ export function buildSection3(): Section {
           typeA: "Intermediate Floor",
           typeB: "Concrete Wall",
           thickness: "100",
-          uFactor: uFactor("Concrete Wall"),
+          reference: getSection3Reference("Floor"),
+          uFactor: uFactor("Concrete Wall", 100),
           cltd: td("Concrete Wall"),
           calcValue: "",
           heatLoad: "",
@@ -155,9 +154,10 @@ export function buildSection4(): Section {
           componentA: "Window",
           qty: "1",
           crackLength: "",
-          componentB: "Nonresidential door",
+          componentB: "Residential door",
           qtySecondary: "1",
           doorArea: "",
+          reference: SECTION4_REFERENCE,
           heatLoad: "",
         },
         selectOptions: {
@@ -175,32 +175,36 @@ export function buildSection5(): Section {
     title: "Internal Heat",
     columns: [
       { key: "item", label: "Item", wrap: true, width: "12%" },
-      { key: "application", label: "Application", wrap: true, width: "26%" },
-      { key: "heatGain", label: "Heat gain", unit: "heat", align: "right", width: "12%", editable: true },
+      { key: "application", label: "Application", wrap: true, width: "34%" },
+      { key: "heatGain", label: "Heat gain", unit: "heat", align: "right", width: "13%", editable: true },
       { key: "clf", label: "CLF", align: "right", width: "8%", editable: true },
-      { key: "qty", label: "QTY", align: "right", width: "16%", editable: true },
-      { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "17%", editable: true },
+      { key: "qty", label: "QTY", align: "right", width: "12%", editable: true },
+      { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "21%", editable: true },
     ],
     rows: [
-      internalHeatRow("5.1", "People (sensible)", "Standing, light work or walking"),
-      internalHeatRow("5.2", "People (latent)", "Standing, light work or walking", true),
+      internalHeatRow("5.1", "People (sensible)", "Seated, very light work", false, "2"),
+      internalHeatRow("5.2", "People (latent)", "Seated, very light work", true, "2"),
       internalHeatRow("5.3", "Motor power (Name plate)", "(0.04)"),
-      internalHeatRow("5.4", "compact fluorescent lamp", "Office"),
-      internalHeatRow("5.5", "Appliance etc.", "Medium, desktop type"),
+      internalHeatRow("5.4", "compact fluorescent lamp", "Fluorescent fixture, Fsa 1.20", false, "1"),
+      internalHeatRow("5.5", "Appliance etc.", "Personal computer and 430 mm monitor", false, "1"),
       internalHeatRow("5.6", "Additional heat gain", "Miscellaneous equipment"),
     ],
   };
 }
 
-function internalHeatRow(id: string, item: string, application: string, isLatent = false) {
+function internalHeatRow(id: string, item: string, application: string, isLatent = false, qty = "") {
   return {
     id,
     values: {
       item,
       application,
+      zone: "C",
+      hoursInUse: "10",
+      hoursAfterStart: "8",
+      reference: getSection5Reference(item),
       heatGain: getDefaultInternalGain(item, application, isLatent),
-      clf: getDefaultClf(item),
-      qty: "",
+      clf: getDefaultClf(item, "C", "10", "8", isLatent),
+      qty,
       heatLoad: "",
     },
     selectOptions: {
@@ -212,7 +216,7 @@ function internalHeatRow(id: string, item: string, application: string, isLatent
 function getInternalApplicationOptions(item: string) {
   if (item.includes("People")) return heatLoadLookupOptions.peopleApplications;
   if (item.includes("Motor")) return heatLoadLookupOptions.motorPowerFactors;
-  if (item.includes("lamp")) return heatLoadLookupOptions.lampApplications;
+  if (item.toLowerCase().includes("lamp")) return heatLoadLookupOptions.lampApplications;
   if (item.includes("Appliance")) return heatLoadLookupOptions.applianceApplications;
   return [];
 }
@@ -236,13 +240,14 @@ export function buildSection6(): Section {
       {
         id: "6.1",
         values: {
-          application: "Pharmacy",
+          application: "Bedroom / residential",
           item: "People",
-          quantity: "",
+          quantity: "2",
           area: "Area",
           areaQty: "",
           totalFlowRate: "",
-          ...getDefaultVentilation("Pharmacy"),
+          reference: SECTION6_REFERENCE,
+          ...getDefaultVentilation("Bedroom / residential"),
           heatLoad: "",
         },
         selectOptions: { application: heatLoadLookupOptions.ventilationApplications },

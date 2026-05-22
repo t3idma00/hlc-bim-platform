@@ -33,7 +33,7 @@ const LEGACY_PROJECT_FALLBACK: ProjectData = {
   rooms: [
     {
       id: "room-1",
-      name: "Room 1",
+      name: "Bedroom",
       formValues: initialFormValues,
       sheetValues: {},
     },
@@ -65,7 +65,7 @@ export default function HeatLoadWorkspace() {
     rooms: [
       {
         id: "room-1",
-        name: "Room 1",
+        name: "Bedroom",
         formValues: initialFormValues,
         sheetValues: {},
         placement: { x: 0, y: 0, rotation: 0 },
@@ -387,7 +387,7 @@ export default function HeatLoadWorkspace() {
             lastSaved: new Date().toISOString(),
             rooms: [{
               id: "room-1",
-              name: "Room 1",
+              name: "Bedroom",
               formValues: initialFormValues,
               sheetValues: {},
               placement: { x: 0, y: 0, rotation: 0 },
@@ -429,7 +429,7 @@ export default function HeatLoadWorkspace() {
           version: "1.2",
           rooms: [{
             id: "room-1",
-            name: "Room 1",
+            name: "Bedroom",
             formValues: initialFormValues,
             sheetValues: {},
             placement: { x: 0, y: 0, rotation: 0 },
@@ -454,7 +454,7 @@ export default function HeatLoadWorkspace() {
     if (rooms.length === 0) {
       rooms = [{
         id: "room-1",
-        name: "Room 1",
+        name: "Bedroom",
         formValues: saved.formValues || initialFormValues,
         sheetValues: saved.sheetValues || {},
         placement: { x: 0, y: 0, rotation: 0 },

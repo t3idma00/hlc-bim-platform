@@ -9,6 +9,10 @@ export type DesignConditionContext = {
   pressurePa: number;
   windSpeedMps: number;
   hottestMonth: number;
+  hottestMonthDryBulbRangeC: number;
+  designHour: number;
+  latitude: number;
+  longitude: number;
   solar: {
     dni: number;
     dhi: number;

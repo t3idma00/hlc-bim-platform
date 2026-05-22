@@ -1,38 +1,33 @@
 import { useEffect, useMemo } from "react";
 
-import { getHumidityRatioFromRelHum, getHumidityRatioFromWetBulb } from "@/lib/calculations";
-
 import {
   calculateAshraeSection1,
   calculateAshraeSection3,
   calculateAshraeSection4,
   calculateCurrentSection4,
   getNum,
+  resolveAshraeInternalClf,
+  resolveAshraeInternalHeatGain,
   resolveAshraeSection2Factors,
-  resolveCurrentGlassFactors,
-  resolveCurrentTd,
+  resolveCorrectedCltd,
+  resolveCurrentTransmissionGlassUFactor,
   resolveCurrentUFactor,
   resolveDesignConditionContext,
+  resolveSection1GlassSelection,
 } from "./ashrae-calculations";
+import { resolveHumidityRatio } from "./heat-load-psychrometric-helpers";
 import { buildInitialSections } from "./heat-load-sheet-data";
+import { normalizeSheetCellValue } from "./heat-load-sheet-normalization";
+import {
+  SECTION4_REFERENCE,
+  SECTION6_REFERENCE,
+  getSection1Reference,
+  getSection2Reference,
+  getSection3Reference,
+  getSection5Reference,
+} from "./heat-load-row-references";
 import section6Data from "./section-6-data.json";
 import type { FormValues, Row, SheetValues } from "./heat-load-sheet-types";
-
-function humidityRatio(
-  dryBulbC: number,
-  conditionType: string | undefined,
-  conditionValue: string | undefined,
-  pressurePa: number,
-) {
-  if (dryBulbC === 0 && conditionValue == null) return null;
-
-  const value = getNum(conditionValue);
-  if (value === 0 && !conditionValue) return null;
-
-  return conditionType === "Wet bulb temperature"
-    ? getHumidityRatioFromWetBulb(dryBulbC, value, pressurePa)
-    : getHumidityRatioFromRelHum(dryBulbC, value, pressurePa);
-}
 
 export function useHeatLoadCalculations({
   formValues,
@@ -44,13 +39,13 @@ export function useHeatLoadCalculations({
   onSheetChange: (key: string, value: string) => void;
 }) {
   const designContext = useMemo(() => resolveDesignConditionContext(formValues), [formValues]);
-  const outdoorW = humidityRatio(
+  const outdoorW = resolveHumidityRatio(
     designContext.outdoorDryBulbC,
     formValues.conditionType,
     formValues.conditionValue,
     designContext.pressurePa,
   );
-  const indoorW = humidityRatio(
+  const indoorW = resolveHumidityRatio(
     designContext.indoorDryBulbC,
     formValues.indoorConditionType,
     formValues.indoorConditionValue,
@@ -61,9 +56,19 @@ export function useHeatLoadCalculations({
   useEffect(() => {
     const sections = buildInitialSections();
     const updates: Record<string, string> = {};
-    const getVal = (row: Row, key: string) => sheetValues[`${row.id}_${key}`] ?? row.values[key] ?? "";
     const setVal = (key: string, value: string) => {
       if (sheetValues[key] !== value) updates[key] = value;
+    };
+    const getVal = (row: Row, key: string) => {
+      const sheetKey = `${row.id}_${key}`;
+      const rawValue = sheetValues[sheetKey] ?? row.values[key] ?? "";
+      const normalizedValue = normalizeSheetCellValue(row, key, rawValue);
+
+      if (normalizedValue !== rawValue) {
+        setVal(sheetKey, normalizedValue);
+      }
+
+      return normalizedValue;
     };
     const setSource = (rowId: string, key: string, value: string) => {
       setVal(`${rowId}_${key}_source`, value);
@@ -112,8 +117,8 @@ function calculateRow(
   if (sectionNumber === "2") return calculateSection2Row(row, getVal, setVal, setSource, state);
   if (sectionNumber === "3") return calculateSection3Row(row, getVal, setVal, setSource, state);
   if (sectionNumber === "4") return calculateSection4Row(row, getVal, setVal, setSource, state);
-  if (sectionNumber === "5") return calculateSection5Row(row, getVal, setVal);
-  if (sectionNumber === "6") return calculateSection6Row(row, getVal, setVal, state);
+  if (sectionNumber === "5") return calculateSection5Row(row, getVal, setVal, setSource);
+  if (sectionNumber === "6") return calculateSection6Row(row, getVal, setVal, setSource, state);
   return 0;
 }
 
@@ -127,14 +132,18 @@ function calculateSection1Row(
   const item = getVal(row, "item");
   const direction = getVal(row, "direction");
   const type = getVal(row, "type");
+  const detail = getVal(row, "detail");
+  const thicknessMm = getNum(getVal(row, "thickness"));
   const area = getNum(getVal(row, "calcValue"));
+  setVal(`${row.id}_reference`, getSection1Reference(item, type, direction));
 
   if (state.designContext.source === "ashrae-2017") {
     const result = calculateAshraeSection1({
       item,
       direction,
       type,
-      thicknessMm: getNum(getVal(row, "thickness")),
+      detail,
+      thicknessMm,
       areaM2: area,
       context: state.designContext,
     });
@@ -147,10 +156,16 @@ function calculateSection1Row(
     return area > 0 ? result.heatLoad.value : getNum(getVal(row, "heatLoad"));
   }
 
-  const u = resolveCurrentUFactor(type);
-  const td = resolveCurrentTd(type, direction);
-  const correctedTd = td.value + (25.5 - state.designContext.indoorDryBulbC) + (state.designContext.outdoorDryBulbC - 29.4);
-  const heatLoad = area > 0 ? u.value * correctedTd * area : getNum(getVal(row, "heatLoad"));
+  const glassSelection = resolveSection1GlassSelection({ direction, type, detail });
+  const u = item.toLowerCase().includes("glass")
+    ? resolveCurrentTransmissionGlassUFactor({
+        glazingType: glassSelection.glazingType,
+        frameType: glassSelection.frameType,
+        thicknessMm,
+      })
+    : resolveCurrentUFactor(type, detail, thicknessMm);
+  const td = resolveCorrectedCltd({ item, type, direction, detail, context: state.designContext });
+  const heatLoad = area > 0 ? u.value * td.value * area : getNum(getVal(row, "heatLoad"));
   setVal(`${row.id}_uFactor`, u.value.toFixed(2));
   setVal(`${row.id}_cltd`, td.value.toFixed(2));
   if (area > 0) setVal(`${row.id}_heatLoad`, heatLoad.toFixed(2));
@@ -169,30 +184,33 @@ function calculateSection2Row(
   const direction = getVal(row, "direction");
   const type = getVal(row, "type");
   const shading = getVal(row, "shading");
+  const thicknessMm = getNum(getVal(row, "thickness"));
+  const zoneType = getVal(row, "zone");
   const area = getNum(getVal(row, "areaQty"));
+  setVal(`${row.id}_reference`, getSection2Reference(direction, zoneType));
 
-  if (state.designContext.source === "ashrae-2017") {
-    const factors = resolveAshraeSection2Factors({ type, shading, direction, context: state.designContext });
-    setVal(`${row.id}_sc`, factors.effectiveCoefficient.value.toFixed(2));
-    setVal(`${row.id}_shg`, factors.solarHeatGain.value.toFixed(2));
-    setVal(`${row.id}_clf`, factors.solarCoolingLoadFactor.value.toFixed(2));
-    setSource(row.id, "sc", factors.effectiveCoefficient.source);
-    setSource(row.id, "shg", factors.solarHeatGain.source);
-    setSource(row.id, "clf", factors.solarCoolingLoadFactor.source);
-    const heatLoad = factors.effectiveCoefficient.value * factors.solarHeatGain.value * factors.solarCoolingLoadFactor.value * area;
-    if (area > 0) setVal(`${row.id}_result`, heatLoad.toFixed(2));
-    return area > 0 ? heatLoad : getNum(getVal(row, "result"));
-  }
+  const factors = resolveAshraeSection2Factors({
+    type,
+    shading,
+    direction,
+    thicknessMm,
+    zoneType,
+    context: state.designContext,
+  });
+  const heatLoad =
+    factors.effectiveCoefficient.value *
+    factors.solarHeatGain.value *
+    factors.solarCoolingLoadFactor.value *
+    area;
 
-  const current = resolveCurrentGlassFactors(type, shading);
-  const shg = state.designContext.solar.hasData ? getNum(getVal(row, "shg")) : current.shg.value;
-  const heatLoad = current.sc.value * shg * current.clf.value * area;
-  setVal(`${row.id}_sc`, current.sc.value.toFixed(2));
-  setVal(`${row.id}_clf`, current.clf.value.toFixed(2));
-  if (!state.designContext.solar.hasData) setVal(`${row.id}_shg`, shg.toFixed(2));
+  setVal(`${row.id}_sc`, factors.effectiveCoefficient.value.toFixed(2));
+  setVal(`${row.id}_shg`, factors.solarHeatGain.value.toFixed(2));
+  setVal(`${row.id}_clf`, factors.solarCoolingLoadFactor.value.toFixed(2));
   if (area > 0) setVal(`${row.id}_result`, heatLoad.toFixed(2));
-  setSource(row.id, "sc", current.sc.source);
-  setSource(row.id, "clf", current.clf.source);
+  setSource(row.id, "sc", factors.effectiveCoefficient.source);
+  setSource(row.id, "shg", factors.solarHeatGain.source);
+  setSource(row.id, "clf", factors.solarCoolingLoadFactor.source);
+  setSource(row.id, "result", "Q = SC x SHGF x CLF x area");
   return area > 0 ? heatLoad : getNum(getVal(row, "result"));
 }
 
@@ -204,6 +222,7 @@ function calculateSection3Row(
   state: { designContext: ReturnType<typeof resolveDesignConditionContext> },
 ) {
   const area = getNum(getVal(row, "calcValue"));
+  setVal(`${row.id}_reference`, getSection3Reference(getVal(row, "item")));
 
   if (state.designContext.source === "ashrae-2017") {
     const result = calculateAshraeSection3({
@@ -225,7 +244,7 @@ function calculateSection3Row(
   const typeA = getVal(row, "typeA");
   const typeB = getVal(row, "typeB");
   const type = typeA === "Intermediate Floor" ? typeB : typeA || typeB;
-  const u = resolveCurrentUFactor(type);
+  const u = resolveCurrentUFactor(type, undefined, getNum(getVal(row, "thickness")));
   const td = 0.5 * state.designContext.deltaTC;
   const heatLoad = area > 0 ? u.value * td * area : getNum(getVal(row, "heatLoad"));
   setVal(`${row.id}_uFactor`, u.value.toFixed(2));
@@ -249,6 +268,7 @@ function calculateSection4Row(
     doorAreaM2: getNum(getVal(row, "doorArea")),
     componentB: getVal(row, "componentB"),
   };
+  setVal(`${row.id}_reference`, SECTION4_REFERENCE);
   const result = state.designContext.source === "ashrae-2017"
     ? calculateAshraeSection4({ ...input, method: getVal(row, "method"), context: state.designContext, deltaW: state.deltaW })
     : calculateCurrentSection4({ ...input, deltaTC: state.designContext.deltaTC, deltaW: state.deltaW });
@@ -258,13 +278,34 @@ function calculateSection4Row(
   return result.flowLps.value > 0 ? result.heatLoad.value : getNum(getVal(row, "heatLoad"));
 }
 
-function calculateSection5Row(row: Row, getVal: (row: Row, key: string) => string, setVal: (key: string, value: string) => void) {
-  const gain = getNum(getVal(row, "heatGain"));
+function calculateSection5Row(
+  row: Row,
+  getVal: (row: Row, key: string) => string,
+  setVal: (key: string, value: string) => void,
+  setSource: (rowId: string, key: string, value: string) => void,
+) {
+  const item = getVal(row, "item");
+  const application = getVal(row, "application");
+  const isLatent = item.toLowerCase().includes("latent");
+  const gainFactor = resolveAshraeInternalHeatGain({ item, application, isLatent });
+  const clfFactor = resolveAshraeInternalClf({
+    item,
+    zoneType: getVal(row, "zone"),
+    hoursInUse: getNum(getVal(row, "hoursInUse")),
+    hoursAfterStart: getNum(getVal(row, "hoursAfterStart")),
+    isLatent,
+  });
+  const gain = item.includes("Additional") ? getNum(getVal(row, "heatGain")) : gainFactor.value;
   const qty = getNum(getVal(row, "qty"));
-  const isLatent = getVal(row, "item").toLowerCase().includes("latent");
-  const clf = isLatent ? 1 : getNum(getVal(row, "clf")) || 1;
+  const clf = item.includes("Additional") ? getNum(getVal(row, "clf")) || 1 : clfFactor.value;
   const heatLoad = gain * qty * clf;
+  setVal(`${row.id}_reference`, getSection5Reference(item));
+  if (!item.includes("Additional")) setVal(`${row.id}_heatGain`, gain.toFixed(2));
+  if (!item.includes("Additional")) setVal(`${row.id}_clf`, clf.toFixed(2));
   if (gain !== 0 && qty !== 0) setVal(`${row.id}_heatLoad`, heatLoad.toFixed(2));
+  setSource(row.id, "heatGain", gainFactor.source);
+  setSource(row.id, "clf", clfFactor.source);
+  setSource(row.id, "heatLoad", "Q = heat gain x quantity x CLF");
   return gain !== 0 && qty !== 0 ? heatLoad : getNum(getVal(row, "heatLoad"));
 }
 
@@ -272,9 +313,11 @@ function calculateSection6Row(
   row: Row,
   getVal: (row: Row, key: string) => string,
   setVal: (key: string, value: string) => void,
+  setSource: (rowId: string, key: string, value: string) => void,
   state: { designContext: ReturnType<typeof resolveDesignConditionContext>; deltaW: number },
 ) {
   const application = getVal(row, "application");
+  setVal(`${row.id}_reference`, SECTION6_REFERENCE);
   const peopleQty = getNum(getVal(row, "quantity"));
   const areaQty = getNum(getVal(row, "areaQty"));
   const manualFlow = getNum(getVal(row, "totalFlowRate"));
@@ -290,5 +333,9 @@ function calculateSection6Row(
     setVal(`${row.id}_latent`, latent.toFixed(2));
     setVal(`${row.id}_heatLoad`, heatLoad.toFixed(2));
   }
+  setSource(row.id, "totalFlowRate", "ASHRAE 1997 Ch25/Ch28 ventilation-rate basis");
+  setSource(row.id, "sensible", "ASHRAE 1997 Ch28 Eq. 22: 1.23 x L/s x deltaT");
+  setSource(row.id, "latent", "ASHRAE 1997 Ch28 Eq. 23: 3010 x L/s x deltaW");
+  setSource(row.id, "heatLoad", "Ventilation total = sensible + latent");
   return flow > 0 ? heatLoad : getNum(getVal(row, "heatLoad"));
 }

@@ -1,34 +1,58 @@
-import infiltration from "../ashrae-tables/infiltration.json";
-import references from "../ashrae-tables/references.json";
+import internalLoads from "../ashrae-tables/internal-loads-1997.json";
 
-import { clamp, formatSource } from "./common";
+import { formatSource } from "./common";
 import type { DesignConditionContext, Section4Result } from "./types";
+
+type InfiltrationTable = {
+  windowLeakageAreaCm2PerM: number;
+  doorFrameLeakageAreaCm2Each: number;
+  doorBarrierLeakageAreaCm2PerM2: number;
+  stackCoefficient: number;
+  windCoefficient: number;
+  airDensityCp: number;
+  latentConstant: number;
+};
+
+const infiltration = (internalLoads as { infiltration: InfiltrationTable }).infiltration;
+const source1997 =
+  "ASHRAE 1997 Ch25 Table 3 and Eq. 46; Ch28 outdoor-air heat equations";
 
 export const infiltrationMethodOptions = ["Crack + Door", "ASHRAE Stack-Wind"] as const;
 
-function getDoorRate(component: string) {
-  return component.includes("Nonresidential")
-    ? infiltration.nonresidentialDoorRateLpsPerM2
-    : infiltration.residentialDoorRateLpsPerM2;
+function doorLeakageArea(input: {
+  doorQty: number;
+  doorAreaM2: number;
+}) {
+  return (
+    input.doorQty * infiltration.doorFrameLeakageAreaCm2Each +
+    input.doorAreaM2 * infiltration.doorBarrierLeakageAreaCm2PerM2
+  );
 }
 
-function drivingMultiplier(context: DesignConditionContext) {
-  const reference =
-    infiltration.stackCoefficient * 10 +
-    infiltration.windCoefficient * 3 ** 2;
-  const actual =
-    infiltration.stackCoefficient * Math.abs(context.deltaTC) +
-    infiltration.windCoefficient * Math.max(0, context.windSpeedMps) ** 2;
+function sensibleLatent(input: {
+  flowLps: number;
+  deltaTC: number;
+  deltaW: number;
+  source: string;
+}): Section4Result {
+  const sensibleW = Math.max(0, input.flowLps * infiltration.airDensityCp * input.deltaTC);
+  const latentW = Math.max(0, input.flowLps * infiltration.latentConstant * input.deltaW);
 
-  if (reference <= 0 || actual <= 0) {
-    return 1;
-  }
-
-  return clamp(
-    Math.sqrt(actual / reference),
-    infiltration.minMultiplier,
-    infiltration.maxMultiplier,
-  );
+  return {
+    flowLps: { value: input.flowLps, source: input.source },
+    sensibleW: {
+      value: sensibleW,
+      source: formatSource(source1997, "Sensible = 1.23 x flow x deltaT"),
+    },
+    latentW: {
+      value: latentW,
+      source: formatSource(source1997, "Latent = 3010 x flow x deltaW"),
+    },
+    heatLoad: {
+      value: sensibleW + latentW,
+      source: formatSource(source1997, "Total infiltration = sensible + latent"),
+    },
+  };
 }
 
 export function calculateCurrentSection4(input: {
@@ -40,18 +64,16 @@ export function calculateCurrentSection4(input: {
   deltaTC: number;
   deltaW: number;
 }): Section4Result {
-  const flowLps =
-    input.windowQty * input.crackLengthM * infiltration.windowCrackRateLpsPerM +
-    input.doorQty * input.doorAreaM2 * getDoorRate(input.componentB);
-  const sensibleW = Math.max(0, flowLps * infiltration.airDensityCp * input.deltaTC);
-  const latentW = Math.max(0, flowLps * infiltration.latentConstant * input.deltaW);
+  const windowArea = input.windowQty * input.crackLengthM * infiltration.windowLeakageAreaCm2PerM;
+  const leakageAreaCm2 = windowArea + doorLeakageArea(input);
+  const flowLps = leakageAreaCm2 * Math.sqrt(infiltration.stackCoefficient * 10 + infiltration.windCoefficient * 3 ** 2);
 
-  return {
-    flowLps: { value: flowLps, source: "Current application infiltration constants" },
-    sensibleW: { value: sensibleW, source: "Current sensible infiltration formula" },
-    latentW: { value: latentW, source: "Current latent infiltration formula" },
-    heatLoad: { value: sensibleW + latentW, source: "Current method: sensible + latent infiltration" },
-  };
+  return sensibleLatent({
+    flowLps,
+    deltaTC: input.deltaTC,
+    deltaW: input.deltaW,
+    source: formatSource(source1997, "Current mode uses 1997 effective leakage area at reference driving force"),
+  });
 }
 
 export function calculateAshraeSection4(input: {
@@ -64,36 +86,22 @@ export function calculateAshraeSection4(input: {
   context: DesignConditionContext;
   deltaW: number;
 }): Section4Result {
-  const baseFlow =
-    input.windowQty * input.crackLengthM * infiltration.windowCrackRateLpsPerM +
-    input.doorQty * input.doorAreaM2 * getDoorRate(input.componentB);
+  const windowArea = input.windowQty * input.crackLengthM * infiltration.windowLeakageAreaCm2PerM;
+  const leakageAreaCm2 = windowArea + doorLeakageArea(input);
   const useStackWind = input.method !== "Crack + Door";
-  const multiplier = useStackWind ? drivingMultiplier(input.context) : 1;
-  const flowLps = Math.max(0, baseFlow * multiplier);
-  const sensibleW = Math.max(0, flowLps * infiltration.airDensityCp * input.context.deltaTC);
-  const latentW = Math.max(0, flowLps * infiltration.latentConstant * input.deltaW);
+  const driving = useStackWind
+    ? infiltration.stackCoefficient * Math.abs(input.context.deltaTC) +
+      infiltration.windCoefficient * Math.max(0, input.context.windSpeedMps) ** 2
+    : infiltration.stackCoefficient * 10 + infiltration.windCoefficient * 3 ** 2;
+  const flowLps = leakageAreaCm2 * Math.sqrt(Math.max(0, driving));
 
-  return {
-    flowLps: {
-      value: flowLps,
-      source: formatSource(
-        references.infiltration,
-        useStackWind
-          ? `Crack/door leakage with stack-wind multiplier ${multiplier.toFixed(2)}`
-          : "Crack/door leakage without stack-wind multiplier",
-      ),
-    },
-    sensibleW: {
-      value: sensibleW,
-      source: formatSource(references.infiltration, "Sensible = 1.23 x flow x deltaT"),
-    },
-    latentW: {
-      value: latentW,
-      source: formatSource(references.infiltration, "Latent = 3010 x flow x deltaW"),
-    },
-    heatLoad: {
-      value: sensibleW + latentW,
-      source: formatSource(references.infiltration, "Total infiltration = sensible + latent"),
-    },
-  };
+  return sensibleLatent({
+    flowLps,
+    deltaTC: input.context.deltaTC,
+    deltaW: input.deltaW,
+    source: formatSource(
+      source1997,
+      `Effective leakage area ${leakageAreaCm2.toFixed(2)} cm2 ${useStackWind ? "with" : "without"} stack-wind correction`,
+    ),
+  });
 }

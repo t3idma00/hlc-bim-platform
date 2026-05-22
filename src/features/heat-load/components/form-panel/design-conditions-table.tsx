@@ -104,7 +104,7 @@ export function DesignConditionsRow({
 
   if (conditionRow.kind === "outdoorDryBulb") {
     const percentageOptions =
-      designConditionSource === "ashrae-2017" ? ["0.4", "1", "2"] : conditionRow.percentageOptions;
+      designConditionSource === "ashrae-2017" ? ["0.4", "2"] : conditionRow.percentageOptions;
     const selectValue = values[conditionRow.percentageName] ?? percentageOptions[0];
     const yearValue = values[conditionRow.yearName] ?? conditionRow.yearOptions[0];
 

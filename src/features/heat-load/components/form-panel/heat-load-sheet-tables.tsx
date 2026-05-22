@@ -1,3 +1,5 @@
+import { Fragment, useState } from "react";
+
 import {
   formatUnitValue,
   toCanonicalUnitValue,
@@ -6,6 +8,10 @@ import {
 } from "@/lib/units";
 
 import type { Align, Column, Section, SheetValues, SummaryRow } from "./heat-load-sheet-types";
+import { normalizeSheetCellValue } from "./heat-load-sheet-normalization";
+import { rowLooksLikeWall } from "./heat-load-wall-thickness";
+import { RowReferenceToggle } from "./heat-load-reference-toggle";
+import { getAshraeZoneLabel } from "./heat-load-zone-labels";
 
 const numberColumnWidth = "5%";
 const summaryNoteWidth = "10%";
@@ -18,6 +24,10 @@ function getColumnLabel(column: Column, unitSystem: UnitSystem): string {
 }
 
 function formatSheetCellValue(value: string, column: Column, unitSystem: UnitSystem): string {
+  if (column.key === "zone") {
+    return getAshraeZoneLabel(value);
+  }
+
   return column.unit ? formatUnitValue(value, unitSystem, column.unit) : value;
 }
 
@@ -38,6 +48,8 @@ export function SectionTable({
   sheetValues: SheetValues;
   onCellChange: (sectionNumber: string, rowId: string, key: string, value: string) => void;
 }) {
+  const [openReferences, setOpenReferences] = useState<Record<string, boolean>>({});
+
   return (
     <table className={tableClass}>
       <colgroup>
@@ -51,7 +63,10 @@ export function SectionTable({
           <th className={`${cellClass} bg-[#ffe7ee] text-center text-[11px] font-semibold text-slate-900`}>
             {number}
           </th>
-          <th className={`${cellClass} bg-[#ffe7ee] text-left text-[11px] font-semibold text-slate-900`} colSpan={columns.length}>
+          <th
+            className={`${cellClass} bg-[#ffe7ee] text-left text-[11px] font-semibold text-slate-900`}
+            colSpan={columns.length}
+          >
             {title}
           </th>
         </tr>
@@ -68,57 +83,103 @@ export function SectionTable({
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={row.id}>
-            <td className={`${cellClass} bg-white text-center font-medium text-slate-900`}>{row.id}</td>
-            {columns.map((column) => {
-              const cellValue = row.values[column.key] ?? "";
-              const displayValue = formatSheetCellValue(cellValue, column, unitSystem);
-              const sourceTitle = sheetValues[`${row.id}_${column.key}_source`] ?? "";
-              const titleText = sourceTitle ? `${displayValue}\n${sourceTitle}` : displayValue;
-              const options = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
-              const hasSelect = options.length > 0;
-              const fillClass = hasSelect || !column.editable ? "bg-[#fff4f7]" : "bg-white";
+        {rows.map((row) => {
+          const referenceText = sheetValues[`${row.id}_reference`] ?? row.values.reference ?? "";
+          const referenceIsOpen = Boolean(openReferences[row.id]);
 
-              return (
-                <td key={column.key} className={`${cellClass} ${fillClass} p-0`}>
-                  {hasSelect ? (
-                    <SheetSelectCell
-                      ariaLabel={`${row.id} ${column.label || column.key}`}
-                      value={cellValue}
-                      title={titleText}
-                      align={column.align ?? "left"}
-                      options={options}
-                      getOptionLabel={(option) => formatSheetCellValue(option, column, unitSystem)}
-                      onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
-                    />
-                  ) : column.editable ? (
-                    <SheetInputCell
-                      ariaLabel={`${row.id} ${column.label || column.key}`}
-                      value={displayValue}
-                      title={titleText}
-                      align={column.align ?? "left"}
-                      onValueChange={(value) =>
-                        onCellChange(number, row.id, column.key, parseSheetCellInput(value, column, unitSystem))
-                      }
-                    />
-                  ) : (
-                    <SheetCell
-                      ariaLabel={`${row.id} ${column.label || column.key}`}
-                      value={displayValue}
-                      title={titleText}
-                      align={column.align ?? "left"}
-                      wrap={column.wrap}
-                    />
-                  )}
+          return (
+            <Fragment key={row.id}>
+              <tr>
+                <td className={`${cellClass} bg-white text-center font-medium text-slate-900`}>
+                  <RowReferenceToggle
+                    rowId={row.id}
+                    referenceText={referenceText}
+                    referenceIsOpen={referenceIsOpen}
+                    onToggleReference={() =>
+                      setOpenReferences((current) => ({
+                        ...current,
+                        [row.id]: !current[row.id],
+                      }))
+                    }
+                  />
                 </td>
-              );
-            })}
-          </tr>
-        ))}
+                {columns.map((column) => {
+                  const rawCellValue = row.values[column.key] ?? "";
+                  const cellValue = normalizeSheetCellValue(row, column.key, rawCellValue);
+                  const displayValue = formatSheetCellValue(cellValue, column, unitSystem);
+                  const sourceTitle = sheetValues[`${row.id}_${column.key}_source`] ?? "";
+                  const titleText = sourceTitle ? `${displayValue}\n${sourceTitle}` : displayValue;
+                  const rawOptions = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
+                  const options = normalizeSelectOptions(row, column.key, rawOptions);
+                  const hasSelect = options.length > 0;
+                  const fillClass = hasSelect || !column.editable ? "bg-[#fff4f7]" : "bg-white";
+
+                  return (
+                    <td key={column.key} className={`${cellClass} ${fillClass} p-0`}>
+                      {hasSelect ? (
+                        <SheetSelectCell
+                          ariaLabel={`${row.id} ${column.label || column.key}`}
+                          value={cellValue}
+                          title={titleText}
+                          align={column.align ?? "left"}
+                          options={options}
+                          getOptionLabel={(option) => formatSelectOptionLabel(row, column, option, unitSystem)}
+                          onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
+                        />
+                      ) : column.editable ? (
+                        <SheetInputCell
+                          ariaLabel={`${row.id} ${column.label || column.key}`}
+                          value={displayValue}
+                          title={titleText}
+                          align={column.align ?? "left"}
+                          onValueChange={(value) =>
+                            onCellChange(number, row.id, column.key, parseSheetCellInput(value, column, unitSystem))
+                          }
+                        />
+                      ) : (
+                        <SheetCell
+                          ariaLabel={`${row.id} ${column.label || column.key}`}
+                          value={displayValue}
+                          title={titleText}
+                          align={column.align ?? "left"}
+                          wrap={column.wrap}
+                        />
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+              {referenceText && referenceIsOpen ? (
+                <tr>
+                  <td className={`${cellClass} bg-[#fff4f7] text-left text-slate-900`} colSpan={columns.length + 1}>
+                    <span className="font-semibold">ASHRAE 1997 reference: </span>
+                    <span>{referenceText}</span>
+                  </td>
+                </tr>
+              ) : null}
+            </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );
+}
+
+function normalizeSelectOptions(row: Section["rows"][number], key: string, options: readonly string[]) {
+  return Array.from(new Set(options.map((option) => normalizeSheetCellValue(row, key, option))));
+}
+
+function formatSelectOptionLabel(
+  row: Section["rows"][number],
+  column: Column,
+  option: string,
+  unitSystem: UnitSystem,
+) {
+  if (column.key === "thickness" && rowLooksLikeWall(row)) {
+    return `${option} mm`;
+  }
+
+  return formatSheetCellValue(option, column, unitSystem);
 }
 
 export function SummaryTable({
@@ -263,7 +324,7 @@ function SheetSelectCell({
         value={value}
         title={title ?? value}
         onChange={(event) => onValueChange(event.target.value)}
-        className={`min-h-[24px] h-full w-full appearance-none cursor-pointer bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
+        className={`min-h-[24px] h-full min-w-[58px] w-full appearance-none cursor-pointer bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
       >
         {options.map((option) => (
           <option key={option} value={option}>

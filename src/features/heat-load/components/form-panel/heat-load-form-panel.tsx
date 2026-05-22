@@ -65,7 +65,7 @@ type SolarDetailsResponse = {
 };
 
 type AshraeDesignConditionsResponse = {
-  percentile: "0.4" | "1" | "2";
+  percentile: "0.4" | "2";
   matchedByCountry: boolean;
   distanceKm: number;
   station: {
@@ -94,7 +94,7 @@ type AshraeDesignConditionsResponse = {
     meanCoincidentWindSpeed: number | null;
     prevailingWindDirection: number | null;
   };
-  supportedPercentiles: Array<"0.4" | "1" | "2">;
+  supportedPercentiles: Array<"0.4" | "2">;
 };
 
 type OutdoorDesignCache = {
@@ -108,6 +108,8 @@ type OutdoorDesignCache = {
   solarGhi: string;
   solarZenith: string;
   solarAzimuth: string;
+  latitude?: number;
+  longitude?: number;
   percentile: string;
   year?: string;
   stationName?: string;
@@ -119,36 +121,39 @@ type OutdoorDesignCache = {
   standardPressureKPa?: number;
   meanCoincidentWindSpeed?: number | null;
   hottestMonth?: number | null;
+  hottestMonthDryBulbRange?: number | null;
+  designHour?: number;
   matchedByCountry?: boolean;
 };
 
 const topSectionRows = [0, 1, 2, 3];
-const ASHRAE_SUPPORTED_PERCENTILES = ["0.4", "1", "2"] as const;
+const CLTD_REFERENCE_MONTH = 7;
+const ASHRAE_SUPPORTED_PERCENTILES = ["0.4", "2"] as const;
 
 export const initialFormValues: FormValues = {
   selectedCountry: "",
   selectedCountryCode: "",
   selectedCity: "",
-  unitSystem: "si",
+  unitSystem: "imperial",
   wallNorthDirection: "North",
-  wallNorthLength: "",
-  wallNorthWidth: "",
-  wallNorthHeight: "3",
-  wallNorthType: "Brick Wall",
+  wallNorthLength: "6.096",
+  wallNorthWidth: "100",
+  wallNorthHeight: "2.4384",
+  wallNorthType: "Cement block Wall",
   wallEastDirection: "East",
-  wallEastLength: "",
-  wallEastWidth: "",
-  wallEastHeight: "3",
+  wallEastLength: "3.048",
+  wallEastWidth: "100",
+  wallEastHeight: "2.4384",
   wallEastType: "Cement block Wall",
   wallSouthDirection: "South",
-  wallSouthLength: "",
-  wallSouthWidth: "",
-  wallSouthHeight: "3",
+  wallSouthLength: "6.096",
+  wallSouthWidth: "100",
+  wallSouthHeight: "2.4384",
   wallSouthType: "Cement block Wall",
   wallWestDirection: "West",
-  wallWestLength: "",
-  wallWestWidth: "",
-  wallWestHeight: "3",
+  wallWestLength: "3.048",
+  wallWestWidth: "100",
+  wallWestHeight: "2.4384",
   wallWestType: "Cement block Wall",
   windowNorthDirection: "North",
   windowNorthLength: "",
@@ -156,8 +161,8 @@ export const initialFormValues: FormValues = {
   windowNorthHeight: "",
   windowEastDirection: "East",
   windowEastLength: "",
-  windowEastWidth: "",
-  windowEastHeight: "",
+  windowEastWidth: "1.2192",
+  windowEastHeight: "1.2192",
   windowSouthDirection: "South",
   windowSouthLength: "",
   windowSouthWidth: "",
@@ -176,28 +181,28 @@ export const initialFormValues: FormValues = {
   doorEastHeight: "",
   doorSouthDirection: "South",
   doorSouthLength: "",
-  doorSouthWidth: "",
-  doorSouthHeight: "",
+  doorSouthWidth: "0.9144",
+  doorSouthHeight: "2.1336",
   doorWestDirection: "West",
   doorWestLength: "",
   doorWestWidth: "",
   doorWestHeight: "",
   roofType: "Concrete Slab Roof",
   roofThickness: "150",
-  outsideCondition: "",
-  dryBulbTemp: "",
+  outsideCondition: "35",
+  dryBulbTemp: "35",
   wetBulbTemp: "",
   dryBulbPercentile: "1",
   designYear: String(new Date().getUTCFullYear() - 1),
   designConditionSource: "current",
   currentOutdoorDesignData: "",
   ashraeOutdoorDesignData: "",
-  insideCondition: "",
-  conditionDifference: "",
+  insideCondition: "24",
+  conditionDifference: "11",
   conditionType: "Relative Humidity",
-  conditionValue: "",
+  conditionValue: "55",
   indoorConditionType: "Relative Humidity",
-  indoorConditionValue: "",
+  indoorConditionValue: "50",
   solarDni: "",
   solarDhi: "",
   solarGhi: "",
@@ -287,6 +292,10 @@ function parseOutdoorDesignCache(value: string | undefined): OutdoorDesignCache 
       solarGhi: typeof parsed.solarGhi === "string" ? parsed.solarGhi : "",
       solarZenith: typeof parsed.solarZenith === "string" ? parsed.solarZenith : "",
       solarAzimuth: typeof parsed.solarAzimuth === "string" ? parsed.solarAzimuth : "",
+      latitude:
+        typeof parsed.latitude === "number" && Number.isFinite(parsed.latitude) ? parsed.latitude : undefined,
+      longitude:
+        typeof parsed.longitude === "number" && Number.isFinite(parsed.longitude) ? parsed.longitude : undefined,
       percentile: typeof parsed.percentile === "string" ? parsed.percentile : "",
       year: typeof parsed.year === "string" ? parsed.year : undefined,
       stationName: typeof parsed.stationName === "string" ? parsed.stationName : undefined,
@@ -311,6 +320,12 @@ function parseOutdoorDesignCache(value: string | undefined): OutdoorDesignCache 
         typeof parsed.hottestMonth === "number" && Number.isFinite(parsed.hottestMonth)
           ? parsed.hottestMonth
           : undefined,
+      hottestMonthDryBulbRange:
+        typeof parsed.hottestMonthDryBulbRange === "number" && Number.isFinite(parsed.hottestMonthDryBulbRange)
+          ? parsed.hottestMonthDryBulbRange
+          : undefined,
+      designHour:
+        typeof parsed.designHour === "number" && Number.isFinite(parsed.designHour) ? parsed.designHour : undefined,
       matchedByCountry: typeof parsed.matchedByCountry === "boolean" ? parsed.matchedByCountry : undefined,
     };
   } catch {
@@ -351,6 +366,44 @@ function emptySolarSnapshot() {
     solarZenith: "",
     solarAzimuth: "",
   };
+}
+
+function getHourFromDateTime(value: string | undefined) {
+  if (!value) {
+    return 15;
+  }
+  const match = value.match(/T(\d{2}):/);
+  const parsed = match ? Number.parseInt(match[1], 10) : Number.NaN;
+  return Number.isInteger(parsed) ? Math.min(23, Math.max(0, parsed)) : 15;
+}
+
+function getDailyDryBulbRange(
+  entries: Array<{ time: string; dryBulbTemp: number | null }>,
+  designTime: string | undefined,
+) {
+  const day = designTime?.slice(0, 10);
+  if (!day) {
+    return null;
+  }
+
+  const values = entries
+    .filter((entry) => entry.time.startsWith(day))
+    .map((entry) => entry.dryBulbTemp)
+    .filter((value): value is number => typeof value === "number");
+
+  if (!values.length) {
+    return null;
+  }
+
+  return Math.max(...values) - Math.min(...values);
+}
+
+function getHourlyDryBulbForMonth(
+  entries: Array<{ time: string; dryBulbTemp: number | null }>,
+  month: number,
+) {
+  const monthText = String(month).padStart(2, "0");
+  return entries.filter((entry) => entry.time.slice(5, 7) === monthText);
 }
 
 function buildSyntheticAshraeDatetime(year: number, hottestMonth: number | null | undefined) {
@@ -460,11 +513,11 @@ export function HeatLoadFormPanel({
   const designConditionSourceSummary =
     designConditionSource === "current"
       ? currentOutdoorDesignCache?.year
-        ? `Current historical data source. Cached percentile ${currentOutdoorDesignCache.percentile}% for year ${currentOutdoorDesignCache.year}.`
-        : "Current historical data source using the existing Open-Meteo percentile workflow."
+        ? `Current July historical source. Cached July percentile ${currentOutdoorDesignCache.percentile}% for year ${currentOutdoorDesignCache.year} to match the ASHRAE 1997 July CLTD tables.`
+        : "Current July Open-Meteo source matched to the ASHRAE 1997 July CLTD tables."
       : ashraeOutdoorDesignCache?.stationName
-        ? `ASHRAE station source. ${ashraeOutdoorDesignCache.stationName}${ashraeOutdoorDesignCache.stationWmo ? ` (${ashraeOutdoorDesignCache.stationWmo})` : ""}${ashraeOutdoorDesignCache.stationLocation ? ` | ${ashraeOutdoorDesignCache.stationLocation}` : ""}${ashraeOutdoorDesignCache.stationSourceEdition ? ` | ASHRAE ${ashraeOutdoorDesignCache.stationSourceEdition}` : ""}${typeof ashraeOutdoorDesignCache.stationDistanceKm === "number" ? ` | ${ashraeOutdoorDesignCache.stationDistanceKm.toFixed(1)} km from selected city` : ""}.`
-        : "ASHRAE station source using the bundled global lookup with Sri Lanka 2025 overrides.";
+        ? `ASHRAE July station source. ${ashraeOutdoorDesignCache.stationName}${ashraeOutdoorDesignCache.stationWmo ? ` (${ashraeOutdoorDesignCache.stationWmo})` : ""}${ashraeOutdoorDesignCache.stationLocation ? ` | ${ashraeOutdoorDesignCache.stationLocation}` : ""}${ashraeOutdoorDesignCache.stationSourceEdition ? ` | ASHRAE ${ashraeOutdoorDesignCache.stationSourceEdition}` : ""}${typeof ashraeOutdoorDesignCache.stationDistanceKm === "number" ? ` | ${ashraeOutdoorDesignCache.stationDistanceKm.toFixed(1)} km from selected city` : ""}.`
+        : "ASHRAE 2017 July station source matched to the ASHRAE 1997 July CLTD tables.";
 
   const updateFieldIfChanged = (name: string, value: string) => {
     if ((formValues[name] ?? "") !== value) {
@@ -635,7 +688,7 @@ export function HeatLoadFormPanel({
       designConditionSource === "ashrae-2017" &&
       !ASHRAE_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof ASHRAE_SUPPORTED_PERCENTILES)[number])
     ) {
-      onFieldChange("dryBulbPercentile", "1");
+      onFieldChange("dryBulbPercentile", "2");
     }
   }, [designConditionSource, formValues.dryBulbPercentile, onFieldChange]);
 
@@ -667,17 +720,18 @@ export function HeatLoadFormPanel({
 
         const historyPayload = await fetchTemperatureHistoryForLocation(resolvedLocation, year);
         const hourlyDryBulb = historyPayload.hourlyDryBulb ?? [];
-        const dryBulbSeries = hourlyDryBulb
+        const cltdMonthHourlyDryBulb = getHourlyDryBulbForMonth(hourlyDryBulb, CLTD_REFERENCE_MONTH);
+        const dryBulbSeries = cltdMonthHourlyDryBulb
           .map((entry) => entry.dryBulbTemp)
           .filter((value): value is number => typeof value === "number");
 
         if (!dryBulbSeries.length) {
-          throw new Error("No dry-bulb values were returned for the selected city.");
+          throw new Error("No July dry-bulb values were returned for the selected city.");
         }
 
         const selectedPercent = Number(formValues.dryBulbPercentile || "1");
         const dryBulb = computePercentile(dryBulbSeries, 100 - selectedPercent);
-        const designHour = findNearestDesignHour(hourlyDryBulb, dryBulb);
+        const designHour = findNearestDesignHour(cltdMonthHourlyDryBulb, dryBulb);
 
         let relativeHumidityText = "";
         let wetBulbText = "";
@@ -705,7 +759,7 @@ export function HeatLoadFormPanel({
 
         const cache: OutdoorDesignCache = {
           source: "current",
-          label: "Current",
+          label: "Current July",
           dryBulbTemp: formatConditionValue(dryBulb),
           wetBulbTemp: wetBulbText,
           relativeHumidity: relativeHumidityText,
@@ -714,10 +768,15 @@ export function HeatLoadFormPanel({
           solarGhi: solarSnapshot.solarGhi,
           solarZenith: solarSnapshot.solarZenith,
           solarAzimuth: solarSnapshot.solarAzimuth,
+          latitude: resolvedLocation.latitude,
+          longitude: resolvedLocation.longitude,
           percentile: formValues.dryBulbPercentile,
           year: String(year),
           standardPressureKPa: 101.325,
           meanCoincidentWindSpeed: null,
+          hottestMonth: CLTD_REFERENCE_MONTH,
+          hottestMonthDryBulbRange: getDailyDryBulbRange(hourlyDryBulb, designHour?.time),
+          designHour: getHourFromDateTime(designHour?.time),
         };
 
         const serializedCache = JSON.stringify(cache);
@@ -777,7 +836,7 @@ export function HeatLoadFormPanel({
           `/api/ashrae-design-conditions?${ashraeParams.toString()}`,
           undefined,
           {
-            cacheKey: `ashrae-design-conditions:${ashraeParams.toString()}`,
+            cacheKey: `ashrae-2017-july-cltd-design-conditions:${ashraeParams.toString()}`,
             ttlMs: 24 * 60 * 60 * 1000,
           },
         );
@@ -785,10 +844,15 @@ export function HeatLoadFormPanel({
         const latestCompleteYear = new Date().getUTCFullYear() - 1;
         let solarSnapshot = emptySolarSnapshot();
 
+        const ashraeDateTime = buildSyntheticAshraeDatetime(
+          latestCompleteYear,
+          ashraePayload.cooling.hottestMonth,
+        );
+
         try {
           const solarDetailsPayload = await fetchSolarDetailsForLocation(
             resolvedLocation,
-            buildSyntheticAshraeDatetime(latestCompleteYear, ashraePayload.cooling.hottestMonth),
+            ashraeDateTime,
           );
           solarSnapshot = buildSolarSnapshot(solarDetailsPayload);
         } catch {
@@ -797,7 +861,7 @@ export function HeatLoadFormPanel({
 
         const cache: OutdoorDesignCache = {
           source: "ashrae-2017",
-          label: "ASHRAE Station Data",
+          label: "ASHRAE 2017 July Station Data",
           dryBulbTemp: formatConditionValue(ashraePayload.cooling.dryBulbTemp),
           wetBulbTemp: formatConditionValue(ashraePayload.cooling.meanCoincidentWetBulb),
           relativeHumidity: formatOptionalConditionValue(ashraePayload.cooling.relativeHumidity),
@@ -806,6 +870,8 @@ export function HeatLoadFormPanel({
           solarGhi: solarSnapshot.solarGhi,
           solarZenith: solarSnapshot.solarZenith,
           solarAzimuth: solarSnapshot.solarAzimuth,
+          latitude: ashraePayload.station.latitude,
+          longitude: ashraePayload.station.longitude,
           percentile: ashraePayload.percentile,
           stationName: ashraePayload.station.name,
           stationWmo: ashraePayload.station.wmo,
@@ -816,6 +882,8 @@ export function HeatLoadFormPanel({
           standardPressureKPa: ashraePayload.station.standardPressureKPa,
           meanCoincidentWindSpeed: ashraePayload.cooling.meanCoincidentWindSpeed,
           hottestMonth: ashraePayload.cooling.hottestMonth,
+          hottestMonthDryBulbRange: ashraePayload.cooling.hottestMonthDryBulbRange,
+          designHour: getHourFromDateTime(ashraeDateTime),
           matchedByCountry: ashraePayload.matchedByCountry,
         };
 

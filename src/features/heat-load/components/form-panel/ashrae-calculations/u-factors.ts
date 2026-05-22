@@ -1,10 +1,13 @@
 import references from "../ashrae-tables/references.json";
+import { heatLoadLookupOptions } from "../heat-load-options";
+import { defaultWallThicknessMmForType, normalizeWallThicknessMm } from "../heat-load-wall-thickness";
 import section1Data from "../section-1-data.json";
 
 import { formatSource, getNum, matchesText } from "./common";
 import type { FactorResult } from "./types";
 
 const CURRENT_SOURCE = "Current application lookup data";
+const DEFAULT_GLASS_FRAME = "Glass only (Centre of Glass)";
 
 function wallMaterialKey(type: string) {
   if (type.includes("Brick")) return "brick_wall_CLTD_C";
@@ -29,18 +32,30 @@ function resolveWallUFromCurrent(type: string): FactorResult | null {
   return null;
 }
 
-function resolveRoofUFactor(type: string, source: string): FactorResult | null {
+function matchesRoofMaterial(type: string, materialType: string) {
+  return matchesText(type, materialType) || (
+    type.includes("Clay") && materialType.includes("Clay")
+  );
+}
+
+function resolveRoofUFactor(type: string, source: string, detail?: string): FactorResult | null {
   const roof = section1Data.roof_material_u_factor.records.find((record) =>
-    type.includes(record.material_type),
+    matchesRoofMaterial(type, record.material_type),
   );
 
   if (!roof) {
     return null;
   }
 
+  const useWithoutCeiling = detail?.toLowerCase().includes("without ceiling");
+  const value = useWithoutCeiling
+    ? roof.u_factor_without_ceiling_W_per_m2K
+    : roof.u_factor_with_ceiling_W_per_m2K;
+  const ceilingBasis = useWithoutCeiling ? "without ceiling" : "with ceiling";
+
   return {
-    value: roof.u_factor_with_ceiling_W_per_m2K,
-    source,
+    value,
+    source: formatSource(source, `${roof.material_type} roof U-factor ${ceilingBasis}`),
   };
 }
 
@@ -84,7 +99,41 @@ function resolveGlassUFactor(input: {
   };
 }
 
-function resolveWallUFromLayer(type: string, thicknessMm: number): FactorResult | null {
+export function resolveCurrentTransmissionGlassUFactor(input: {
+  glazingType: string;
+  frameType?: string;
+  thicknessMm: number;
+}): FactorResult {
+  const glass = resolveGlassUFactor({
+    glazingType: input.glazingType,
+    frameType: input.frameType ?? DEFAULT_GLASS_FRAME,
+    thicknessMm: input.thicknessMm,
+    source: CURRENT_SOURCE,
+  });
+
+  return glass ?? {
+    value: 2,
+    source: `${CURRENT_SOURCE}; fallback because glazing/frame combination was not found`,
+  };
+}
+
+export function resolveSection1GlassSelection(input: {
+  direction: string;
+  type: string;
+  detail?: string;
+}) {
+  const legacyDirectionIsGlassType = heatLoadLookupOptions.transmissionGlassTypes.includes(
+    input.direction as (typeof heatLoadLookupOptions.transmissionGlassTypes)[number],
+  );
+
+  return {
+    direction: legacyDirectionIsGlassType ? "North" : input.direction,
+    glazingType: legacyDirectionIsGlassType ? input.direction : input.type,
+    frameType: legacyDirectionIsGlassType ? input.type : input.detail || DEFAULT_GLASS_FRAME,
+  };
+}
+
+function resolveWallUFromLayer(type: string, thicknessMm: number, source: string): FactorResult | null {
   const record = section1Data.wall_u_factor_exterior_to_interior.records.find((item) =>
     matchesText(type, item.material_type),
   );
@@ -93,21 +142,33 @@ function resolveWallUFromLayer(type: string, thicknessMm: number): FactorResult 
     return null;
   }
 
-  const coreThicknessM = Math.max(0.001, thicknessMm / 1000);
+  const normalizedThicknessMm = normalizeWallThicknessMm(thicknessMm, defaultWallThicknessMmForType(type));
+  const coreThicknessM = normalizedThicknessMm / 1000;
   const resistance = record.base_R_factor_without_core + coreThicknessM / record.core_K_factor_W_per_mK;
+  const correctionNote =
+    normalizedThicknessMm !== thicknessMm
+      ? `; input ${thicknessMm || 0} mm treated as ${normalizedThicknessMm} mm minimum masonry thickness`
+      : "";
 
   return {
     value: resistance > 0 ? 1 / resistance : record.base_U_factor_W_per_m2K,
     source: formatSource(
-      references.opaqueCts,
-      `${record.material_type} layer-resistance U-factor at ${thicknessMm || 0} mm`,
+      source,
+      `${record.material_type} layer-resistance U-factor at ${normalizedThicknessMm} mm${correctionNote}`,
     ),
   };
 }
 
-export function resolveCurrentUFactor(type: string): FactorResult {
+export function resolveCurrentUFactor(type: string, detail?: string, thicknessMm = 0): FactorResult {
   if (!type) {
     return { value: 2, source: CURRENT_SOURCE };
+  }
+
+  if (thicknessMm > 0) {
+    const wallFromLayer = resolveWallUFromLayer(type, thicknessMm, CURRENT_SOURCE);
+    if (wallFromLayer) {
+      return wallFromLayer;
+    }
   }
 
   const wall = resolveWallUFromCurrent(type);
@@ -115,7 +176,7 @@ export function resolveCurrentUFactor(type: string): FactorResult {
     return wall;
   }
 
-  const roof = resolveRoofUFactor(type, CURRENT_SOURCE);
+  const roof = resolveRoofUFactor(type, CURRENT_SOURCE, detail);
   if (roof) {
     return roof;
   }
@@ -163,10 +224,15 @@ export function resolveAshraeUFactor(input: {
     input.type.toLowerCase().includes("glass");
 
   if (isGlass) {
+    const glassSelection = resolveSection1GlassSelection({
+      direction: input.direction ?? "",
+      type: input.type,
+      detail: input.detail,
+    });
     const glass =
       resolveGlassUFactor({
-        glazingType: input.direction || input.type,
-        frameType: input.detail || input.type,
+        glazingType: glassSelection.glazingType,
+        frameType: glassSelection.frameType,
         thicknessMm: input.thicknessMm,
         source: references.fenestrationU,
       }) ??
@@ -183,13 +249,13 @@ export function resolveAshraeUFactor(input: {
   }
 
   if (input.item.toLowerCase().includes("roof") || input.type.includes("Roof")) {
-    const roof = resolveRoofUFactor(input.type, formatSource(references.opaqueCts, "Roof assembly U-factor"));
+    const roof = resolveRoofUFactor(input.type, references.opaqueCts, input.detail);
     if (roof) {
       return roof;
     }
   }
 
-  const wall = resolveWallUFromLayer(input.type, input.thicknessMm);
+  const wall = resolveWallUFromLayer(input.type, input.thicknessMm, references.opaqueCts);
   return wall ?? {
     value: resolveCurrentUFactor(input.type).value,
     source: formatSource(references.opaqueCts, "Fallback to available assembly U-factor"),

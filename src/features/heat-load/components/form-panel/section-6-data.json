@@ -1,36 +1,28 @@
 {
+  "metadata": {
+    "source": "ASHRAE 1997 Handbook - Fundamentals, Ch25 and Ch28",
+    "basis": "Outdoor-air flow uses 1997 handbook text: 10 L/s per person for general applications, 8 L/s per occupant minimum discussion, 7 L/s per person for the drugstore/hardware example, and 6 ACH operating-room note converted with 3 m room height."
+  },
   "ventilation": {
     "applications": {
-      "Pharmacy": { "sensible": 500.00, "latent": 200.00 },
-      "Classrooms (age 9 plus)": { "sensible": 400.00, "latent": 250.00 },
-      "Lecture classroom": { "sensible": 450.00, "latent": 250.00 },
-      "Wood/metal shop": { "sensible": 600.00, "latent": 300.00 },
-      "Computer lab": { "sensible": 500.00, "latent": 150.00 },
-      "Music/theater/dance": { "sensible": 550.00, "latent": 350.00 },
-      "Restaurant dining rooms": { "sensible": 450.00, "latent": 300.00 },
-      "Cafeteria/fast food dining": { "sensible": 400.00, "latent": 250.00 },
-      "Bars, cocktail lounges": { "sensible": 500.00, "latent": 400.00 },
-      "Conference/meeting": { "sensible": 400.00, "latent": 200.00 },
-      "Corridors": { "sensible": 200.00, "latent": 100.00 },
-      "Storage room": { "sensible": 150.00, "latent": 50.00 },
-      "Bed room, living Room": { "sensible": 300.00, "latent": 150.00 }
+      "Bedroom / residential": { "sensible": 0.0, "latent": 0.0 },
+      "Drugstore / pharmacy": { "sensible": 0.0, "latent": 0.0 },
+      "General application": { "sensible": 0.0, "latent": 0.0 },
+      "Minimum occupant outdoor air": { "sensible": 0.0, "latent": 0.0 },
+      "Office": { "sensible": 0.0, "latent": 0.0 },
+      "Hospital operating room, 6 ACH at 3 m height": { "sensible": 0.0, "latent": 0.0 },
+      "Manual outdoor-air flow": { "sensible": 0.0, "latent": 0.0 }
     },
-    "default": { "sensible": 300.00, "latent": 150.00 }
+    "default": { "sensible": 0.0, "latent": 0.0 }
   },
   "ventilationRates": {
-    "Pharmacy": { "perPerson": 2.5, "perArea": 0.9 },
-    "Classrooms (age 9 plus)": { "perPerson": 5.0, "perArea": 0.6 },
-    "Lecture classroom": { "perPerson": 3.8, "perArea": 0.3 },
-    "Wood/metal shop": { "perPerson": 5.0, "perArea": 0.9 },
-    "Computer lab": { "perPerson": 5.0, "perArea": 0.6 },
-    "Music/theater/dance": { "perPerson": 5.0, "perArea": 0.3 },
-    "Restaurant dining rooms": { "perPerson": 3.8, "perArea": 0.9 },
-    "Cafeteria/fast food dining": { "perPerson": 3.8, "perArea": 0.9 },
-    "Bars, cocktail lounges": { "perPerson": 3.8, "perArea": 0.9 },
-    "Conference/meeting": { "perPerson": 2.5, "perArea": 0.3 },
-    "Corridors": { "perPerson": 0.0, "perArea": 0.3 },
-    "Storage room": { "perPerson": 0.0, "perArea": 0.6 },
-    "Bed room, living Room": { "perPerson": 2.5, "perArea": 0.3 },
-    "default": { "perPerson": 2.5, "perArea": 0.6 }
+    "Bedroom / residential": { "perPerson": 8.0, "perArea": 0.0 },
+    "Drugstore / pharmacy": { "perPerson": 7.0, "perArea": 0.0 },
+    "General application": { "perPerson": 10.0, "perArea": 0.0 },
+    "Minimum occupant outdoor air": { "perPerson": 8.0, "perArea": 0.0 },
+    "Office": { "perPerson": 10.0, "perArea": 0.0 },
+    "Hospital operating room, 6 ACH at 3 m height": { "perPerson": 0.0, "perArea": 5.0 },
+    "Manual outdoor-air flow": { "perPerson": 0.0, "perArea": 0.0 },
+    "default": { "perPerson": 10.0, "perArea": 0.0 }
   }
 }

@@ -8,6 +8,10 @@ type OutdoorDesignCache = {
   standardPressureKPa?: number;
   meanCoincidentWindSpeed?: number | null;
   hottestMonth?: number | null;
+  hottestMonthDryBulbRange?: number | null;
+  designHour?: number | string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 function parseOutdoorDesignCache(value: string | undefined): OutdoorDesignCache | null {
@@ -46,6 +50,15 @@ export function resolveDesignConditionContext(formValues: FormValues): DesignCon
     typeof cache?.hottestMonth === "number" && Number.isFinite(cache.hottestMonth)
       ? Math.min(12, Math.max(1, Math.round(cache.hottestMonth)))
       : defaults.defaultHottestMonth;
+  const hottestMonthDryBulbRangeC =
+    typeof cache?.hottestMonthDryBulbRange === "number" && Number.isFinite(cache.hottestMonthDryBulbRange)
+      ? cache.hottestMonthDryBulbRange
+      : 0;
+  const designHour = Math.min(24, Math.max(1, Math.round(getNum(cache?.designHour) || 15)));
+  const latitude =
+    typeof cache?.latitude === "number" && Number.isFinite(cache.latitude) ? cache.latitude : 40;
+  const longitude =
+    typeof cache?.longitude === "number" && Number.isFinite(cache.longitude) ? cache.longitude : 0;
 
   const dni = getNum(formValues.solarDni);
   const dhi = getNum(formValues.solarDhi);
@@ -63,6 +76,10 @@ export function resolveDesignConditionContext(formValues: FormValues): DesignCon
     pressurePa,
     windSpeedMps,
     hottestMonth,
+    hottestMonthDryBulbRangeC,
+    designHour,
+    latitude,
+    longitude,
     solar: {
       dni,
       dhi,

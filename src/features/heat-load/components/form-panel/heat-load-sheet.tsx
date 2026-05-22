@@ -6,16 +6,17 @@ import {
   calculateAshraeSection1,
   calculateAshraeSection3,
   getNum,
+  resolveAshraeInternalClf,
+  resolveAshraeInternalHeatGain,
   resolveAshraeSection2Factors,
-  resolveCurrentGlassFactors,
-  resolveCurrentTd,
+  resolveCorrectedCltd,
+  resolveCurrentTransmissionGlassUFactor,
   resolveCurrentUFactor,
+  resolveSection1GlassSelection,
 } from "./ashrae-calculations";
 import { buildInitialSections, summaryRows } from "./heat-load-sheet-data";
-import {
-  getDefaultInternalGain,
-  getDefaultVentilation,
-} from "./heat-load-sheet-section-builders";
+import { getDefaultVentilation } from "./heat-load-sheet-section-builders";
+import { normalizeSheetCellValue, normalizeSheetRowValues } from "./heat-load-sheet-normalization";
 import { SectionTable, SummaryTable } from "./heat-load-sheet-tables";
 import type { HeatLoadSheetProps, Row, Section, SheetValues } from "./heat-load-sheet-types";
 import { useHeatLoadAutoFill } from "./use-heat-load-auto-fill";
@@ -37,11 +38,11 @@ function applySheetValuesToSections(sections: Section[], sheetValues: SheetValue
 
         const cellKey = key.slice(rowPrefix.length);
         if (Object.prototype.hasOwnProperty.call(values, cellKey)) {
-          values[cellKey] = value;
+          values[cellKey] = normalizeSheetCellValue(row, cellKey, value);
         }
       });
 
-      return { ...row, values };
+      return { ...row, values: normalizeSheetRowValues(row, values) };
     }),
   }));
 }
@@ -62,12 +63,13 @@ export function HeatLoadSheet({
   );
 
   function handleCellChange(sectionNumber: string, rowId: string, key: string, value: string) {
-    const updates: Record<string, string> = { [`${rowId}_${key}`]: value };
     const section = sections.find((item) => item.number === sectionNumber);
     const row = section?.rows.find((item) => item.id === rowId);
+    const normalizedValue = row ? normalizeSheetCellValue(row, key, value) : value;
+    const updates: Record<string, string> = { [`${rowId}_${key}`]: normalizedValue };
 
     if (!row) {
-      onSheetChange(`${rowId}_${key}`, value);
+      onSheetChange(`${rowId}_${key}`, normalizedValue);
       return;
     }
 
@@ -75,7 +77,7 @@ export function HeatLoadSheet({
       sectionNumber,
       row,
       changedKey: key,
-      changedValue: value,
+      changedValue: normalizedValue,
       sheetValues,
       designContext,
       updates,
@@ -117,16 +119,33 @@ function updateDependentValues(input: {
   designContext: ReturnType<typeof useHeatLoadCalculations>;
   updates: Record<string, string>;
 }) {
-  const reactiveKeys = ["type", "typeA", "typeB", "direction", "thickness", "shading", "application", "item"];
+  const reactiveKeys = [
+    "type",
+    "typeA",
+    "typeB",
+    "detail",
+    "direction",
+    "thickness",
+    "shading",
+    "zone",
+    "hoursInUse",
+    "hoursAfterStart",
+    "application",
+    "item",
+  ];
 
   if (!reactiveKeys.includes(input.changedKey)) {
     return;
   }
 
   const rowValue = (key: string) =>
-    key === input.changedKey
-      ? input.changedValue
-      : input.sheetValues[`${input.row.id}_${key}`] ?? input.row.values[key] ?? "";
+    normalizeSheetCellValue(
+      input.row,
+      key,
+      key === input.changedKey
+        ? input.changedValue
+        : input.sheetValues[`${input.row.id}_${key}`] ?? input.row.values[key] ?? "",
+    );
 
   if (input.sectionNumber === "1") {
     updateSection1Factors(input.row, rowValue, input.designContext, input.updates);
@@ -135,9 +154,7 @@ function updateDependentValues(input: {
   } else if (input.sectionNumber === "3") {
     updateSection3Factors(input.row, rowValue, input.designContext, input.updates);
   } else if (input.sectionNumber === "5") {
-    const item = rowValue("item");
-    const application = rowValue("application");
-    input.updates[`${input.row.id}_heatGain`] = getDefaultInternalGain(item, application);
+    updateSection5Factors(input.row, rowValue, input.updates);
   } else if (input.sectionNumber === "6") {
     const values = getDefaultVentilation(rowValue("application"));
     input.updates[`${input.row.id}_sensible`] = values.sensible;
@@ -154,6 +171,7 @@ function updateSection1Factors(
   const item = rowValue("item");
   const direction = rowValue("direction");
   const type = rowValue("type");
+  const detail = rowValue("detail");
   const thicknessMm = getNum(rowValue("thickness"));
 
   if (designContext.source === "ashrae-2017") {
@@ -161,6 +179,7 @@ function updateSection1Factors(
       item,
       direction,
       type,
+      detail,
       thicknessMm,
       areaM2: getNum(rowValue("calcValue")),
       context: designContext,
@@ -172,8 +191,23 @@ function updateSection1Factors(
     return;
   }
 
-  updates[`${row.id}_uFactor`] = resolveCurrentUFactor(type).value.toFixed(2);
-  updates[`${row.id}_cltd`] = resolveCurrentTd(type, direction).value.toFixed(2);
+  const glassSelection = resolveSection1GlassSelection({ direction, type, detail });
+  const uFactor = item.toLowerCase().includes("glass")
+    ? resolveCurrentTransmissionGlassUFactor({
+        glazingType: glassSelection.glazingType,
+        frameType: glassSelection.frameType,
+        thicknessMm,
+      })
+    : resolveCurrentUFactor(type, detail, thicknessMm);
+
+  updates[`${row.id}_uFactor`] = uFactor.value.toFixed(2);
+  updates[`${row.id}_cltd`] = resolveCorrectedCltd({
+    item,
+    type,
+    direction,
+    detail,
+    context: designContext,
+  }).value.toFixed(2);
 }
 
 function updateSection2Factors(
@@ -184,27 +218,56 @@ function updateSection2Factors(
 ) {
   const type = rowValue("type");
   const shading = rowValue("shading");
+  const factors = resolveAshraeSection2Factors({
+    type,
+    shading,
+    direction: rowValue("direction"),
+    thicknessMm: getNum(rowValue("thickness")),
+    zoneType: rowValue("zone"),
+    context: designContext,
+  });
 
-  if (designContext.source === "ashrae-2017") {
-    const factors = resolveAshraeSection2Factors({
-      type,
-      shading,
-      direction: rowValue("direction"),
-      context: designContext,
-    });
-    updates[`${row.id}_sc`] = factors.effectiveCoefficient.value.toFixed(2);
-    updates[`${row.id}_shg`] = factors.solarHeatGain.value.toFixed(2);
-    updates[`${row.id}_clf`] = factors.solarCoolingLoadFactor.value.toFixed(2);
-    updates[`${row.id}_sc_source`] = factors.effectiveCoefficient.source;
-    updates[`${row.id}_shg_source`] = factors.solarHeatGain.source;
-    updates[`${row.id}_clf_source`] = factors.solarCoolingLoadFactor.source;
-    return;
+  updates[`${row.id}_sc`] = factors.effectiveCoefficient.value.toFixed(2);
+  updates[`${row.id}_shg`] = factors.solarHeatGain.value.toFixed(2);
+  updates[`${row.id}_clf`] = factors.solarCoolingLoadFactor.value.toFixed(2);
+  updates[`${row.id}_sc_source`] = factors.effectiveCoefficient.source;
+  updates[`${row.id}_shg_source`] = factors.solarHeatGain.source;
+  updates[`${row.id}_clf_source`] = factors.solarCoolingLoadFactor.source;
+}
+
+function updateSection5Factors(
+  row: Row,
+  rowValue: (key: string) => string,
+  updates: Record<string, string>,
+) {
+  const item = rowValue("item");
+  const isLatent = item.toLowerCase().includes("latent");
+  const heatGain = resolveAshraeInternalHeatGain({
+    item,
+    application: rowValue("application"),
+    isLatent,
+  });
+  const clf = resolveAshraeInternalClf({
+    item,
+    zoneType: rowValue("zone"),
+    hoursInUse: getNum(rowValue("hoursInUse")),
+    hoursAfterStart: getNum(rowValue("hoursAfterStart")),
+    isLatent,
+  });
+
+  if (!item.includes("Additional")) {
+    updates[`${row.id}_heatGain`] = heatGain.value.toFixed(2);
+    updates[`${row.id}_clf`] = clf.value.toFixed(2);
+    updates[`${row.id}_heatGain_source`] = heatGain.source;
+    updates[`${row.id}_clf_source`] = clf.source;
   }
 
-  const factors = resolveCurrentGlassFactors(type, shading);
-  updates[`${row.id}_sc`] = factors.sc.value.toFixed(2);
-  updates[`${row.id}_shg`] = factors.shg.value.toFixed(2);
-  updates[`${row.id}_clf`] = factors.clf.value.toFixed(2);
+  const qty = getNum(rowValue("qty"));
+  const gainValue = item.includes("Additional") ? getNum(rowValue("heatGain")) : heatGain.value;
+  const clfValue = item.includes("Additional") ? getNum(rowValue("clf")) || 1 : clf.value;
+  if (qty > 0 && gainValue > 0) {
+    updates[`${row.id}_heatLoad`] = (gainValue * qty * clfValue).toFixed(2);
+  }
 }
 
 function updateSection3Factors(
@@ -233,6 +296,11 @@ function updateSection3Factors(
     return;
   }
 
-  updates[`${row.id}_uFactor`] = resolveCurrentUFactor(type).value.toFixed(2);
-  updates[`${row.id}_cltd`] = resolveCurrentTd(type).value.toFixed(2);
+  updates[`${row.id}_uFactor`] = resolveCurrentUFactor(type, undefined, getNum(rowValue("thickness"))).value.toFixed(2);
+  updates[`${row.id}_cltd`] = resolveCorrectedCltd({
+    item: rowValue("item"),
+    type,
+    direction: rowValue("direction"),
+    context: designContext,
+  }).value.toFixed(2);
 }

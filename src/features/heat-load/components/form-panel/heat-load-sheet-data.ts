@@ -1,9 +1,11 @@
 import {
   resolveCurrentGlassFactors,
+  resolveCurrentTransmissionGlassUFactor,
   resolveCurrentTd,
   resolveCurrentUFactor,
 } from "./ashrae-calculations";
 import { heatLoadLookupOptions } from "./heat-load-options";
+import { getSection1Reference, getSection2Reference } from "./heat-load-row-references";
 import { buildSection3, buildSection4, buildSection5, buildSection6 } from "./heat-load-sheet-section-builders";
 import type { Section, SelectOptionsByKey, SummaryRow } from "./heat-load-sheet-types";
 
@@ -13,33 +15,53 @@ const wallCellSelects: SelectOptionsByKey = {
   thickness: heatLoadLookupOptions.wallThicknesses,
 };
 
+const transmissionGlassCellSelects: SelectOptionsByKey = {
+  direction: ["All", ...heatLoadLookupOptions.directions],
+  type: heatLoadLookupOptions.transmissionGlassTypes,
+  detail: heatLoadLookupOptions.glassFrameTypes,
+  thickness: heatLoadLookupOptions.glassThicknesses,
+};
+
 const solarGlassCellSelects: SelectOptionsByKey = {
   direction: heatLoadLookupOptions.directions,
   type: heatLoadLookupOptions.glassSolarTypes,
   shading: heatLoadLookupOptions.glassShadingTypes,
   thickness: heatLoadLookupOptions.glassThicknesses,
+  zone: heatLoadLookupOptions.ashraeZoneTypes,
 };
 
 const roofCellSelects: SelectOptionsByKey = {
   type: heatLoadLookupOptions.roofTypes,
+  detail: [
+    "With ceiling / ASHRAE roof no. 13",
+    "Without ceiling / ASHRAE roof no. 13",
+  ],
   thickness: ["6", "80", "150"],
 };
 
-function getDefaultUFactor(type: string) {
-  return resolveCurrentUFactor(type).value.toFixed(2);
+function getDefaultUFactor(type: string, detail?: string, thicknessMm = 0) {
+  return resolveCurrentUFactor(type, detail, thicknessMm).value.toFixed(2);
 }
 
 function getDefaultTd(type: string, direction?: string) {
   return resolveCurrentTd(type, direction).value.toFixed(2);
 }
 
-function getDefaultGlassFactors(type: string, shading: string) {
-  const factors = resolveCurrentGlassFactors(type, shading);
+function getDefaultGlassFactors(type: string, shading: string, thicknessMm: number) {
+  const factors = resolveCurrentGlassFactors(type, shading, thicknessMm);
   return {
     sc: factors.sc.value.toFixed(2),
     shg: factors.shg.value.toFixed(2),
     clf: factors.clf.value.toFixed(2),
   };
+}
+
+function getDefaultTransmissionGlassUFactor(glazingType: string, frameType: string, thicknessMm: number) {
+  return resolveCurrentTransmissionGlassUFactor({
+    glazingType,
+    frameType,
+    thicknessMm,
+  }).value.toFixed(2);
 }
 
 export const summaryRows: SummaryRow[] = [
@@ -56,17 +78,18 @@ export function buildInitialSections(): Section[] {
       number: "1",
       title: "Solar & Trans. Heat gain through the Glass-Wall & Roof",
       columns: [
-        { key: "item", label: "Item", width: "8%" },
-        { key: "direction", label: "Direction", wrap: true, width: "10%" },
-        { key: "type", label: "Type", wrap: true, width: "24%" },
-        { key: "thickness", label: "Thickness", unit: "thickness", align: "center", width: "16%", editable: true },
+        { key: "item", label: "Item", width: "7%" },
+        { key: "direction", label: "Direction", wrap: true, width: "9%" },
+        { key: "type", label: "Type", wrap: true, width: "20%" },
+        { key: "detail", label: "Detail", wrap: true, width: "13%" },
+        { key: "thickness", label: "Thickness", unit: "thickness", align: "center", width: "11%", editable: true },
         { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "9%", editable: true },
         { key: "cltd", label: "CLTD/TD", unit: "temperatureDelta", align: "right", width: "10%", editable: true },
         { key: "calcValue", label: "Area / Qty", unit: "area", align: "right", width: "10%", editable: true },
         { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "9%", editable: true },
       ],
       rows: [
-        wallRow("1.1", "North", "Brick Wall", "215"),
+        wallRow("1.1", "North", "Cement block Wall", "100"),
         wallRow("1.2", "East", "Cement block Wall", "100"),
         wallRow("1.3", "South", "Cement block Wall", "100"),
         wallRow("1.4", "West", "Cement block Wall", "100"),
@@ -74,19 +97,17 @@ export function buildInitialSections(): Section[] {
           id: "1.5",
           values: {
             item: "Glass",
-            direction: "Single glass",
-            type: "Glass only (Centre of Glass)",
+            direction: "East",
+            type: "Single glass",
+            detail: "Glass only (Centre of Glass)",
             thickness: "6",
-            uFactor: getDefaultUFactor("Glass only (Centre of Glass)"),
-            cltd: getDefaultTd("Glass only (Centre of Glass)"),
+            reference: getSection1Reference("Glass", "Single glass", "All"),
+            uFactor: getDefaultTransmissionGlassUFactor("Single glass", "Glass only (Centre of Glass)", 6),
+            cltd: getDefaultTd("Single glass"),
             calcValue: "",
             heatLoad: "",
           },
-          selectOptions: {
-            direction: heatLoadLookupOptions.transmissionGlassTypes,
-            type: heatLoadLookupOptions.glassFrameTypes,
-            thickness: heatLoadLookupOptions.glassThicknesses,
-          },
+          selectOptions: transmissionGlassCellSelects,
         },
         {
           id: "1.6",
@@ -94,8 +115,10 @@ export function buildInitialSections(): Section[] {
             item: "Roof",
             direction: "HOR",
             type: "Concrete Slab Roof",
+            detail: "With ceiling / ASHRAE roof no. 13",
             thickness: "150",
-            uFactor: getDefaultUFactor("Concrete Slab Roof"),
+            reference: getSection1Reference("Roof", "Concrete Slab Roof", "HOR"),
+            uFactor: getDefaultUFactor("Concrete Slab Roof", "With ceiling / ASHRAE roof no. 13", 150),
             cltd: getDefaultTd("Concrete Slab Roof", "HOR"),
             calcValue: "",
             heatLoad: "",
@@ -119,8 +142,10 @@ function wallRow(id: string, direction: string, type: string, thickness: string)
       item: "Wall",
       direction,
       type,
+      detail: "",
       thickness,
-      uFactor: getDefaultUFactor(type),
+      reference: getSection1Reference("Wall", type, direction),
+      uFactor: getDefaultUFactor(type, "", Number(thickness)),
       cltd: getDefaultTd(type, direction),
       calcValue: "",
       heatLoad: "",
@@ -135,10 +160,12 @@ function buildSection2(): Section {
     values: {
       item,
       direction,
-      type: "Single Glass Clear",
-      shading: "No shading",
+      type: "Single clear glass",
+      shading: "No inside shade",
       thickness: "6",
-      ...getDefaultGlassFactors("Single Glass Clear", "No shading"),
+      zone: "C",
+      reference: getSection2Reference(direction),
+      ...getDefaultGlassFactors("Single clear glass", "No inside shade", 6),
       areaQty: "",
       result: "",
     },
@@ -154,6 +181,7 @@ function buildSection2(): Section {
       { key: "type", label: "Type", wrap: true, width: "20%" },
       { key: "shading", label: "Interior Shading type", wrap: true, width: "10%" },
       { key: "thickness", label: "Thick.", unit: "thickness", align: "center", width: "7%" },
+      { key: "zone", label: "Room mass", align: "center", width: "9%" },
       { key: "sc", label: "SC/SHGC", align: "right", width: "8%", editable: true },
       { key: "shg", label: "SHG", unit: "heatFlux", align: "right", width: "8%", editable: true },
       { key: "clf", label: "CLF/RTS", align: "right", width: "8%", editable: true },

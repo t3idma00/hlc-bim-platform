@@ -1,0 +1,14 @@
+{
+  "designConditions": "ASHRAE 2017 Ch14 Tables 1/1A, PDF pp.302-303",
+  "hourlyTemperature": "ASHRAE station design data with 1997 Ch28 hourly correction basis",
+  "orientation": "ASHRAE 1997 Ch29 solar orientation tables, PDF pp.29.29-29.35",
+  "groundReflectance": "ASHRAE 1997 Ch28/Ch29 solar calculation basis",
+  "fenestrationU": "ASHRAE 1997 Ch29 Table 11 and app assembly U-factor records",
+  "glazingShgc": "ASHRAE 1997 Ch29 Table 11, PDF pp.29.25-29.26",
+  "interiorAttenuation": "ASHRAE 1997 Ch29 Tables 25, 26, and 29, PDF pp.29.38, 29.40",
+  "opaqueCts": "ASHRAE 1997 Ch28 Tables 30-34, PDF pp.28.42-28.49",
+  "solarRts": "ASHRAE 1997 Ch28 Tables 35-39, PDF pp.28.49-28.53",
+  "slabBasement": "ASHRAE 1997 Ch28 interior-surface heat gain method, PDF pp.28.28-28.29",
+  "infiltration": "ASHRAE 1997 Ch25 Table 3 and Eq.46; Ch28 Eqs.22-23",
+  "nasaSolar": "NASA/Open-Meteo solar irradiance mapped to DNI/DHI/GHI and solar position"
+}
