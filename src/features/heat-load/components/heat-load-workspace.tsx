@@ -600,9 +600,6 @@ export default function HeatLoadWorkspace() {
               </>
             )}
 
-            <button className="rounded-lg bg-[#be123c] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#9f1239]">
-              Run Analysis
-            </button>
           </div>
         </header>
 
