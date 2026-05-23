@@ -1251,13 +1251,6 @@ export function HeatLoadFormPanel({
           </div>
         </div>
 
-        <div className="border-t border-rose-100 px-1 py-2">
-          <div className="flex justify-end">
-            <button className="border border-rose-200 bg-[#9f1239] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#881337]">
-              Calculate Heat Load
-            </button>
-          </div>
-        </div>
       </div>
     </aside>
   );

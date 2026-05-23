@@ -170,7 +170,11 @@ export default function HeatLoadWorkspace() {
       ...prev,
       rooms: prev.rooms.map((room) =>
         room.id === activeRoomId
-          ? { ...room, formValues: { ...room.formValues, [name]: value } }
+          ? {
+              ...room,
+              formValues: { ...room.formValues, [name]: value },
+              sheetValues: applyFormValueToSheetValues(room.sheetValues ?? {}, name, value),
+            }
           : room
       ),
     }));
@@ -600,9 +604,6 @@ export default function HeatLoadWorkspace() {
               </>
             )}
 
-            <button className="rounded-lg bg-[#be123c] px-5 py-2 text-sm font-semibold text-white transition hover:bg-[#9f1239]">
-              Run Analysis
-            </button>
           </div>
         </header>
 
@@ -1178,6 +1179,30 @@ function applySheetValueToFormValues(formValues: FormValues, sheetKey: string, s
   if (!formField) return formValues;
 
   return { ...formValues, [formField]: sheetValue };
+}
+
+function applyFormValueToSheetValues(sheetValues: Record<string, string>, formField: string, formValue: string) {
+  const sheetFieldMap: Record<string, string> = {
+    wallNorthType: "1.1_type",
+    wallEastType: "1.2_type",
+    wallSouthType: "1.3_type",
+    wallWestType: "1.4_type",
+    wallNorthDirection: "1.1_direction",
+    wallEastDirection: "1.2_direction",
+    wallSouthDirection: "1.3_direction",
+    wallWestDirection: "1.4_direction",
+    wallNorthWidth: "1.1_thickness",
+    wallEastWidth: "1.2_thickness",
+    wallSouthWidth: "1.3_thickness",
+    wallWestWidth: "1.4_thickness",
+    roofType: "1.6_type",
+    roofThickness: "1.6_thickness",
+  };
+
+  const sheetField = sheetFieldMap[formField];
+  if (!sheetField) return sheetValues;
+
+  return { ...sheetValues, [sheetField]: formValue };
 }
 
 function ExportCheckbox({
