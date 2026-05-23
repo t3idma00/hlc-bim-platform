@@ -40,7 +40,7 @@ const conditionRows: ConditionRow[] = [
     dryBulbName: "dryBulbTemp",
     percentageName: "dryBulbPercentile",
     yearName: "designYear",
-    percentageOptions: ["0.4", "1", "2", "5", "10"],
+    percentageOptions: ["0.4", "1", "2", "5"],
     yearOptions: Array.from({ length: 8 }, (_, index) => String(new Date().getUTCFullYear() - 1 - index)),
   },
   {

@@ -41,9 +41,12 @@ type ResolvedSolarLocation = {
 };
 
 type TemperatureHistoryResponse = {
+  source?: string;
+  fallbackReason?: string;
   hourlyDryBulb?: Array<{
     time: string;
     dryBulbTemp: number | null;
+    relativeHumidity?: number | null;
   }>;
 };
 
@@ -128,7 +131,22 @@ type OutdoorDesignCache = {
 
 const topSectionRows = [0, 1, 2, 3];
 const CLTD_REFERENCE_MONTH = 7;
+const CURRENT_SUPPORTED_PERCENTILES = ["0.4", "1", "2", "5"] as const;
 const ASHRAE_SUPPORTED_PERCENTILES = ["0.4", "1", "2"] as const;
+const MONTH_LABELS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 
 export const initialFormValues: FormValues = {
   selectedCountry: "",
@@ -229,11 +247,19 @@ function computePercentile(values: number[], percentile: number): number {
 }
 
 function findNearestDesignHour(
-  entries: Array<{ time: string; dryBulbTemp: number | null }>,
+  entries: Array<{
+    time: string;
+    dryBulbTemp: number | null;
+    relativeHumidity?: number | null;
+  }>,
   targetDryBulb: number,
 ) {
   const candidates = entries.filter(
-    (entry): entry is { time: string; dryBulbTemp: number } => typeof entry.dryBulbTemp === "number",
+    (entry): entry is {
+      time: string;
+      dryBulbTemp: number;
+      relativeHumidity?: number | null;
+    } => typeof entry.dryBulbTemp === "number",
   );
 
   if (!candidates.length) {
@@ -378,7 +404,11 @@ function getHourFromDateTime(value: string | undefined) {
 }
 
 function getDailyDryBulbRange(
-  entries: Array<{ time: string; dryBulbTemp: number | null }>,
+  entries: Array<{
+    time: string;
+    dryBulbTemp: number | null;
+    relativeHumidity?: number | null;
+  }>,
   designTime: string | undefined,
 ) {
   const day = designTime?.slice(0, 10);
@@ -398,18 +428,20 @@ function getDailyDryBulbRange(
   return Math.max(...values) - Math.min(...values);
 }
 
-function getHourlyDryBulbForMonth(
-  entries: Array<{ time: string; dryBulbTemp: number | null }>,
-  month: number,
-) {
-  const monthText = String(month).padStart(2, "0");
-  return entries.filter((entry) => entry.time.slice(5, 7) === monthText);
+function getMonthFromDateTime(dateTime: string | undefined) {
+  const month = Number.parseInt(dateTime?.slice(5, 7) ?? "", 10);
+  return Number.isInteger(month) && month >= 1 && month <= 12 ? month : CLTD_REFERENCE_MONTH;
 }
 
 function buildSyntheticAshraeDatetime(year: number, hottestMonth: number | null | undefined) {
   const month = Math.min(12, Math.max(1, Number.isFinite(hottestMonth ?? NaN) ? Number(hottestMonth) : 7));
   const paddedMonth = String(month).padStart(2, "0");
   return `${year}-${paddedMonth}-21T15:00`;
+}
+
+function monthLabel(month: number | null | undefined) {
+  const index = Math.min(12, Math.max(1, Number.isFinite(month ?? NaN) ? Number(month) : 7)) - 1;
+  return MONTH_LABELS[index] ?? "July";
 }
 
 async function resolveSelectedLocation(input: {
@@ -513,8 +545,8 @@ export function HeatLoadFormPanel({
   const designConditionSourceSummary =
     designConditionSource === "current"
       ? currentOutdoorDesignCache?.year
-        ? `Current July historical source. Cached July percentile ${currentOutdoorDesignCache.percentile}% for year ${currentOutdoorDesignCache.year} sets the ASHRAE 1997 July CLTD and SHGF month basis.`
-        : "Current July Open-Meteo source sets the ASHRAE 1997 July CLTD and SHGF month basis."
+        ? `${currentOutdoorDesignCache.label || "NASA/Open-Meteo Weather"} historical source. Annual ${currentOutdoorDesignCache.percentile}% dry-bulb selection from ${currentOutdoorDesignCache.year}; selected month ${monthLabel(currentOutdoorDesignCache.hottestMonth)} drives CLTD and SHGF.`
+        : "NASA/Open-Meteo weather source uses the annual hourly dry-bulb percentile; the selected hour's month drives CLTD and SHGF."
       : ashraeOutdoorDesignCache?.stationName
         ? `ASHRAE station source. ${ashraeOutdoorDesignCache.stationName}${ashraeOutdoorDesignCache.stationWmo ? ` (${ashraeOutdoorDesignCache.stationWmo})` : ""}${ashraeOutdoorDesignCache.stationLocation ? ` | ${ashraeOutdoorDesignCache.stationLocation}` : ""}${ashraeOutdoorDesignCache.stationSourceEdition ? ` | ASHRAE ${ashraeOutdoorDesignCache.stationSourceEdition}` : ""}${typeof ashraeOutdoorDesignCache.hottestMonth === "number" ? ` | design month ${ashraeOutdoorDesignCache.hottestMonth} linked to CLTD and SHGF` : ""}${typeof ashraeOutdoorDesignCache.latitude === "number" ? ` | station latitude ${ashraeOutdoorDesignCache.latitude.toFixed(2)} deg` : ""}${typeof ashraeOutdoorDesignCache.stationDistanceKm === "number" ? ` | ${ashraeOutdoorDesignCache.stationDistanceKm.toFixed(1)} km from selected city` : ""}.`
         : "ASHRAE annual station design conditions link the station hottest month and latitude to CLTD correction and Section 2 SHGF.";
@@ -691,6 +723,14 @@ export function HeatLoadFormPanel({
 
   useEffect(() => {
     if (
+      designConditionSource === "current" &&
+      !CURRENT_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof CURRENT_SUPPORTED_PERCENTILES)[number])
+    ) {
+      onFieldChange("dryBulbPercentile", "1");
+      return;
+    }
+
+    if (
       designConditionSource === "ashrae-2017" &&
       !ASHRAE_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof ASHRAE_SUPPORTED_PERCENTILES)[number])
     ) {
@@ -732,46 +772,57 @@ export function HeatLoadFormPanel({
 
         const historyPayload = await fetchTemperatureHistoryForLocation(resolvedLocation, year);
         const hourlyDryBulb = historyPayload.hourlyDryBulb ?? [];
-        const cltdMonthHourlyDryBulb = getHourlyDryBulbForMonth(hourlyDryBulb, CLTD_REFERENCE_MONTH);
-        const dryBulbSeries = cltdMonthHourlyDryBulb
+        const dryBulbSeries = hourlyDryBulb
           .map((entry) => entry.dryBulbTemp)
           .filter((value): value is number => typeof value === "number");
 
         if (!dryBulbSeries.length) {
-          throw new Error("No July dry-bulb values were returned for the selected city.");
+          throw new Error("No annual hourly dry-bulb values were returned for the selected city.");
         }
 
         const selectedPercent = Number(formValues.dryBulbPercentile || "1");
         const dryBulb = computePercentile(dryBulbSeries, 100 - selectedPercent);
-        const designHour = findNearestDesignHour(cltdMonthHourlyDryBulb, dryBulb);
+        const designHour = findNearestDesignHour(hourlyDryBulb, dryBulb);
+        const designMonth = getMonthFromDateTime(designHour?.time);
 
-        let relativeHumidityText = "";
+        let relativeHumidityText = formatOptionalConditionValue(designHour?.relativeHumidity);
         let wetBulbText = "";
         let solarSnapshot = emptySolarSnapshot();
 
-        if (designHour) {
-          const solarDetailsPayload = await fetchSolarDetailsForLocation(
-            resolvedLocation,
-            designHour.time,
+        if (designHour?.relativeHumidity !== null && designHour?.relativeHumidity !== undefined) {
+          wetBulbText = formatOptionalConditionValue(
+            calculateWetBulbFromRelativeHumidity(dryBulb, designHour.relativeHumidity),
           );
-          solarSnapshot = buildSolarSnapshot(solarDetailsPayload);
+        }
 
-          const relativeHumidity = solarDetailsPayload.ambient?.relativeHumidity;
-          const wetBulb = solarDetailsPayload.ambient?.wetBulbTemp;
+        if (designHour) {
+          try {
+            const solarDetailsPayload = await fetchSolarDetailsForLocation(
+              resolvedLocation,
+              designHour.time,
+            );
+            solarSnapshot = buildSolarSnapshot(solarDetailsPayload);
 
-          relativeHumidityText = formatOptionalConditionValue(relativeHumidity);
-          wetBulbText =
-            formatOptionalConditionValue(wetBulb) ||
-            formatOptionalConditionValue(
+            const relativeHumidity = solarDetailsPayload.ambient?.relativeHumidity;
+            const wetBulb =
               typeof relativeHumidity === "number"
                 ? calculateWetBulbFromRelativeHumidity(dryBulb, relativeHumidity)
-                : null,
-            );
+                : solarDetailsPayload.ambient?.wetBulbTemp;
+
+            if (typeof relativeHumidity === "number") {
+              relativeHumidityText = formatOptionalConditionValue(relativeHumidity);
+            }
+            if (typeof wetBulb === "number") {
+              wetBulbText = formatOptionalConditionValue(wetBulb);
+            }
+          } catch {
+            solarSnapshot = emptySolarSnapshot();
+          }
         }
 
         const cache: OutdoorDesignCache = {
           source: "current",
-          label: "Current July",
+          label: `NASA/Open-Meteo ${monthLabel(designMonth)}`,
           dryBulbTemp: formatConditionValue(dryBulb),
           wetBulbTemp: wetBulbText,
           relativeHumidity: relativeHumidityText,
@@ -784,9 +835,10 @@ export function HeatLoadFormPanel({
           longitude: resolvedLocation.longitude,
           percentile: formValues.dryBulbPercentile,
           year: String(year),
+          stationSourceEdition: historyPayload.source,
           standardPressureKPa: 101.325,
           meanCoincidentWindSpeed: null,
-          hottestMonth: CLTD_REFERENCE_MONTH,
+          hottestMonth: designMonth,
           hottestMonthDryBulbRange: getDailyDryBulbRange(hourlyDryBulb, designHour?.time),
           designHour: getHourFromDateTime(designHour?.time),
         };
@@ -1148,7 +1200,7 @@ export function HeatLoadFormPanel({
                     onChange={() => handleDesignConditionSourceChange("current")}
                     className="h-3.5 w-3.5 border-rose-300 text-[#9f1239]"
                   />
-                  Current
+                  NASA/Open-Meteo Weather
                 </label>
                 <label className="inline-flex items-center gap-2">
                   <input
