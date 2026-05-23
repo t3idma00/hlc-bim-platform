@@ -1,7 +1,14 @@
 import { useEffect } from "react";
 
 import { getNum } from "./ashrae-calculations";
+import { getWallCoreThicknessMm, getWallTypeFamily } from "./ashrae-wall-assemblies";
+import { heatLoadLookupOptions } from "./heat-load-options";
 import type { FormValues, SheetValues } from "./heat-load-sheet-types";
+import { cardinalWalls, isExteriorSurface, isExteriorWall } from "./wall-boundary";
+
+const DEFAULT_WINDOW_HEIGHT_M = 1.2;
+const DEFAULT_DOOR_HEIGHT_M = 2.1;
+const DEFAULT_INTERIOR_PARTITION_TYPE = "W12 Simple 200 mm concrete wall with cement plaster";
 
 export function useHeatLoadAutoFill({
   formValues,
@@ -30,39 +37,85 @@ function useRoomAreaAutoFill({
       if (sheetValues[key] !== value) updates[key] = value;
     };
 
-    const directions = ["North", "East", "South", "West"] as const;
     const wallRow = { North: "1.1", East: "1.2", South: "1.3", West: "1.4" } as const;
     const glassRow = { North: "2.1", East: "2.2", South: "2.3", West: "2.4" } as const;
+    const partitionRow = { North: "3.2N", East: "3.2E", South: "3.2S", West: "3.2W" } as const;
 
     let totalWindowArea = 0;
+    let totalInteriorWindowArea = 0;
     let totalWindowPerimeter = 0;
     let totalDoorCount = 0;
 
-    directions.forEach((direction) => {
+    cardinalWalls.forEach((direction) => {
+      const wallIsExterior = isExteriorWall(formValues, direction);
+      const windowIsExterior = isExteriorSurface(formValues, "window", direction);
+      const doorIsExterior = isExteriorSurface(formValues, "door", direction);
       const wallLength = getNum(formValues[`wall${direction}Length`]);
       const wallHeight = getNum(formValues[`wall${direction}Height`]);
       const wallGrossArea = wallLength * wallHeight;
+      const wallDirection = formValues[`wall${direction}Direction`] || direction;
+      const wallType = formValues[`wall${direction}Type`] || "";
+      const partitionType = getInteriorPartitionType(wallType);
+      const partitionThickness = String(getWallCoreThicknessMm(partitionType) ?? 200);
 
       const windowWidth = getNum(formValues[`window${direction}Width`]);
-      const windowHeight = getNum(formValues[`window${direction}Height`]);
+      const windowInputHeight = getNum(formValues[`window${direction}Height`]);
+      const windowHeight = windowWidth > 0 ? windowInputHeight || DEFAULT_WINDOW_HEIGHT_M : 0;
       const windowArea = windowWidth * windowHeight;
 
       const doorWidth = getNum(formValues[`door${direction}Width`]);
-      const doorHeight = getNum(formValues[`door${direction}Height`]);
+      const doorInputHeight = getNum(formValues[`door${direction}Height`]);
+      const doorHeight = doorWidth > 0 ? doorInputHeight || DEFAULT_DOOR_HEIGHT_M : 0;
       const doorArea = doorWidth * doorHeight;
+      const exteriorWindowArea = windowIsExterior ? windowArea : 0;
+      const interiorWindowArea = windowIsExterior ? 0 : windowArea;
+      const exteriorDoorArea = doorIsExterior ? doorArea : 0;
+      const interiorDoorArea = doorIsExterior ? 0 : doorArea;
+      const exteriorWallArea = Math.max(0, wallGrossArea - exteriorWindowArea - exteriorDoorArea);
+      const interiorPartitionArea = Math.max(0, wallGrossArea - interiorWindowArea - interiorDoorArea);
 
-      totalWindowArea += windowArea;
-      totalWindowPerimeter += windowArea > 0 ? 2 * (windowWidth + windowHeight) : 0;
-      if (doorArea > 0) totalDoorCount += 1;
+      if (windowIsExterior) {
+        totalWindowArea += windowArea;
+        totalWindowPerimeter += windowArea > 0 ? 2 * (windowWidth + windowHeight) : 0;
+      } else {
+        totalInteriorWindowArea += windowArea;
+      }
+      if (doorIsExterior && doorArea > 0) totalDoorCount += 1;
 
-      setIfChanged(`${wallRow[direction]}_direction`, formValues[`wall${direction}Direction`] || direction);
-      setIfChanged(`${glassRow[direction]}_direction`, formValues[`window${direction}Direction`] || direction);
+      setIfChanged(`${wallRow[direction]}_direction`, wallDirection);
+      setIfChanged(`${glassRow[direction]}_direction`, formValues[`window${direction}Direction`] || wallDirection);
+      setIfChanged(`${partitionRow[direction]}_direction`, wallDirection);
+      setIfChanged(`${partitionRow[direction]}_typeA`, partitionType);
+      setIfChanged(`${partitionRow[direction]}_typeB`, "Not applicable");
+      setIfChanged(`${partitionRow[direction]}_thickness`, partitionThickness);
 
       if (wallGrossArea > 0) {
-        setIfChanged(`${wallRow[direction]}_calcValue`, Math.max(0, wallGrossArea - windowArea - doorArea).toFixed(2));
+        setIfChanged(`${wallRow[direction]}_calcValue`, wallIsExterior ? exteriorWallArea.toFixed(2) : "");
+        setIfChanged(
+          `${wallRow[direction]}_calcValue_source`,
+          wallIsExterior
+            ? `Exterior ${wallDirection} wall area: gross wall area minus exterior window and door openings`
+            : `${wallDirection} wall marked Interior; external wall load moved to Section 3`,
+        );
+        setIfChanged(`${partitionRow[direction]}_calcValue`, wallIsExterior ? "" : interiorPartitionArea.toFixed(2));
+        setIfChanged(
+          `${partitionRow[direction]}_calcValue_source`,
+          wallIsExterior
+            ? `${wallDirection} wall marked Exterior; not used as an interior partition`
+            : `Interior ${wallDirection} partition area: gross wall area minus interior opening areas`,
+        );
+      } else {
+        setIfChanged(`${wallRow[direction]}_calcValue`, "");
+        setIfChanged(`${partitionRow[direction]}_calcValue`, "");
       }
-      if (windowArea > 0) {
-        setIfChanged(`${glassRow[direction]}_areaQty`, windowArea.toFixed(2));
+      if (windowArea > 0 || sheetValues[`${glassRow[direction]}_areaQty`]) {
+        setIfChanged(`${glassRow[direction]}_areaQty`, windowIsExterior ? windowArea.toFixed(2) : "");
+        setIfChanged(
+          `${glassRow[direction]}_areaQty_source`,
+          windowIsExterior
+            ? "Exterior window width x height from Room Details"
+            : `${wallDirection} window marked Interior; solar glass load is not applied`,
+        );
       }
     });
 
@@ -83,20 +136,36 @@ function useRoomAreaAutoFill({
       setIfChanged("1.5_calcValue", selectedGlassArea.toFixed(2));
       setIfChanged("1.5_calcValue_source", "All window area from Room Details plus Section 2 skylight area");
     }
+    if (totalInteriorWindowArea > 0 || sheetValues["3.1_calcValue"] || sheetValues["3.1_calcValue_source"]) {
+      setIfChanged("3.1_calcValue", totalInteriorWindowArea > 0 ? totalInteriorWindowArea.toFixed(2) : "");
+      setIfChanged("3.1_calcValue_source", "Interior window/glass area from walls marked Interior");
+    }
     if (floorArea > 0) {
       setIfChanged("1.6_calcValue", floorArea.toFixed(2));
       setIfChanged("3.3_calcValue", floorArea.toFixed(2));
       setIfChanged("6.1_areaQty", floorArea.toFixed(2));
       setIfChanged("6.1_areaQty_source", "Room floor area from Room Details wall lengths");
     }
-    if (totalWindowPerimeter > 0) {
-      setIfChanged("4.1_qty", "1");
-      setIfChanged("4.1_crackLength", totalWindowPerimeter.toFixed(2));
+    if (totalWindowPerimeter > 0 || sheetValues["4.1_crackLength"]) {
+      setIfChanged("4.1_qty", totalWindowPerimeter > 0 ? "1" : "");
+      setIfChanged("4.1_crackLength", totalWindowPerimeter > 0 ? totalWindowPerimeter.toFixed(2) : "");
     }
-    if (totalDoorCount > 0) {
-      setIfChanged("4.1_qtySecondary", String(totalDoorCount));
+    if (totalDoorCount > 0 || sheetValues["4.1_qtySecondary"]) {
+      setIfChanged("4.1_qtySecondary", totalDoorCount > 0 ? String(totalDoorCount) : "");
     }
 
     Object.entries(updates).forEach(([key, value]) => onSheetChange(key, value));
   }, [formValues, sheetValues, onSheetChange]);
+}
+
+function getInteriorPartitionType(wallType: string) {
+  const family = getWallTypeFamily(wallType).toLowerCase();
+  const options = heatLoadLookupOptions.interiorPartitionWallTypes;
+  const matchText = family.includes("brick")
+    ? "brick wall"
+    : family.includes("cement") || family.includes("block")
+      ? "cement block wall"
+      : "concrete wall";
+
+  return options.find((option) => option.toLowerCase().includes(matchText)) ?? DEFAULT_INTERIOR_PARTITION_TYPE;
 }

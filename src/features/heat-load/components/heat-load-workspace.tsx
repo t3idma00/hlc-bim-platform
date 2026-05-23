@@ -1121,6 +1121,10 @@ function createRoomFormValuesForSharedWall(targetFormValues: FormValues | undefi
     "wallEastWidth",
     "wallSouthWidth",
     "wallWestWidth",
+    "wallNorthBoundary",
+    "wallEastBoundary",
+    "wallSouthBoundary",
+    "wallWestBoundary",
     "roofType",
     "roofThickness",
   ].forEach((key) => {
@@ -1131,6 +1135,7 @@ function createRoomFormValuesForSharedWall(targetFormValues: FormValues | undefi
 
   nextFormValues[getWallTypeFieldName(ownWall)] = targetFormValues[getWallTypeFieldName(targetWall)] || nextFormValues[getWallTypeFieldName(ownWall)];
   nextFormValues[getWallWidthFieldName(ownWall)] = targetFormValues[getWallWidthFieldName(targetWall)] || nextFormValues[getWallWidthFieldName(ownWall)];
+  nextFormValues[`wall${ownWall}Boundary`] = "Interior";
 
   return nextFormValues;
 }
@@ -1157,6 +1162,10 @@ function applySheetValueToFormValues(formValues: FormValues, sheetKey: string, s
     "1.2_thickness": "wallEastWidth",
     "1.3_thickness": "wallSouthWidth",
     "1.4_thickness": "wallWestWidth",
+    "3.2N_typeA": "wallNorthType",
+    "3.2E_typeA": "wallEastType",
+    "3.2S_typeA": "wallSouthType",
+    "3.2W_typeA": "wallWestType",
     "2.1_direction": "windowNorthDirection",
     "2.2_direction": "windowEastDirection",
     "2.3_direction": "windowSouthDirection",

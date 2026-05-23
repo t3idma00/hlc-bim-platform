@@ -86,24 +86,46 @@ export function getVentilationRate(application: string) {
 }
 
 export function buildSection3(): Section {
+  const partitionRow = (id: string, direction: string) => ({
+    id,
+    values: {
+      item: "Wall Partition",
+      direction,
+      typeA: "W12 Simple 200 mm concrete wall with cement plaster",
+      typeB: "Not applicable",
+      thickness: "200",
+      uFactorMode: SECTION3_ASSEMBLY_U_FACTOR,
+      adjacentSpaceType: SECTION3_UNKNOWN_ADJACENT_SPACE,
+      adjacentTemperature: "",
+      indoorTemperature: "",
+      reference: getSection3Reference("Wall Partition"),
+      uFactor: uFactor("W12 Simple 200 mm concrete wall with cement plaster", 200),
+      cltd: "",
+      calcValue: "",
+      heatLoad: "",
+    },
+    selectOptions: wallPartitionCellSelects,
+  });
+
   return {
     number: "3",
     title: "Transmission heat gain Except outside wall and roof",
     columns: [
       { key: "item", label: "Item", wrap: true, width: "13%" },
-      { key: "typeA", label: "Type", wrap: true, width: "17%", editable: true },
-      { key: "typeB", label: "Construction", wrap: true, width: "19%", editable: true },
-      { key: "thickness", label: "Nominal thick.", unit: "thickness", align: "center", width: "8%" },
-      { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "10%" },
+      { key: "direction", label: "Direction", wrap: true, width: "9%" },
+      { key: "typeA", label: "Type", wrap: true, width: "18%", editable: true },
+      { key: "typeB", label: "Construction", wrap: true, width: "20%", editable: true },
+      { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "9%" },
       { key: "cltd", label: "TD", unit: "temperatureDelta", align: "right", width: "8%" },
       { key: "calcValue", label: "Area", unit: "area", align: "right", width: "10%", editable: true },
-      { key: "heatLoad", label: "Heat gain", unit: "heat", align: "right", width: "10%" },
+      { key: "heatLoad", label: "Heat gain", unit: "heat", align: "right", width: "11%" },
     ],
     rows: [
       {
         id: "3.1",
         values: {
           item: "All Glasses",
+          direction: "Interior",
           typeA: ASHRAE_TABLE5_DEFAULT_GLAZING_LABEL,
           typeB: ASHRAE_TABLE5_DEFAULT_FRAME_LABEL,
           thickness: "6",
@@ -119,29 +141,15 @@ export function buildSection3(): Section {
         },
         selectOptions: allGlassesCellSelects,
       },
-      {
-        id: "3.2",
-        values: {
-          item: "Wall Partition",
-          typeA: "W12 Simple 200 mm concrete wall with cement plaster",
-          typeB: "Not applicable",
-          thickness: "200",
-          uFactorMode: SECTION3_ASSEMBLY_U_FACTOR,
-          adjacentSpaceType: SECTION3_UNKNOWN_ADJACENT_SPACE,
-          adjacentTemperature: "",
-          indoorTemperature: "",
-          reference: getSection3Reference("Wall Partition"),
-          uFactor: uFactor("W12 Simple 200 mm concrete wall with cement plaster", 200),
-          cltd: "",
-          calcValue: "",
-          heatLoad: "",
-        },
-        selectOptions: wallPartitionCellSelects,
-      },
+      partitionRow("3.2N", "North"),
+      partitionRow("3.2E", "East"),
+      partitionRow("3.2S", "South"),
+      partitionRow("3.2W", "West"),
       {
         id: "3.3",
         values: {
           item: "Floor",
+          direction: "HOR",
           typeA: SECTION3_INTERMEDIATE_FLOOR,
           typeB: "100 mm concrete wall + finish + plaster",
           thickness: "100",

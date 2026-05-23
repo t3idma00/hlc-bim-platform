@@ -19,7 +19,9 @@ import { rowLooksLikeWall } from "./heat-load-wall-thickness";
 import { RowReferenceToggle } from "./heat-load-reference-toggle";
 import { getAshraeZoneLabel } from "./heat-load-zone-labels";
 import { WallTypePickerCell } from "./wall-type-picker-cell";
+import { getNum, SECTION3_INTERMEDIATE_FLOOR, section3FloorUsesGroundReview } from "./ashrae-calculations";
 
+const SECTION3_INTERMEDIATE_FLOOR_CONSTRUCTION = "100 mm concrete wall + finish + plaster";
 const numberColumnWidth = "5%";
 const tableClass = "w-full table-fixed border-collapse text-[10px] leading-none text-slate-900";
 const cellClass = "border border-slate-300 px-1 py-1 align-middle";
@@ -33,11 +35,37 @@ function formatSheetCellValue(value: string, column: Column, unitSystem: UnitSys
     return getAshraeZoneLabel(value);
   }
 
+  if (value === "Not applicable") {
+    return "-";
+  }
+
   return column.unit ? formatUnitValue(value, unitSystem, column.unit) : value;
 }
 
 function parseSheetCellInput(value: string, column: Column, unitSystem: UnitSystem): string {
   return column.unit ? toCanonicalUnitValue(value, unitSystem, column.unit) : value;
+}
+
+function getDisplayValue(input: {
+  row: Section["rows"][number];
+  column: Column;
+  cellValue: string;
+  unitSystem: UnitSystem;
+  rowIsInactive: boolean;
+}) {
+  if (input.rowIsInactive && ["calcValue", "heatLoad"].includes(input.column.key)) {
+    return "-";
+  }
+
+  if (
+    input.row.id === "3.3" &&
+    input.column.key === "typeB" &&
+    input.cellValue === SECTION3_INTERMEDIATE_FLOOR_CONSTRUCTION
+  ) {
+    return "100 mm concrete floor slab + finish";
+  }
+
+  return formatSheetCellValue(input.cellValue, input.column, input.unitSystem);
 }
 
 export function SectionTable({
@@ -93,6 +121,7 @@ export function SectionTable({
           const calculationTrace = sheetValues[`${row.id}_calculationTrace`] ?? "";
           const referenceIsOpen = Boolean(openReferences[row.id]);
           const rowWallType = row.values.type ?? row.values.typeA ?? row.values.typeB ?? "";
+          const rowIsInactive = isInactiveSection3InteriorRow(number, row);
           return (
             <Fragment key={row.id}>
               <tr>
@@ -112,7 +141,13 @@ export function SectionTable({
                 {columns.map((column) => {
                   const rawCellValue = row.values[column.key] ?? "";
                   const cellValue = normalizeSheetCellValue(row, column.key, rawCellValue);
-                  const displayValue = formatSheetCellValue(cellValue, column, unitSystem);
+                  const displayValue = getDisplayValue({
+                    row,
+                    column,
+                    cellValue,
+                    unitSystem,
+                    rowIsInactive,
+                  });
                   const sourceTitle = sheetValues[`${row.id}_${column.key}_source`] ?? "";
                   const titleText = sourceTitle ? `${displayValue}\n${sourceTitle}` : displayValue;
                   const rawOptions = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
@@ -121,15 +156,17 @@ export function SectionTable({
                     column.key === "thickness" &&
                     rowLooksLikeWall(row) &&
                     getWallCoreThicknessMm(rowWallType) !== null;
-                  const hasSelect = options.length > 0 && !locksWallThickness;
+                  const hasOptions = options.length > 0;
+                  const hasSelect = options.length > 1 && !locksWallThickness;
                   const showsWallDetailsToggle =
                     hasSelect &&
+                    !isSection3PartitionRow(row) &&
                     isWallTypeColumn(row, column);
                   const showsFenestrationDetailsToggle =
                     hasSelect &&
                     rowUsesTable5Fenestration(row) &&
                     column.key === "detail";
-                  const fillClass = hasSelect || !column.editable ? "bg-[#fff4f7]" : "bg-white";
+                  const fillClass = hasOptions || !column.editable ? "bg-[#fff4f7]" : "bg-white";
 
                   return (
                     <td key={column.key} className={`${cellClass} ${fillClass} p-0`}>
@@ -161,7 +198,7 @@ export function SectionTable({
                           getOptionLabel={(option) => formatSelectOptionLabel(row, column, option, unitSystem)}
                           onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
                         />
-                      ) : column.editable && !locksWallThickness ? (
+                      ) : column.editable && !locksWallThickness && !hasOptions ? (
                         <SheetInputCell
                           ariaLabel={`${row.id} ${column.label || column.key}`}
                           value={displayValue}
@@ -229,6 +266,14 @@ function normalizeSelectOptions(row: Section["rows"][number], key: string, optio
     const allowedOptions = Array.from(options).filter((option) => table5Options.includes(option));
     return allowedOptions.length > 0 ? allowedOptions : table5Options;
   }
+  if (row.id === "3.3" && key === "typeB") {
+    if (section3FloorUsesGroundReview(row.values.typeA)) {
+      return ["Not applicable"];
+    }
+    if (row.values.typeA === SECTION3_INTERMEDIATE_FLOOR) {
+      return [SECTION3_INTERMEDIATE_FLOOR_CONSTRUCTION];
+    }
+  }
   if (rowUsesSolarFenestration(row) && key === "thickness") {
     return getAshrae1997SolarGlassThicknessOptions(row.values.type);
   }
@@ -260,14 +305,30 @@ function formatSelectOptionLabel(
   if (row.id === "3.1" && column.key === "typeB") {
     return option;
   }
-  if (row.id === "3.3" && column.key === "typeB" && option === "100 mm concrete wall + finish + plaster") {
+  if (row.id === "3.3" && column.key === "typeB" && option === SECTION3_INTERMEDIATE_FLOOR_CONSTRUCTION) {
     return "100 mm concrete floor slab + finish";
+  }
+  if (isSection3PartitionRow(row) && column.key === "typeA") {
+    return formatWallOptionWithThickness(option);
   }
   if (isWallTypeColumn(row, column)) {
     return getAshrae1997WallDropdownLabel(option);
   }
 
   return formatSheetCellValue(option, column, unitSystem);
+}
+
+function formatWallOptionWithThickness(option: string) {
+  const label = getAshrae1997WallDropdownLabel(option);
+  const thicknessMm = getWallCoreThicknessMm(option);
+
+  if (!thicknessMm) {
+    return label;
+  }
+
+  return label.includes(" (")
+    ? label.replace(" (", ` ${thicknessMm} mm (`)
+    : `${label} ${thicknessMm} mm`;
 }
 
 function isWallTypeColumn(row: Section["rows"][number], column: Column) {
@@ -280,6 +341,18 @@ function rowUsesTable5Fenestration(row: Section["rows"][number]) {
 
 function rowUsesSolarFenestration(row: Section["rows"][number]) {
   return row.id.startsWith("2.");
+}
+
+function isInactiveSection3InteriorRow(sectionNumber: string, row: Section["rows"][number]) {
+  return (
+    sectionNumber === "3" &&
+    (row.id === "3.1" || isSection3PartitionRow(row)) &&
+    getNum(row.values.calcValue) <= 0
+  );
+}
+
+function isSection3PartitionRow(row: Section["rows"][number]) {
+  return row.values.item === "Wall Partition";
 }
 
 function SheetCell({

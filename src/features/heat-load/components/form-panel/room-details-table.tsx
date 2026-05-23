@@ -1,12 +1,19 @@
 import { DirectionDimensionCell, TopSelectField } from "./top-form-fields";
 import type { UnitSystem } from "@/lib/units";
+import {
+  boundaryFieldName,
+  getSurfaceBoundary,
+  wallBoundaryOptions,
+  type BoundaryOwner,
+  type CardinalWall,
+} from "./wall-boundary";
 
 type SurfaceType = "walls" | "windows" | "doors";
 type FormValues = Record<string, string>;
 
 type RoomRow = {
   name: string;
-  defaultDirection: string;
+  defaultDirection: CardinalWall;
   options: string[];
 };
 
@@ -97,6 +104,7 @@ export function RoomDetailsRow({
   onFieldChange: (name: string, value: string) => void;
 }) {
   const roomRow = roomRowsBySurface[surfaceType][rowIndex];
+  const boundaryOwner = getBoundaryOwner(surfaceType);
 
   return (
     <>
@@ -110,14 +118,55 @@ export function RoomDetailsRow({
         />
       </td>
       <td className="border border-slate-300 bg-white p-0">
-        <DirectionDimensionCell
-          name={roomRow.name}
-          surfaceType={surfaceType}
-          values={values}
-          unitSystem={unitSystem}
-          onFieldChange={onFieldChange}
-        />
+        <div className="grid min-h-[30px] grid-cols-[minmax(0,1fr)_72px]">
+          <DirectionDimensionCell
+            name={roomRow.name}
+            surfaceType={surfaceType}
+            values={values}
+            unitSystem={unitSystem}
+            onFieldChange={onFieldChange}
+          />
+          <select
+            aria-label={`${roomRow.defaultDirection} ${boundaryOwner} boundary`}
+            value={getSurfaceBoundary(values, boundaryOwner, roomRow.defaultDirection)}
+            onChange={(event) =>
+              onFieldChange(boundaryFieldName(boundaryOwner, roomRow.defaultDirection), event.target.value)
+            }
+            className="h-full min-h-[30px] border-l border-slate-200 bg-[#fff4f7] px-1 text-[9px] font-semibold text-slate-900 outline-none"
+            title={`${getBoundaryTitlePrefix(surfaceType)} boundary controls the cooling-load section routing.`}
+          >
+            {wallBoundaryOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </div>
       </td>
     </>
   );
+}
+
+function getBoundaryOwner(surfaceType: SurfaceType): BoundaryOwner {
+  if (surfaceType === "windows") {
+    return "window";
+  }
+
+  if (surfaceType === "doors") {
+    return "door";
+  }
+
+  return "wall";
+}
+
+function getBoundaryTitlePrefix(surfaceType: SurfaceType) {
+  if (surfaceType === "windows") {
+    return "Window";
+  }
+
+  if (surfaceType === "doors") {
+    return "Door";
+  }
+
+  return "Wall";
 }

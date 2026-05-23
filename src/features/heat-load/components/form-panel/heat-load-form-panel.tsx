@@ -158,21 +158,25 @@ export const initialFormValues: FormValues = {
   wallNorthWidth: "200",
   wallNorthHeight: "2.4384",
   wallNorthType: "W04 Reinforced concrete frame with 200 mm cement block infill",
+  wallNorthBoundary: "Exterior",
   wallEastDirection: "East",
   wallEastLength: "3.048",
   wallEastWidth: "200",
   wallEastHeight: "2.4384",
   wallEastType: "W04 Reinforced concrete frame with 200 mm cement block infill",
+  wallEastBoundary: "Exterior",
   wallSouthDirection: "South",
   wallSouthLength: "6.096",
   wallSouthWidth: "200",
   wallSouthHeight: "2.4384",
   wallSouthType: "W04 Reinforced concrete frame with 200 mm cement block infill",
+  wallSouthBoundary: "Exterior",
   wallWestDirection: "West",
   wallWestLength: "3.048",
   wallWestWidth: "200",
   wallWestHeight: "2.4384",
   wallWestType: "W04 Reinforced concrete frame with 200 mm cement block infill",
+  wallWestBoundary: "Exterior",
   windowNorthDirection: "North",
   windowNorthLength: "",
   windowNorthWidth: "",
@@ -680,9 +684,6 @@ export function HeatLoadFormPanel({
   }
 
   function handleUnitSystemChange(nextUnitSystem: UnitSystem) {
-    if (designConditionSource === "ashrae-2017" && nextUnitSystem !== "si") {
-      return;
-    }
     if (nextUnitSystem !== unitSystem) {
       onFieldChange("unitSystem", nextUnitSystem);
     }
@@ -691,9 +692,6 @@ export function HeatLoadFormPanel({
   function handleDesignConditionSourceChange(nextSource: DesignConditionSource) {
     if (nextSource !== designConditionSource) {
       onFieldChange("designConditionSource", nextSource);
-    }
-    if (nextSource === "ashrae-2017" && unitSystem !== "si") {
-      onFieldChange("unitSystem", "si");
     }
   }
 
@@ -737,12 +735,6 @@ export function HeatLoadFormPanel({
       onFieldChange("dryBulbPercentile", "1");
     }
   }, [designConditionSource, formValues.dryBulbPercentile, onFieldChange]);
-
-  useEffect(() => {
-    if (designConditionSource === "ashrae-2017" && unitSystem !== "si") {
-      onFieldChange("unitSystem", "si");
-    }
-  }, [designConditionSource, onFieldChange, unitSystem]);
 
   useEffect(() => {
     applyOutdoorDesignCache(activeOutdoorDesignCache);
@@ -1126,11 +1118,9 @@ export function HeatLoadFormPanel({
               <button
                 type="button"
                 onClick={() => handleUnitSystemChange("imperial")}
-                disabled={designConditionSource === "ashrae-2017"}
-                title={designConditionSource === "ashrae-2017" ? "ASHRAE CLTD station mode uses SI units." : undefined}
                 className={`border-l border-rose-200 px-3 py-1.5 ${
                   unitSystem === "imperial" ? "bg-[#fff4f7] text-[#9f1239]" : "bg-white text-slate-700"
-                } disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}
+                }`}
               >
                 IP Units
               </button>

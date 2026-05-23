@@ -6,6 +6,7 @@ import {
   resolveAshrae1989WallLatitudeMonthCorrection,
   resolveAshrae1989WallUFactor,
 } from "./wall-cltd-1989";
+import { resolveAshrae1997WallUFactor } from "./wall-u-1997";
 
 const CLTD_REFERENCE_INDOOR_C = 25.5;
 const CLTD_REFERENCE_OUTDOOR_MEAN_C = 29.4;
@@ -46,7 +47,9 @@ export function calculateAshraeWallCltdPeak(input: {
   context: DesignConditionContext;
 }): AshraeWallCltdPeak | null {
   const assembly = resolveAshrae1989WallAssembly(input.type, input.thicknessMm);
-  const uFactor = resolveAshrae1989WallUFactor(input.type, input.thicknessMm);
+  const uFactor =
+    resolveAshrae1997WallUFactor(input.type) ??
+    resolveAshrae1989WallUFactor(input.type, input.thicknessMm);
 
   if (!assembly || !uFactor) {
     return null;

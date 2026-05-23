@@ -177,7 +177,7 @@ export function normalizeSheetRowValues(row: Row, values: Record<string, string>
     };
   }
 
-  if (row.id === "3.2") {
+  if (values.item === "Wall Partition") {
     const typeA = normalizeSection3InteriorWallType(values.typeA, row.values.typeA);
 
     values = {

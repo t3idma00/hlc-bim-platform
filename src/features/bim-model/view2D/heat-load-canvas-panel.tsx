@@ -20,7 +20,9 @@ const GRID_TARGET_SIZE = 44;
 const EDITOR_SNAP_DIVISIONS = 4;
 const EDITOR_MIN_WALL_LENGTH = 0.4;
 const EDITOR_DEFAULT_WINDOW_WIDTH = 1.2;
+const EDITOR_DEFAULT_WINDOW_HEIGHT = 1.2;
 const EDITOR_DEFAULT_DOOR_WIDTH = 0.9;
+const EDITOR_DEFAULT_DOOR_HEIGHT = 2.1;
 const EDITOR_OPENING_EDGE_INSET = 0.2;
 const wallPatternCache: Partial<Record<WallPatternKind, CanvasPattern | null>> = {};
 
@@ -48,6 +50,7 @@ const WALL_DIRECTIONS: WallDirection[] = [
   "West",
   "Northwest",
 ];
+const WALL_SLOTS: WallSlot[] = ["North", "East", "South", "West"];
 
 const WALL_EXTERIOR_NORMALS: Record<WallDirection, Point> = {
   North: { x: 0, y: -1 },
@@ -425,6 +428,23 @@ export function HeatLoadCanvasPanel({
     objects: cloneEditorObjects(editorObjectsRef.current),
   });
 
+  const suppressNextFormReseed = () => {
+    suppressFormReseedCountRef.current = 1;
+  };
+
+  const setFormFields = (updates: Record<string, string>) => {
+    const changedEntries = Object.entries(updates).filter(
+      ([fieldName, value]) => (formValues[fieldName] ?? "") !== value
+    );
+
+    if (changedEntries.length === 0) {
+      return;
+    }
+
+    suppressNextFormReseed();
+    changedEntries.forEach(([fieldName, value]) => onFieldChange(fieldName, value));
+  };
+
   const applyEditorSnapshot = (snapshot: EditorSnapshot) => {
     editorWallsRef.current = cloneEditorWalls(snapshot.walls);
     editorOpeningsRef.current = cloneEditorOpenings(snapshot.openings);
@@ -433,6 +453,7 @@ export function HeatLoadCanvasPanel({
     dragStateRef.current = { kind: "idle" };
     clearEditorDraft();
     syncEditorObjectsField();
+    syncEditorOpeningsToForm();
     refreshEditorUi();
   };
 
@@ -484,16 +505,62 @@ export function HeatLoadCanvasPanel({
   };
 
   const clearFormFields = (...fieldNames: string[]) => {
-    suppressFormReseedCountRef.current += fieldNames.length;
-    fieldNames.forEach((fieldName) => onFieldChange(fieldName, ""));
+    setFormFields(Object.fromEntries(fieldNames.map((fieldName) => [fieldName, ""])));
   };
 
   const syncEditorObjectsField = () => {
-    suppressFormReseedCountRef.current += 1;
-    onFieldChange(
-      EDITOR_OBJECTS_FIELD_NAME,
-      JSON.stringify(serializeEditorObjects(editorObjectsRef.current))
-    );
+    setFormFields({
+      [EDITOR_OBJECTS_FIELD_NAME]: JSON.stringify(serializeEditorObjects(editorObjectsRef.current)),
+    });
+  };
+
+  const syncEditorOpeningsToForm = () => {
+    const updates: Record<string, string> = {};
+
+    WALL_SLOTS.forEach((slot) => {
+      const wallIds = new Set(
+        editorWallsRef.current
+          .filter((wall) => wall.slot === slot)
+          .map((wall) => wall.id)
+      );
+      const openingsForSlot = editorOpeningsRef.current.filter((opening) =>
+        wallIds.has(opening.wallId)
+      );
+      const doorWidth = openingsForSlot
+        .filter((opening) => opening.kind === "door")
+        .reduce((sum, opening) => sum + opening.widthMeters, 0);
+      const windowWidth = openingsForSlot
+        .filter((opening) => opening.kind === "window")
+        .reduce((sum, opening) => sum + opening.widthMeters, 0);
+      const currentDoorHeight = parsePositiveNumber(formValues[getDoorHeightFieldName(slot)]);
+      const currentWindowHeight = parsePositiveNumber(formValues[getWindowHeightFieldName(slot)]);
+
+      if (doorWidth > 0) {
+        updates[getDoorLengthFieldName(slot)] = "";
+        updates[getDoorWidthFieldName(slot)] = formatEditorMetersValue(doorWidth);
+        updates[getDoorHeightFieldName(slot)] = formatEditorMetersValue(
+          currentDoorHeight || EDITOR_DEFAULT_DOOR_HEIGHT
+        );
+      } else {
+        updates[getDoorLengthFieldName(slot)] = "";
+        updates[getDoorWidthFieldName(slot)] = "";
+        updates[getDoorHeightFieldName(slot)] = "";
+      }
+
+      if (windowWidth > 0) {
+        updates[getWindowLengthFieldName(slot)] = "";
+        updates[getWindowWidthFieldName(slot)] = formatEditorMetersValue(windowWidth);
+        updates[getWindowHeightFieldName(slot)] = formatEditorMetersValue(
+          currentWindowHeight || EDITOR_DEFAULT_WINDOW_HEIGHT
+        );
+      } else {
+        updates[getWindowLengthFieldName(slot)] = "";
+        updates[getWindowWidthFieldName(slot)] = "";
+        updates[getWindowHeightFieldName(slot)] = "";
+      }
+    });
+
+    setFormFields(updates);
   };
 
   const deleteWallAndSync = (wall: EditableWall) => {
@@ -504,38 +571,16 @@ export function HeatLoadCanvasPanel({
       (opening) => opening.wallId !== wall.id
     );
 
-    clearFormFields(
-      getWallLengthFieldName(slot),
-      getDoorLengthFieldName(slot),
-      getDoorWidthFieldName(slot),
-      getDoorHeightFieldName(slot),
-      getWindowLengthFieldName(slot),
-      getWindowWidthFieldName(slot),
-      getWindowHeightFieldName(slot)
-    );
+    clearFormFields(getWallLengthFieldName(slot));
+    syncEditorOpeningsToForm();
   };
 
-  const deleteOpeningAndSync = (opening: EditableOpening, wall: EditableWall) => {
-    const slot = wall.slot;
-
+  const deleteOpeningAndSync = (opening: EditableOpening) => {
     editorOpeningsRef.current = editorOpeningsRef.current.filter(
       (item) => item.id !== opening.id
     );
 
-    if (opening.kind === "door") {
-      clearFormFields(
-        getDoorLengthFieldName(slot),
-        getDoorWidthFieldName(slot),
-        getDoorHeightFieldName(slot)
-      );
-      return;
-    }
-
-    clearFormFields(
-      getWindowLengthFieldName(slot),
-      getWindowWidthFieldName(slot),
-      getWindowHeightFieldName(slot)
-    );
+    syncEditorOpeningsToForm();
   };
 
   const deleteSelectedEditorElement = () => {
@@ -560,13 +605,7 @@ export function HeatLoadCanvasPanel({
         return;
       }
 
-      const wall = editorWallsRef.current.find((item) => item.id === opening.wallId);
-
-      if (!wall) {
-        return;
-      }
-
-      deleteOpeningAndSync(opening, wall);
+      deleteOpeningAndSync(opening);
     } else {
       const nextObjects = editorObjectsRef.current.filter((item) => item.id !== selected.id);
 
@@ -1558,6 +1597,7 @@ export function HeatLoadCanvasPanel({
           kind: "opening",
           id: opening.id,
         };
+        syncEditorOpeningsToForm();
         refreshEditorUi();
         redrawCanvas();
         return;
@@ -1605,7 +1645,7 @@ export function HeatLoadCanvasPanel({
 
         if (openingHit) {
           recordEditorHistory();
-          deleteOpeningAndSync(openingHit.opening, openingHit.wall);
+          deleteOpeningAndSync(openingHit.opening);
           if (selectedEditorElementRef.current?.id === openingHit.opening.id) {
             selectedEditorElementRef.current = null;
           }
@@ -5511,6 +5551,14 @@ function parsePositiveNumber(value: string | undefined, fallback = 0) {
   }
 
   return normalizedValue;
+}
+
+function formatEditorMetersValue(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "";
+  }
+
+  return value.toFixed(3).replace(/\.?0+$/, "");
 }
 
 function parseWallDirection(

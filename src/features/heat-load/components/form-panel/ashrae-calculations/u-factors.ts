@@ -202,6 +202,11 @@ export function resolveCurrentUFactor(type: string, detail?: string, thicknessMm
     return { value: 2, source: CURRENT_SOURCE };
   }
 
+  const wall1997 = resolveAshrae1997WallUFactor(type);
+  if (wall1997) {
+    return wall1997;
+  }
+
   if (thicknessMm > 0) {
     const wallFromLayer = resolveWallUFromLayer(type, thicknessMm, CURRENT_SOURCE);
     if (wallFromLayer) {
@@ -303,14 +308,14 @@ export function resolveAshraeUFactor(input: {
     }
   }
 
-  const wall1989 = resolveAshrae1989WallUFactor(input.type, input.thicknessMm);
-  if (wall1989) {
-    return wall1989;
-  }
-
   const wall1997 = resolveAshrae1997WallUFactor(input.type);
   if (wall1997) {
     return wall1997;
+  }
+
+  const wall1989 = resolveAshrae1989WallUFactor(input.type, input.thicknessMm);
+  if (wall1989) {
+    return wall1989;
   }
 
   const wall = resolveWallUFromLayer(input.type, input.thicknessMm, references.opaqueCts);
