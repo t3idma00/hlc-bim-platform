@@ -464,7 +464,8 @@ export const windowGlassAppearanceByType: Record<WindowGlassTypeLabel, WindowGla
 };
 
 export function getWallAssetByType(wallType: string) {
-  const assetId = wallTypeAssetMap[wallType as WallTypeLabel];
+  const resolvedType = resolveWallTypeLabel(wallType);
+  const assetId = wallTypeAssetMap[resolvedType];
   return assetId ? getAssetById(assetId) : undefined;
 }
 
@@ -479,7 +480,7 @@ export function getWindowGlassAssetByType(windowGlassType: string) {
 }
 
 export function getWallAppearanceByType(wallType: string): WallAppearance {
-  return wallAppearanceByType[wallType as WallTypeLabel] ?? wallAppearanceByType["Brick Wall"];
+  return wallAppearanceByType[resolveWallTypeLabel(wallType)] ?? wallAppearanceByType["Brick Wall"];
 }
 
 export function getRoofAppearanceByType(roofType: string): RoofAppearance {
@@ -488,6 +489,33 @@ export function getRoofAppearanceByType(roofType: string): RoofAppearance {
 
 export function getWindowGlassAppearanceByType(windowGlassType: string): WindowGlassAppearance {
   return windowGlassAppearanceByType[windowGlassType as WindowGlassTypeLabel] ?? windowGlassAppearanceByType["Single Glass Clear"];
+}
+
+function resolveWallTypeLabel(wallType: string): WallTypeLabel {
+  if (wallType in wallAppearanceByType) {
+    return wallType as WallTypeLabel;
+  }
+
+  const normalized = wallType.trim().toLowerCase();
+
+  if (normalized.includes("concrete")) {
+    return "Concrete Wall";
+  }
+
+  if (
+    normalized.includes("block") ||
+    normalized.includes("timber") ||
+    normalized.includes("steel") ||
+    normalized.includes("metal panel")
+  ) {
+    return "Cement block Wall";
+  }
+
+  if (normalized.includes("brick")) {
+    return "Brick Wall";
+  }
+
+  return "Brick Wall";
 }
 
 export function getAssetsByCategory(category: AssetCategory) {
