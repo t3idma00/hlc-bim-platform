@@ -9,6 +9,7 @@ import { normalizeUnitSystem, unitLabel, type UnitSystem } from "@/lib/units";
 import { DesignConditionsHeader, DesignConditionsRow } from "./design-conditions-table";
 import { HeatLoadSheet } from "./heat-load-sheet";
 import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
+import { roofDetailOptions } from "./ashrae-roof-assemblies";
 
 type SurfaceType = "walls" | "windows" | "doors";
 type DesignConditionSource = "current" | "ashrae-2017";
@@ -210,6 +211,7 @@ export const initialFormValues: FormValues = {
   doorWestWidth: "",
   doorWestHeight: "",
   roofType: "Concrete Slab Roof",
+  roofDetail: roofDetailOptions[0],
   roofThickness: "150",
   outsideCondition: "35",
   dryBulbTemp: "35",

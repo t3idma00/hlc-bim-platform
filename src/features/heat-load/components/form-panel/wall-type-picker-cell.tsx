@@ -43,7 +43,7 @@ export function WallTypePickerCell({
   return (
     <div
       ref={pickerRef}
-      className="relative min-h-[24px] w-full"
+      className="relative min-h-[24px] min-w-0 w-full"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           setPickerIsOpen(false);
@@ -57,11 +57,15 @@ export function WallTypePickerCell({
         aria-expanded={pickerIsOpen}
         title={title ?? selectedDetails?.dropdownLabel ?? value}
         onClick={() => setPickerIsOpen((current) => !current)}
-        className={`relative grid min-h-[34px] w-full cursor-pointer gap-0.5 bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
+        className={`relative grid min-h-[34px] min-w-0 w-full cursor-pointer gap-0.5 bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
       >
-        <span className="font-semibold">{selectedDetails?.dropdownLabel ?? getAshrae1997WallDropdownLabel(value)}</span>
+        <span className="min-w-0 whitespace-normal break-words font-semibold">
+          {selectedDetails?.dropdownLabel ?? getAshrae1997WallDropdownLabel(value)}
+        </span>
         {selectedDetails?.thicknessSummary ? (
-          <span className="text-[9px] text-slate-600">{selectedDetails.thicknessSummary}</span>
+          <span className="min-w-0 whitespace-normal break-words text-[9px] text-slate-600">
+            {selectedDetails.thicknessSummary}
+          </span>
         ) : null}
         <PickerChevron open={pickerIsOpen} />
       </button>

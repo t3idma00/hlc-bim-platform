@@ -1,4 +1,4 @@
-import { formatUnitValue, normalizeUnitSystem, unitLabel, type UnitSystem } from "@/lib/units";
+import { formatUnitValue, normalizeUnitSystem, toDisplayUnit, unitLabel, type UnitSystem } from "@/lib/units";
 import type { RoomData } from "@/types";
 
 import { buildInitialSections, summaryRows } from "./components/form-panel/heat-load-sheet-data";
@@ -65,6 +65,12 @@ const PDF_PAGE_HEIGHT = 595;
 const PDF_MARGIN = 34;
 const PDF_CONTENT_WIDTH = PDF_PAGE_WIDTH - PDF_MARGIN * 2;
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const legacySection5RowIds: Record<string, string> = {
+  "5.2": "5.3",
+  "5.3": "5.4",
+  "5.4": "5.5",
+  "5.5": "5.6",
+};
 
 export function downloadHeatLoadPdf(input: HeatLoadExportInput) {
   const report = buildHeatLoadExportReport(input);
@@ -110,7 +116,7 @@ function buildExportRoom(room: RoomData): ExportRoom {
     name: room.name || room.id || "Room",
     location,
     unitSystem,
-    designRows: buildDesignRows(formValues, unitSystem),
+    designRows: buildDesignRows(formValues, sheetValues, unitSystem),
     summaryRows: summary,
     tables,
     heatLoadW: parseNumber(sheetValues.summary_0),
@@ -120,7 +126,11 @@ function buildExportRoom(room: RoomData): ExportRoom {
   };
 }
 
-function buildDesignRows(formValues: Record<string, string>, unitSystem: UnitSystem): Array<[string, string]> {
+function buildDesignRows(
+  formValues: Record<string, string>,
+  sheetValues: SheetValues,
+  unitSystem: UnitSystem,
+): Array<[string, string]> {
   const outdoorType = formValues.conditionType || "Relative Humidity";
   const indoorType = formValues.indoorConditionType || "Relative Humidity";
 
@@ -138,6 +148,7 @@ function buildDesignRows(formValues: Record<string, string>, unitSystem: UnitSys
     ["Solar DHI", withUnit(formValues.solarDhi, "W/m2")],
     ["Solar GHI", withUnit(formValues.solarGhi, "W/m2")],
     ["Roof type", formValues.roofType || ""],
+    ["Roof ceiling detail", formValues.roofDetail || sheetValues["1.6_detail"] || sheetValues["3.4_typeB"] || ""],
     ["Roof thickness", withUnit(formatUnitValue(formValues.roofThickness, unitSystem, "thickness"), unitLabel(unitSystem, "thickness"))],
   ];
 }
@@ -167,7 +178,12 @@ function buildSummaryRows(sheetValues: SheetValues, unitSystem: UnitSystem): Arr
     const key = `summary_${index}`;
     const note = sheetValues[`${key}_note`] ?? row.note ?? "";
     const rawValue = sheetValues[key] ?? row.value ?? "";
-    const label = index === 0 ? `${row.label} (${unitLabel(unitSystem, "heat")})` : row.label;
+    const label =
+      index === 0
+        ? `${row.label} (${unitLabel(unitSystem, "heat")})`
+        : index === 1
+          ? `${row.label} (%)`
+          : row.label;
     const value = index === 0 ? formatUnitValue(rawValue, unitSystem, "heat") : rawValue;
     return [label, note, value];
   });
@@ -222,14 +238,47 @@ function getColumnLabel(column: Column, unitSystem: UnitSystem) {
 }
 
 function getCellDisplayValue(row: Row, column: Column, sheetValues: SheetValues, unitSystem: UnitSystem) {
-  const rawValue = sheetValues[`${row.id}_${column.key}`] ?? row.values[column.key] ?? "";
+  const legacyRowId = legacySection5RowIds[row.id];
+  const rawValue =
+    sheetValues[`${row.id}_${column.key}`] ??
+    (legacyRowId ? sheetValues[`${legacyRowId}_${column.key}`] : undefined) ??
+    row.values[column.key] ??
+    "";
   const normalizedValue = normalizeSheetCellValue(row, column.key, rawValue);
 
   if (column.key === "zone") {
     return getAshraeZoneLabel(normalizedValue);
   }
 
+  if (isSection6TotalHeatCell(row, column)) {
+    const sensible = parseNumber(sheetValues[`${row.id}_sensible`] ?? row.values.sensible);
+    const latent = parseNumber(sheetValues[`${row.id}_latent`] ?? row.values.latent);
+    return toDisplayUnit(sensible + latent, unitSystem, "heat").toFixed(0);
+  }
+
+  if (isTotalHeatLoadColumn(column)) {
+    return formatFixedHeatValue(normalizedValue, unitSystem);
+  }
+
   return column.unit ? formatUnitValue(normalizedValue, unitSystem, column.unit) : normalizedValue;
+}
+
+function isSection6TotalHeatCell(row: Row, column: Column) {
+  return row.id.startsWith("6.") && column.key === "heatLoad";
+}
+
+function isTotalHeatLoadColumn(column: Column) {
+  return column.unit === "heat" && (column.key === "heatLoad" || column.key === "result");
+}
+
+function formatFixedHeatValue(value: string, unitSystem: UnitSystem) {
+  const parsed = Number.parseFloat(value.replace(",", "."));
+
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+
+  return toDisplayUnit(parsed, unitSystem, "heat").toFixed(0);
 }
 
 function parseColumnWeight(width: string | undefined) {

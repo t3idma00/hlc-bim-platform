@@ -1,5 +1,5 @@
 import { ashrae1997WallArchetypeLabels } from "./ashrae-wall-assemblies";
-import { roofAssemblyLabels } from "./ashrae-roof-assemblies";
+import { roofAssemblyLabels, roofRouteOptions } from "./ashrae-roof-assemblies";
 import {
   ashraeTable5FrameOptions,
   ashraeTable5GlazingOptions,
@@ -29,6 +29,7 @@ export const heatLoadLookupOptions = {
   directions: ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest", "HOR"],
   wallTypes: ashrae1997WallArchetypeLabels,
   roofTypes: roofAssemblyLabels,
+  roofRouteTypes: roofRouteOptions,
   glassSolarTypes: ashrae1997SolarGlassTypeOptions,
   horizontalSkylightSolarTypes: [
     ...ashrae1997SolarGlassTypeOptions,

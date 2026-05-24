@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 
-import { formatUnitValue, toCanonicalUnitValue, unitLabel, type UnitSystem } from "@/lib/units";
+import { formatUnitValue, toCanonicalUnitValue, toDisplayUnit, unitLabel, type UnitSystem } from "@/lib/units";
 
 import type { Align, Column, Section, SheetValues } from "./heat-load-sheet-types";
 import { FenestrationFramePickerCell } from "./fenestration-frame-picker-cell";
@@ -19,11 +19,19 @@ import { rowLooksLikeWall } from "./heat-load-wall-thickness";
 import { RowReferenceToggle } from "./heat-load-reference-toggle";
 import { getAshraeZoneLabel } from "./heat-load-zone-labels";
 import { WallTypePickerCell } from "./wall-type-picker-cell";
-import { getNum, SECTION3_INTERMEDIATE_FLOOR, section3FloorUsesGroundReview } from "./ashrae-calculations";
+import {
+  getNum,
+  SECTION3_CONDITIONED_ADJACENT_SPACE,
+  SECTION3_GROUND_ADJACENT_SPACE,
+  SECTION3_INTERMEDIATE_FLOOR,
+  SECTION3_MANUAL_ADJACENT_SPACE,
+  SECTION3_OUTDOOR_ADJACENT_SPACE,
+  SECTION3_UNKNOWN_ADJACENT_SPACE,
+  section3FloorUsesGroundReview,
+} from "./ashrae-calculations";
 
 const SECTION3_INTERMEDIATE_FLOOR_CONSTRUCTION = "100 mm concrete wall + finish + plaster";
-const numberColumnWidth = "5%";
-const tableClass = "w-full table-fixed border-collapse text-[10px] leading-none text-slate-900";
+const tableClass = "w-full table-auto border-collapse text-[10px] leading-none text-slate-900";
 const cellClass = "border border-slate-300 px-1 py-1 align-middle";
 
 function getColumnLabel(column: Column, unitSystem: UnitSystem): string {
@@ -35,8 +43,16 @@ function formatSheetCellValue(value: string, column: Column, unitSystem: UnitSys
     return getAshraeZoneLabel(value);
   }
 
+  if (column.key === "adjacentSpaceType") {
+    return formatAdjacentSpaceType(value);
+  }
+
   if (value === "Not applicable") {
     return "-";
+  }
+
+  if (isTotalHeatLoadColumn(column)) {
+    return formatFixedHeatValue(value, unitSystem);
   }
 
   return column.unit ? formatUnitValue(value, unitSystem, column.unit) : value;
@@ -65,7 +81,37 @@ function getDisplayValue(input: {
     return "100 mm concrete floor slab + finish";
   }
 
+  if (isSection6TotalHeatCell(input.row, input.column)) {
+    return formatSection6TotalHeatLoad(input.row, input.unitSystem);
+  }
+
   return formatSheetCellValue(input.cellValue, input.column, input.unitSystem);
+}
+
+function isSection6TotalHeatCell(row: Section["rows"][number], column: Column) {
+  return row.id.startsWith("6.") && column.key === "heatLoad";
+}
+
+function getSection6TotalHeatLoad(row: Section["rows"][number]) {
+  return getNum(row.values.sensible) + getNum(row.values.latent);
+}
+
+function formatSection6TotalHeatLoad(row: Section["rows"][number], unitSystem: UnitSystem) {
+  return toDisplayUnit(getSection6TotalHeatLoad(row), unitSystem, "heat").toFixed(0);
+}
+
+function isTotalHeatLoadColumn(column: Column) {
+  return column.unit === "heat" && (column.key === "heatLoad" || column.key === "result");
+}
+
+function formatFixedHeatValue(value: string, unitSystem: UnitSystem) {
+  const parsed = Number.parseFloat(value.replace(",", "."));
+
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+
+  return toDisplayUnit(parsed, unitSystem, "heat").toFixed(0);
 }
 
 export function SectionTable({
@@ -85,15 +131,9 @@ export function SectionTable({
 
   return (
     <table className={tableClass}>
-      <colgroup>
-        <col style={{ width: numberColumnWidth }} />
-        {columns.map((column) => (
-          <col key={column.key} style={column.width ? { width: column.width } : undefined} />
-        ))}
-      </colgroup>
       <thead>
         <tr>
-          <th className={`${cellClass} bg-[#ffe7ee] text-center text-[11px] font-semibold text-slate-900`}>
+          <th className={`${cellClass} w-[42px] bg-[#ffe7ee] text-center text-[11px] font-semibold text-slate-900`}>
             {number}
           </th>
           <th
@@ -104,11 +144,11 @@ export function SectionTable({
           </th>
         </tr>
         <tr>
-          <th className={`${cellClass} bg-white text-center text-[10px] font-semibold text-slate-900`} />
+          <th className={`${cellClass} w-[42px] bg-white text-center text-[10px] font-semibold text-slate-900`} />
           {columns.map((column) => (
             <th
               key={column.key}
-              className={`${cellClass} bg-white text-center text-[10px] font-semibold leading-tight text-slate-900`}
+              className={`${cellClass} whitespace-normal break-words bg-white text-center text-[10px] font-semibold leading-tight text-slate-900`}
             >
               {getColumnLabel(column, unitSystem)}
             </th>
@@ -125,7 +165,7 @@ export function SectionTable({
           return (
             <Fragment key={row.id}>
               <tr>
-                <td className={`${cellClass} bg-white text-center font-medium text-slate-900`}>
+                <td className={`${cellClass} w-[42px] bg-white text-center font-medium text-slate-900`}>
                   <RowReferenceToggle
                     rowId={row.id}
                     referenceText={referenceText}
@@ -169,7 +209,7 @@ export function SectionTable({
                   const fillClass = hasOptions || !column.editable ? "bg-[#fff4f7]" : "bg-white";
 
                   return (
-                    <td key={column.key} className={`${cellClass} ${fillClass} p-0`}>
+                    <td key={column.key} className={`${cellClass} min-w-0 ${fillClass} p-0`}>
                       {showsWallDetailsToggle ? (
                         <WallTypePickerCell
                           ariaLabel={`${row.id} ${column.label || column.key}`}
@@ -318,6 +358,15 @@ function formatSelectOptionLabel(
   return formatSheetCellValue(option, column, unitSystem);
 }
 
+function formatAdjacentSpaceType(value: string) {
+  if (value === SECTION3_UNKNOWN_ADJACENT_SPACE) return "Unconditioned";
+  if (value === SECTION3_MANUAL_ADJACENT_SPACE) return "Manual temp";
+  if (value === SECTION3_OUTDOOR_ADJACENT_SPACE) return "Outdoor";
+  if (value === SECTION3_CONDITIONED_ADJACENT_SPACE) return "Conditioned";
+  if (value === SECTION3_GROUND_ADJACENT_SPACE) return "Ground/slab";
+  return value;
+}
+
 function formatWallOptionWithThickness(option: string) {
   const label = getAshrae1997WallDropdownLabel(option);
   const thicknessMm = getWallCoreThicknessMm(option);
@@ -346,7 +395,7 @@ function rowUsesSolarFenestration(row: Section["rows"][number]) {
 function isInactiveSection3InteriorRow(sectionNumber: string, row: Section["rows"][number]) {
   return (
     sectionNumber === "3" &&
-    (row.id === "3.1" || isSection3PartitionRow(row)) &&
+    (row.id === "3.1" || row.id === "3.4" || isSection3PartitionRow(row)) &&
     getNum(row.values.calcValue) <= 0
   );
 }
@@ -369,13 +418,13 @@ function SheetCell({
   wrap?: boolean;
 }) {
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
-  const wrapClass = wrap ? "whitespace-normal break-words" : "whitespace-nowrap";
+  const wrapClass = wrap && align !== "right" ? "whitespace-normal break-words" : "whitespace-nowrap";
 
   return (
     <div
       aria-label={ariaLabel}
       title={title ?? value}
-      className={`min-h-[24px] h-full w-full px-1 py-1 text-[10px] leading-snug text-slate-900 ${alignClass} ${wrapClass}`}
+      className={`min-h-[24px] h-full min-w-0 w-full px-1 py-1 text-[10px] leading-snug text-slate-900 tabular-nums ${alignClass} ${wrapClass}`}
     >
       {value || "\u00A0"}
     </div>
@@ -404,7 +453,7 @@ function SheetInputCell({
       value={value}
       title={title ?? value}
       onChange={(event) => onValueChange(event.target.value)}
-      className={`min-h-[24px] h-full w-full bg-transparent px-1 py-1 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
+      className={`min-h-[24px] h-full min-w-0 w-full bg-transparent px-1 py-1 text-[10px] leading-snug text-slate-900 tabular-nums outline-none ${alignClass}`}
     />
   );
 }
@@ -429,13 +478,13 @@ function SheetSelectCell({
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
 
   return (
-    <div className="relative min-h-[24px] h-full w-full">
+    <div className="relative min-h-[24px] h-full min-w-0 w-full">
       <select
         aria-label={ariaLabel}
         value={value}
         title={title ?? value}
         onChange={(event) => onValueChange(event.target.value)}
-        className={`min-h-[24px] h-full min-w-[58px] w-full appearance-none cursor-pointer bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
+        className={`min-h-[24px] h-full min-w-0 w-full appearance-none cursor-pointer whitespace-normal bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
       >
         {options.map((option) => (
           <option key={option} value={option}>

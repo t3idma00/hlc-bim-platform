@@ -14,6 +14,11 @@ import { downloadRoomsDxf } from "../../bim-model/view2D/export-dxf";
 import { HeatLoad3DPanel } from "../../bim-model/view3D";
 import { type WorkspaceView } from "../../bim-model/workspace-view-toggle";
 import { HeatLoadFormPanel, initialFormValues, type FormValues } from "./form-panel";
+import {
+  isIntermediateRoofSelection,
+  normalizeRoofAssemblyLabel,
+  normalizeRoofDetail,
+} from "./form-panel/ashrae-roof-assemblies";
 import { downloadHeatLoadPdf, downloadHeatLoadSpreadsheet } from "../export-heat-load-report";
 import { createClient } from "@/lib/supabase/client";
 import { signOut } from "@/actions/auth";
@@ -185,9 +190,11 @@ export default function HeatLoadWorkspace() {
       ...prev,
       rooms: prev.rooms.map((room) => {
         if (room.id === activeRoomId) {
+          const nextSheetValues = applyLinkedRoofSheetValue(room.sheetValues ?? {}, name, value);
+
           return {
             ...room,
-            sheetValues: { ...room.sheetValues, [name]: value },
+            sheetValues: nextSheetValues,
             formValues: applySheetValueToFormValues(room.formValues, name, value),
           };
         }
@@ -1127,6 +1134,7 @@ function createRoomFormValuesForSharedWall(targetFormValues: FormValues | undefi
     "wallSouthBoundary",
     "wallWestBoundary",
     "roofType",
+    "roofDetail",
     "roofThickness",
   ].forEach((key) => {
     if (targetFormValues[key]) {
@@ -1172,37 +1180,87 @@ function applySheetValueToFormValues(formValues: FormValues, sheetKey: string, s
     "2.3_direction": "windowSouthDirection",
     "2.4_direction": "windowWestDirection",
     "1.6_type": "roofType",
+    "1.6_detail": "roofDetail",
     "1.6_thickness": "roofThickness",
+    "3.4_typeA": "roofType",
+    "3.4_typeB": "roofDetail",
+    "3.4_thickness": "roofThickness",
   };
 
   const formField = wallFieldMap[sheetKey];
   if (!formField) return formValues;
+  if (sheetKey === "3.4_typeA" && isIntermediateRoofSelection(formValues.roofType)) {
+    return formValues;
+  }
 
-  return { ...formValues, [formField]: sheetValue };
+  return { ...formValues, [formField]: formField === "roofDetail" ? normalizeRoofDetail(sheetValue) : sheetValue };
 }
 
 function applyFormValueToSheetValues(sheetValues: Record<string, string>, formField: string, formValue: string) {
-  const sheetFieldMap: Record<string, string> = {
-    wallNorthType: "1.1_type",
-    wallEastType: "1.2_type",
-    wallSouthType: "1.3_type",
-    wallWestType: "1.4_type",
-    wallNorthDirection: "1.1_direction",
-    wallEastDirection: "1.2_direction",
-    wallSouthDirection: "1.3_direction",
-    wallWestDirection: "1.4_direction",
-    wallNorthWidth: "1.1_thickness",
-    wallEastWidth: "1.2_thickness",
-    wallSouthWidth: "1.3_thickness",
-    wallWestWidth: "1.4_thickness",
-    roofType: "1.6_type",
-    roofThickness: "1.6_thickness",
+  const roofTypeSheetFields = isIntermediateRoofSelection(formValue)
+    ? ["1.6_type"]
+    : ["1.6_type", "3.4_typeA"];
+  const sheetFieldMap: Record<string, string[]> = {
+    wallNorthType: ["1.1_type"],
+    wallEastType: ["1.2_type"],
+    wallSouthType: ["1.3_type"],
+    wallWestType: ["1.4_type"],
+    wallNorthDirection: ["1.1_direction"],
+    wallEastDirection: ["1.2_direction"],
+    wallSouthDirection: ["1.3_direction"],
+    wallWestDirection: ["1.4_direction"],
+    wallNorthWidth: ["1.1_thickness"],
+    wallEastWidth: ["1.2_thickness"],
+    wallSouthWidth: ["1.3_thickness"],
+    wallWestWidth: ["1.4_thickness"],
+    roofType: roofTypeSheetFields,
+    roofDetail: ["1.6_detail", "3.4_typeB"],
+    roofThickness: ["1.6_thickness", "3.4_thickness"],
   };
 
-  const sheetField = sheetFieldMap[formField];
-  if (!sheetField) return sheetValues;
+  const sheetFields = sheetFieldMap[formField];
+  if (!sheetFields) return sheetValues;
 
-  return { ...sheetValues, [sheetField]: formValue };
+  return sheetFields.reduce(
+    (nextSheetValues, sheetField) => ({
+      ...nextSheetValues,
+      [sheetField]: formValue,
+    }),
+    sheetValues,
+  );
+}
+
+function applyLinkedRoofSheetValue(sheetValues: Record<string, string>, sheetKey: string, sheetValue: string) {
+  const roofDetailSheetKeys = new Set(["1.6_detail", "3.4_typeB"]);
+  const normalizedSheetValue = roofDetailSheetKeys.has(sheetKey) ? normalizeRoofDetail(sheetValue) : sheetValue;
+  const nextSheetValues = { ...sheetValues, [sheetKey]: normalizedSheetValue };
+  const linkedRoofSheetFields: Record<string, string[]> = {
+    "1.6_type": ["3.4_typeA"],
+    "3.4_typeA": ["1.6_type"],
+    "1.6_detail": ["3.4_typeB"],
+    "3.4_typeB": ["1.6_detail"],
+    "1.6_thickness": ["3.4_thickness"],
+    "3.4_thickness": ["1.6_thickness"],
+  };
+
+  linkedRoofSheetFields[sheetKey]?.forEach((linkedSheetKey) => {
+    if (
+      (sheetKey === "1.6_type" && linkedSheetKey === "3.4_typeA" && isIntermediateRoofSelection(normalizedSheetValue)) ||
+      (sheetKey === "3.4_typeA" && linkedSheetKey === "1.6_type" && isIntermediateRoofSelection(sheetValues["1.6_type"]))
+    ) {
+      return;
+    }
+
+    nextSheetValues[linkedSheetKey] = roofDetailSheetKeys.has(linkedSheetKey)
+      ? normalizeRoofDetail(normalizedSheetValue)
+      : normalizedSheetValue;
+  });
+
+  if (sheetKey === "1.6_type" && isIntermediateRoofSelection(normalizedSheetValue)) {
+    nextSheetValues["3.4_typeA"] = normalizeRoofAssemblyLabel(sheetValues["3.4_typeA"]);
+  }
+
+  return nextSheetValues;
 }
 
 function ExportCheckbox({

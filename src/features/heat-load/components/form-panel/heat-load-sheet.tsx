@@ -21,7 +21,7 @@ import {
 } from "./ashrae-calculations";
 import { buildInitialSections, summaryRows } from "./heat-load-sheet-data";
 import { getWallCoreThicknessMm } from "./ashrae-wall-assemblies";
-import { getDefaultRoofThicknessMm, normalizeRoofDetail } from "./ashrae-roof-assemblies";
+import { getDefaultRoofThicknessMm, normalizeRoofAssemblyLabel, normalizeRoofDetail } from "./ashrae-roof-assemblies";
 import {
   getAshraeTable5FrameOptions,
   getAshraeTable5NominalThicknessMm,
@@ -41,6 +41,13 @@ import type { HeatLoadSheetProps, Row, Section, SheetValues } from "./heat-load-
 import { useHeatLoadAutoFill } from "./use-heat-load-auto-fill";
 import { useHeatLoadCalculations } from "./use-heat-load-calculations";
 
+const legacySection5RowIds: Record<string, string> = {
+  "5.2": "5.3",
+  "5.3": "5.4",
+  "5.4": "5.5",
+  "5.5": "5.6",
+};
+
 function applySheetValuesToSections(sections: Section[], sheetValues: SheetValues): Section[] {
   if (Object.keys(sheetValues).length === 0) {
     return sections;
@@ -49,21 +56,37 @@ function applySheetValuesToSections(sections: Section[], sheetValues: SheetValue
   return sections.map((section) => ({
     ...section,
     rows: section.rows.map((row) => {
-      const rowPrefix = `${row.id}_`;
+      const rowPrefixes = getSheetRowPrefixes(row.id);
       const values = { ...row.values };
 
-      Object.entries(sheetValues).forEach(([key, value]) => {
-        if (!key.startsWith(rowPrefix)) return;
+      rowPrefixes.forEach((rowPrefix) => {
+        Object.entries(sheetValues).forEach(([key, value]) => {
+          if (!key.startsWith(rowPrefix)) return;
 
-        const cellKey = key.slice(rowPrefix.length);
-        if (Object.prototype.hasOwnProperty.call(values, cellKey)) {
-          values[cellKey] = normalizeSheetCellValue(row, cellKey, value);
-        }
+          const cellKey = key.slice(rowPrefix.length);
+          if (Object.prototype.hasOwnProperty.call(values, cellKey)) {
+            values[cellKey] = normalizeSheetCellValue(row, cellKey, value);
+          }
+        });
       });
 
-      return { ...row, values: normalizeSheetRowValues(row, values) };
+      const normalizedValues = normalizeSheetRowValues(row, values);
+      if (section.number === "6") {
+        normalizedValues.heatLoad = calculateVentilationTotalHeatLoad(normalizedValues);
+      }
+
+      return { ...row, values: normalizedValues };
     }),
   }));
+}
+
+function getSheetRowPrefixes(rowId: string) {
+  const legacyRowId = legacySection5RowIds[rowId];
+  return legacyRowId ? [`${legacyRowId}_`, `${rowId}_`] : [`${rowId}_`];
+}
+
+function calculateVentilationTotalHeatLoad(values: Record<string, string>) {
+  return (getNum(values.sensible) + getNum(values.latent)).toFixed(2);
 }
 
 export function HeatLoadSheet({
@@ -246,8 +269,17 @@ function updateDependentValues(input: {
 
   if (input.row.id === "1.6" && ["type", "detail"].includes(input.changedKey)) {
     const roofType = rowValue("type");
+    const thicknessRoofType = normalizeRoofAssemblyLabel(roofType);
     input.updates[`${input.row.id}_direction`] = "HOR";
     input.updates[`${input.row.id}_detail`] = normalizeRoofDetail(rowValue("detail"));
+    input.updates[`${input.row.id}_thickness`] = String(getDefaultRoofThicknessMm(thicknessRoofType));
+  }
+
+  if (input.row.id === "3.4" && ["typeA", "typeB"].includes(input.changedKey)) {
+    const roofType = normalizeRoofAssemblyLabel(rowValue("typeA"));
+    input.updates[`${input.row.id}_direction`] = "Intermediate";
+    input.updates[`${input.row.id}_typeA`] = roofType;
+    input.updates[`${input.row.id}_typeB`] = normalizeRoofDetail(rowValue("typeB"));
     input.updates[`${input.row.id}_thickness`] = String(getDefaultRoofThicknessMm(roofType));
   }
 
@@ -375,33 +407,46 @@ function updateSection5Factors(
   updates: Record<string, string>,
 ) {
   const item = rowValue("item");
-  const isLatent = item.toLowerCase().includes("latent");
+  const isPeople = item.includes("People");
+  const isAdditional = item.includes("Additional");
   const heatGain = resolveAshraeInternalHeatGain({
     item,
     application: rowValue("application"),
-    isLatent,
   });
+  const latentGain = isPeople
+    ? resolveAshraeInternalHeatGain({
+        item,
+        application: rowValue("application"),
+        isLatent: true,
+      })
+    : null;
   const clf = resolveAshraeInternalClf({
     item,
     zoneType: rowValue("zone"),
     hoursInUse: getNum(rowValue("hoursInUse")),
     hoursAfterStart: getNum(rowValue("hoursAfterStart")),
-    isLatent,
   });
 
-  if (!item.includes("Additional")) {
+  if (!isAdditional) {
     updates[`${row.id}_heatGain`] = heatGain.value.toFixed(2);
     updates[`${row.id}_clf`] = clf.value.toFixed(2);
     updates[`${row.id}_heatGain_source`] = heatGain.source;
     updates[`${row.id}_clf_source`] = clf.source;
   }
 
-  const qty = getNum(rowValue("qty"));
-  const gainValue = item.includes("Additional") ? getNum(rowValue("heatGain")) : heatGain.value;
-  const clfValue = item.includes("Additional") ? getNum(rowValue("clf")) || 1 : clf.value;
-  if (qty > 0 && gainValue > 0) {
-    updates[`${row.id}_heatLoad`] = (gainValue * qty * clfValue).toFixed(2);
+  if (isPeople && latentGain) {
+    updates[`${row.id}_latentGain`] = latentGain.value.toFixed(2);
+    updates[`${row.id}_latentGain_source`] = `${latentGain.source}; latent load is instantaneous`;
+  } else if (!isAdditional) {
+    updates[`${row.id}_latentGain`] = "";
+    updates[`${row.id}_latentGain_source`] = "";
   }
+
+  const qty = getNum(rowValue("qty"));
+  const gainValue = isAdditional ? getNum(rowValue("heatGain")) : heatGain.value;
+  const latentGainValue = isAdditional ? getNum(rowValue("latentGain")) : latentGain?.value ?? 0;
+  const clfValue = isAdditional ? getNum(rowValue("clf")) || 1 : clf.value;
+  updates[`${row.id}_heatLoad`] = (qty * (gainValue * clfValue + latentGainValue)).toFixed(2);
 }
 
 function updateSection3Factors(

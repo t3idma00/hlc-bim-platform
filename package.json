@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
+    "dev:fresh": "powershell -ExecutionPolicy Bypass -File scripts/restart-dev.ps1",
+    "dev:stop": "powershell -ExecutionPolicy Bypass -File scripts/restart-dev.ps1 -StopOnly",
     "dev:turbo": "next dev --turbopack",
     "build": "next build",
     "start": "next start",

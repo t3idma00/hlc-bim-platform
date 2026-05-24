@@ -51,11 +51,13 @@ export function calculateAshraeSection3(input: {
   areaM2: number;
   context: DesignConditionContext;
 }): Section3Result {
+  const usesIntermediateRoofCeiling = section3ItemUsesIntermediateRoofCeiling(input.item, input.assemblyType);
   const lookupUFactor = resolveAshraeUFactor({
     item: input.item,
     type: input.assemblyType,
     detail: input.assemblyDetail,
     thicknessMm: input.thicknessMm,
+    surfaceExposure: usesIntermediateRoofCeiling ? "intermediate" : "exterior",
   });
   const uFactor = input.uFactorMode === SECTION3_MANUAL_U_FACTOR
     ? {
@@ -79,6 +81,9 @@ export function calculateAshraeSection3(input: {
   const sourceReference = usesGroundFloorType
     ? references.groundFloorCooling1997
     : references.interiorSurfaces;
+  const intermediateRoofNote = usesIntermediateRoofCeiling
+    ? "; intermediate roof/ceiling uses the ASHRAE 1997 interior-surface rule, so exterior roof solar CLTD is not applied"
+    : "";
   const signedHeatTransfer = input.areaM2 > 0 ? uFactor.value * tdValue * input.areaM2 : 0;
   const coolingHeatGain = usesGroundCoolingScreen ? 0 : Math.max(0, signedHeatTransfer);
   const coolingGainNote =
@@ -96,7 +101,7 @@ export function calculateAshraeSection3(input: {
         sourceReference,
         usesGroundCoolingScreen
           ? "Ground-contact floor heat transfer is neglected for the Section 3 cooling estimate"
-          : `TD = adjacent ${adjacentTemperature.value.toFixed(2)} C - indoor ${indoorTemperature.value.toFixed(2)} C${usesGroundFloorType ? " using project ground-floor input" : ""}`,
+          : `TD = adjacent ${adjacentTemperature.value.toFixed(2)} C - indoor ${indoorTemperature.value.toFixed(2)} C${usesGroundFloorType ? " using project ground-floor input" : ""}${intermediateRoofNote}`,
       ),
     },
     heatLoad: {
@@ -105,7 +110,7 @@ export function calculateAshraeSection3(input: {
         sourceReference,
         usesGroundCoolingScreen
           ? "ASHRAE 1997 cooling rule: ground-contact floor heat transfer may be neglected, so this floor heat gain is zero"
-          : `Cooling heat gain = max(0, U x area x TD); signed transfer ${signedHeatTransfer.toFixed(2)} W${coolingGainNote}${usesGroundFloorType ? "; project ground-floor input required" : ""}`,
+          : `Cooling heat gain = max(0, U x area x TD); signed transfer ${signedHeatTransfer.toFixed(2)} W${coolingGainNote}${usesGroundFloorType ? "; project ground-floor input required" : ""}${intermediateRoofNote}`,
       ),
     },
   };
@@ -113,6 +118,11 @@ export function calculateAshraeSection3(input: {
 
 export function section3FloorUsesGroundReview(floorType: string) {
   return floorType !== SECTION3_INTERMEDIATE_FLOOR;
+}
+
+function section3ItemUsesIntermediateRoofCeiling(item: string, assemblyType: string) {
+  const normalizedText = `${item} ${assemblyType}`.toLowerCase();
+  return normalizedText.includes("roof") || normalizedText.includes("ceiling");
 }
 
 function resolveSection3LookupUFactor(item: string, lookupUFactor: { value: number; source: string }) {

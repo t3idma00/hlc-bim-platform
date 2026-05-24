@@ -34,6 +34,7 @@ import {
 } from "./heat-load-wall-thickness";
 import {
   getDefaultRoofThicknessMm,
+  normalizeRoofAssemblyLabel,
   normalizeRoofDetail,
 } from "./ashrae-roof-assemblies";
 import { heatLoadLookupOptions } from "./heat-load-options";
@@ -215,11 +216,24 @@ export function normalizeSheetRowValues(row: Row, values: Record<string, string>
 
   if (row.id === "1.6") {
     const roofType = values.type || row.values.type;
+    const thicknessRoofType = normalizeRoofAssemblyLabel(roofType);
 
     return {
       ...values,
       direction: "HOR",
       detail: normalizeRoofDetail(values.detail),
+      thickness: String(getDefaultRoofThicknessMm(thicknessRoofType)),
+    };
+  }
+
+  if (row.id === "3.4") {
+    const roofType = normalizeRoofAssemblyLabel(values.typeA || row.values.typeA);
+
+    return {
+      ...values,
+      direction: "Intermediate",
+      typeA: roofType,
+      typeB: normalizeRoofDetail(values.typeB),
       thickness: String(getDefaultRoofThicknessMm(roofType)),
     };
   }
@@ -255,10 +269,12 @@ export function normalizeSheetRowValues(row: Row, values: Record<string, string>
   if (row.id.startsWith("5.")) {
     return {
       ...values,
+      item: row.id === "5.1" && values.item?.includes("People") ? row.values.item : values.item,
       application:
         values.application === "Standing, light work or walking"
           ? "Standing, light work; walking"
           : values.application,
+      latentGain: values.latentGain ?? row.values.latentGain ?? "",
       zone: values.zone || "C",
       hoursInUse: values.hoursInUse || "10",
       hoursAfterStart: values.hoursAfterStart || "8",

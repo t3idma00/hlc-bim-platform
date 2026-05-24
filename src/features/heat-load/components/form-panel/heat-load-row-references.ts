@@ -1,5 +1,5 @@
 import { getAshraeZoneCode, getAshraeZoneLabel } from "./heat-load-zone-labels";
-import { getRoofAssemblyReference } from "./ashrae-roof-assemblies";
+import { getIntermediateRoofAssemblyReference, getRoofAssemblyReference } from "./ashrae-roof-assemblies";
 
 export const SECTION4_REFERENCE =
   "Chapter 25 Table 3 window crack and door-frame leakage area rows, page 25.18; Tables 6 and 8 stack/wind coefficients and Equation 46 airflow, page 25.22; Chapter 28 Equations 22-23 loads, page 28.55";
@@ -7,9 +7,12 @@ export const SECTION4_REFERENCE =
 export const SECTION6_REFERENCE =
   "ANSI/ASHRAE Standard 62.1-2007 Table 03 minimum ventilation rates in breathing zone; breathing-zone flow Vbz = people x Rp + area x Ra; ASHRAE 1997 Chapter 28 Equations 22-23, page 28.55 for sensible and latent outdoor-air load";
 
-export function getSection1Reference(item: string, type: string, direction: string) {
+export function getSection1Reference(item: string, type: string, direction: string, detail?: string) {
   if (item.toLowerCase().includes("roof")) {
-    return getRoofAssemblyReference(type);
+    return [
+      getRoofAssemblyReference(type, detail),
+      "ASHRAE 2017 station design data supplies the outdoor dry-bulb, hottest-month range, month, latitude, and design hour used to correct the 1997 roof CLTD when station data is selected",
+    ].join("; ");
   }
   if (item.toLowerCase().includes("sky")) {
     return "Chapter 28 Table 34 fenestration conduction cooling load temperature difference row by hour, page 28.49; Chapter 29 Table 5 skylight and sloped/overhead fenestration U-factor columns, page 29.9";
@@ -35,13 +38,17 @@ export function getSection2Reference(direction: string, zoneType = "C", item = "
   ].join("; ");
 }
 
-export function getSection3Reference(item: string, floorType = "") {
+export function getSection3Reference(item: string, floorType = "", detail?: string) {
   if (item.toLowerCase().includes("glass")) {
     return "Chapter 28 interior-surface heat gain method, pages 28.28-28.29: interior all-glass transmission Q = U x A x (Tadjacent - Tindoor); Chapter 29 Table 5 glass U-factor lookup adjusted to an interior-film basis from Chapter 24 Table 1";
   }
 
   if (item.toLowerCase().includes("floor") && floorType && floorType !== "Intermediate Floor") {
     return "ASHRAE 1997 Fundamentals Chapter 28 page 28.7, Heat Gain through Interior Surfaces floor note after Equation 8: heat transfer from a ground-contact floor may be neglected for cooling load estimates";
+  }
+
+  if (item.toLowerCase().includes("roof") || item.toLowerCase().includes("ceiling")) {
+    return getIntermediateRoofAssemblyReference(floorType, detail);
   }
 
   const floorNote = item.toLowerCase().includes("floor")

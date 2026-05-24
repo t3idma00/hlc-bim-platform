@@ -2,6 +2,15 @@ import { useEffect } from "react";
 
 import { getNum } from "./ashrae-calculations";
 import { getWallCoreThicknessMm, getWallTypeFamily } from "./ashrae-wall-assemblies";
+import {
+  DEFAULT_ROOF_ASSEMBLY_LABEL,
+  INTERMEDIATE_ROOF_SELECTION,
+  getDefaultRoofThicknessMm,
+  isIntermediateRoofSelection,
+  normalizeRoofAssemblyLabel,
+  normalizeRoofDetail,
+  roofDetailOptions,
+} from "./ashrae-roof-assemblies";
 import { heatLoadLookupOptions } from "./heat-load-options";
 import type { FormValues, SheetValues } from "./heat-load-sheet-types";
 import { cardinalWalls, isExteriorSurface, isExteriorWall } from "./wall-boundary";
@@ -9,6 +18,11 @@ import { cardinalWalls, isExteriorSurface, isExteriorWall } from "./wall-boundar
 const DEFAULT_WINDOW_HEIGHT_M = 1.2;
 const DEFAULT_DOOR_HEIGHT_M = 2.1;
 const DEFAULT_INTERIOR_PARTITION_TYPE = "W12 Simple 200 mm concrete wall with cement plaster";
+const EXTERIOR_ROOF_AREA_SOURCE = "Exterior roof area from Room Details wall lengths";
+const EXTERIOR_ROOF_SELECTED_SOURCE = "Exterior roof selected in Section 1; intermediate roof/ceiling area is inactive";
+const INTERMEDIATE_ROOF_AREA_SOURCE =
+  "Intermediate Roof selected in Section 1; exterior roof solar area is zero to avoid double counting";
+const INTERMEDIATE_ROOF_ACTIVE_AREA_SOURCE = "Intermediate roof/ceiling area from Room Details wall lengths";
 
 export function useHeatLoadAutoFill({
   formValues,
@@ -125,6 +139,19 @@ function useRoomAreaAutoFill({
 
     const skylightArea = getNum(sheetValues["2.5_areaQty"]);
     const selectedGlassArea = totalWindowArea + skylightArea;
+    const selectedRoofRoute = sheetValues["1.6_type"] || formValues.roofType || DEFAULT_ROOF_ASSEMBLY_LABEL;
+    const usesIntermediateRoof = isIntermediateRoofSelection(selectedRoofRoute);
+    const roofType = usesIntermediateRoof
+      ? normalizeRoofAssemblyLabel(sheetValues["3.4_typeA"], DEFAULT_ROOF_ASSEMBLY_LABEL)
+      : normalizeRoofAssemblyLabel(selectedRoofRoute, DEFAULT_ROOF_ASSEMBLY_LABEL);
+    const section1RoofType = usesIntermediateRoof ? INTERMEDIATE_ROOF_SELECTION : roofType;
+    const roofDetail = normalizeRoofDetail(
+      sheetValues["3.4_typeB"] ||
+      sheetValues["1.6_detail"] ||
+      formValues.roofDetail ||
+      roofDetailOptions[0],
+    );
+    const roofThickness = formValues.roofThickness || String(getDefaultRoofThicknessMm(roofType));
 
     setIfChanged("1.5_direction", "All");
     if (
@@ -141,11 +168,21 @@ function useRoomAreaAutoFill({
       setIfChanged("3.1_calcValue_source", "Interior window/glass area from walls marked Interior");
     }
     if (floorArea > 0) {
-      setIfChanged("1.6_calcValue", floorArea.toFixed(2));
+      setIfChanged("1.6_calcValue", usesIntermediateRoof ? "0.00" : floorArea.toFixed(2));
+      setIfChanged("1.6_calcValue_source", usesIntermediateRoof ? INTERMEDIATE_ROOF_AREA_SOURCE : EXTERIOR_ROOF_AREA_SOURCE);
+      setIfChanged("3.4_calcValue", usesIntermediateRoof ? floorArea.toFixed(2) : "");
+      setIfChanged("3.4_calcValue_source", usesIntermediateRoof ? INTERMEDIATE_ROOF_ACTIVE_AREA_SOURCE : EXTERIOR_ROOF_SELECTED_SOURCE);
       setIfChanged("3.3_calcValue", floorArea.toFixed(2));
       setIfChanged("6.1_areaQty", floorArea.toFixed(2));
       setIfChanged("6.1_areaQty_source", "Room floor area from Room Details wall lengths");
     }
+    setIfChanged("3.4_direction", "Intermediate");
+    setIfChanged("1.6_type", section1RoofType);
+    setIfChanged("1.6_detail", roofDetail);
+    setIfChanged("1.6_thickness", roofThickness);
+    setIfChanged("3.4_typeA", roofType);
+    setIfChanged("3.4_typeB", roofDetail);
+    setIfChanged("3.4_thickness", roofThickness);
     if (totalWindowPerimeter > 0 || sheetValues["4.1_crackLength"]) {
       setIfChanged("4.1_qty", totalWindowPerimeter > 0 ? "1" : "");
       setIfChanged("4.1_crackLength", totalWindowPerimeter > 0 ? totalWindowPerimeter.toFixed(2) : "");

@@ -1,7 +1,12 @@
 import references from "../ashrae-tables/references.json";
 import { defaultWallThicknessMmForType, normalizeWallThicknessMm } from "../heat-load-wall-thickness";
 import { getWallTypeFamily } from "../ashrae-wall-assemblies";
-import { resolveRoofAssemblyUFactor } from "../ashrae-roof-assemblies";
+import {
+  getRoofAssembly,
+  getRoofCeilingMode,
+  resolveRoofAssemblyUFactor,
+  type RoofExposure,
+} from "../ashrae-roof-assemblies";
 import section1Data from "../section-1-data.json";
 
 import {
@@ -52,22 +57,31 @@ function matchesRoofMaterial(type: string, materialType: string) {
   );
 }
 
-function resolveRoofUFactor(type: string, source: string, detail?: string, thicknessMm = 0): FactorResult | null {
-  const assembly = resolveRoofAssemblyUFactor(type, detail, thicknessMm, source);
+function isRoofSurface(item: string | undefined, type: string) {
+  const text = `${item ?? ""} ${type}`.toLowerCase();
+  return text.includes("roof") || text.includes("ceiling") || Boolean(getRoofAssembly(type));
+}
 
-  if (assembly) {
-    return assembly;
-  }
+type RoofUFactorRecord = {
+  material_type: string;
+  u_factor_with_ceiling_W_per_m2K: number;
+  u_factor_without_ceiling_W_per_m2K: number;
+};
 
-  const roof = section1Data.roof_material_u_factor.records.find((record) =>
-    matchesRoofMaterial(type, record.material_type),
-  );
+function resolveRoofRecordUFactor(
+  records: RoofUFactorRecord[],
+  type: string,
+  source: string,
+  detail: string | undefined,
+  basis: string,
+): FactorResult | null {
+  const roof = records.find((record) => matchesRoofMaterial(type, record.material_type));
 
   if (!roof) {
     return null;
   }
 
-  const useWithoutCeiling = detail?.toLowerCase().includes("without ceiling");
+  const useWithoutCeiling = getRoofCeilingMode(detail) === "without";
   const value = useWithoutCeiling
     ? roof.u_factor_without_ceiling_W_per_m2K
     : roof.u_factor_with_ceiling_W_per_m2K;
@@ -75,8 +89,46 @@ function resolveRoofUFactor(type: string, source: string, detail?: string, thick
 
   return {
     value,
-    source: formatSource(source, `${roof.material_type} roof U-factor ${ceilingBasis}`),
+    source: formatSource(source, `${roof.material_type} ${basis} ${ceilingBasis}`),
   };
+}
+
+function resolveRoofUFactor(
+  type: string,
+  source: string,
+  detail?: string,
+  thicknessMm = 0,
+  exposure: RoofExposure = "exterior",
+): FactorResult | null {
+  if (exposure === "intermediate") {
+    const intermediateRoof = resolveRoofRecordUFactor(
+      section1Data.roof_material_u_factor_intermediate_floor.records,
+      type,
+      source,
+      detail,
+      "intermediate roof/ceiling U-factor; no exterior solar CLTD",
+    );
+
+    if (intermediateRoof) {
+      return intermediateRoof;
+    }
+  }
+
+  const assembly = resolveRoofAssemblyUFactor(type, detail, thicknessMm, source, exposure);
+
+  if (assembly) {
+    return assembly;
+  }
+
+  return resolveRoofRecordUFactor(
+    section1Data.roof_material_u_factor.records,
+    type,
+    source,
+    detail,
+    exposure === "intermediate"
+      ? "roof/ceiling assembly U-factor used for intermediate transmission; no exterior solar CLTD"
+      : "roof U-factor",
+  );
 }
 
 function resolveGlassUFactor(input: {
@@ -197,9 +249,21 @@ function resolveWallUFromLayer(type: string, thicknessMm: number, source: string
   };
 }
 
-export function resolveCurrentUFactor(type: string, detail?: string, thicknessMm = 0): FactorResult {
+export function resolveCurrentUFactor(
+  type: string,
+  detail?: string,
+  thicknessMm = 0,
+  roofExposure: RoofExposure = "exterior",
+): FactorResult {
   if (!type) {
     return { value: 2, source: CURRENT_SOURCE };
+  }
+
+  if (isRoofSurface(undefined, type)) {
+    const roof = resolveRoofUFactor(type, CURRENT_SOURCE, detail, thicknessMm, roofExposure);
+    if (roof) {
+      return roof;
+    }
   }
 
   const wall1997 = resolveAshrae1997WallUFactor(type);
@@ -217,11 +281,6 @@ export function resolveCurrentUFactor(type: string, detail?: string, thicknessMm
   const wall = resolveWallUFromCurrent(type);
   if (wall) {
     return wall;
-  }
-
-  const roof = resolveRoofUFactor(type, CURRENT_SOURCE, detail, thicknessMm);
-  if (roof) {
-    return roof;
   }
 
   const glass = resolveGlassUFactor({
@@ -269,6 +328,7 @@ export function resolveAshraeUFactor(input: {
   detail?: string;
   direction?: string;
   thicknessMm: number;
+  surfaceExposure?: RoofExposure;
 }): FactorResult {
   const isGlass =
     input.item.toLowerCase().includes("glass") ||
@@ -301,8 +361,10 @@ export function resolveAshraeUFactor(input: {
     }
   }
 
-  if (input.item.toLowerCase().includes("roof") || input.type.includes("Roof")) {
-    const roof = resolveRoofUFactor(input.type, references.opaqueCts, input.detail, input.thicknessMm);
+  if (isRoofSurface(input.item, input.type)) {
+    const roofExposure = input.surfaceExposure ?? "exterior";
+    const roofSource = roofExposure === "intermediate" ? references.interiorSurfaces : references.opaqueCts;
+    const roof = resolveRoofUFactor(input.type, roofSource, input.detail, input.thicknessMm, roofExposure);
     if (roof) {
       return roof;
     }
@@ -320,7 +382,10 @@ export function resolveAshraeUFactor(input: {
 
   const wall = resolveWallUFromLayer(input.type, input.thicknessMm, references.opaqueCts);
   return wall ?? {
-    value: resolveCurrentUFactor(input.type).value,
-    source: formatSource(references.opaqueCts, "Fallback to available assembly U-factor"),
+    value: resolveCurrentUFactor(input.type, input.detail, input.thicknessMm, input.surfaceExposure).value,
+    source: formatSource(
+      input.surfaceExposure === "intermediate" ? references.interiorSurfaces : references.opaqueCts,
+      "Fallback to available assembly U-factor",
+    ),
   };
 }

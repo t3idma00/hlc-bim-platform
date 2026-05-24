@@ -10,7 +10,7 @@ import {
 } from "./ashrae-calculations/fenestration-u-table5";
 import { heatLoadLookupOptions } from "./heat-load-options";
 import { getSection1Reference, getSection2Reference } from "./heat-load-row-references";
-import { getDefaultRoofThicknessMm, getRoofAssemblyReference, roofDetailOptions } from "./ashrae-roof-assemblies";
+import { getDefaultRoofThicknessMm, roofDetailOptions } from "./ashrae-roof-assemblies";
 import { buildSection3, buildSection4, buildSection5, buildSection6 } from "./heat-load-sheet-section-builders";
 import type { Section, SelectOptionsByKey, SummaryRow } from "./heat-load-sheet-types";
 
@@ -21,6 +21,7 @@ const defaultRoofThickness = String(getDefaultRoofThicknessMm(defaultRoofType));
 const wallCellSelects: SelectOptionsByKey = {
   direction: heatLoadLookupOptions.directions,
   type: heatLoadLookupOptions.wallTypes,
+  detail: ["Not applicable"],
   thickness: heatLoadLookupOptions.wallThicknesses,
 };
 
@@ -47,7 +48,7 @@ const solarSkylightCellSelects: SelectOptionsByKey = {
 };
 
 const roofCellSelects: SelectOptionsByKey = {
-  type: heatLoadLookupOptions.roofTypes,
+  type: heatLoadLookupOptions.roofRouteTypes,
   detail: roofDetailOptions,
   thickness: ["6", "25", "150"],
 };
@@ -91,13 +92,14 @@ export function buildInitialSections(): Section[] {
       number: "1",
       title: "Solar & Trans. Heat gain through the Glass-Wall & Roof",
       columns: [
-        { key: "item", label: "Item", width: "8%" },
-        { key: "direction", label: "Direction", wrap: true, width: "10%" },
-        { key: "type", label: "Type", wrap: true, width: "35%" },
-        { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "10%", editable: true },
-        { key: "cltd", label: "CLTD/TD", unit: "temperatureDelta", align: "right", width: "11%", editable: true },
-        { key: "calcValue", label: "Area / Qty", unit: "area", align: "right", width: "12%", editable: true },
-        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "12%", editable: true },
+        { key: "item", label: "Item", width: "7%" },
+        { key: "direction", label: "Direction", wrap: true, width: "8%" },
+        { key: "type", label: "Type", wrap: true, width: "27%" },
+        { key: "detail", label: "Detail", wrap: true, width: "15%", editable: true },
+        { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "9%", editable: true },
+        { key: "cltd", label: "CLTD/TD", unit: "temperatureDelta", align: "right", width: "9%", editable: true },
+        { key: "calcValue", label: "Area / Qty", unit: "area", align: "right", width: "10%", editable: true },
+        { key: "heatLoad", label: "Total Heat load", unit: "heat", align: "right", width: "10%", editable: true },
       ],
       rows: [
         wallRow("1.1", "North", "W04 Reinforced concrete frame with 200 mm cement block infill", "200"),
@@ -132,7 +134,7 @@ export function buildInitialSections(): Section[] {
             type: defaultRoofType,
             detail: defaultRoofDetail,
             thickness: defaultRoofThickness,
-            reference: getRoofAssemblyReference(defaultRoofType, defaultRoofDetail),
+            reference: getSection1Reference("Roof", defaultRoofType, "HOR", defaultRoofDetail),
             uFactor: getDefaultUFactor(defaultRoofType, defaultRoofDetail, Number(defaultRoofThickness)),
             cltd: getDefaultTd(defaultRoofType, "HOR"),
             calcValue: "",
@@ -157,7 +159,7 @@ function wallRow(id: string, direction: string, type: string, thickness: string)
       item: "Wall",
       direction,
       type,
-      detail: "",
+      detail: "Not applicable",
       thickness,
       reference: getSection1Reference("Wall", type, direction),
       uFactor: getDefaultUFactor(type, "", Number(thickness)),

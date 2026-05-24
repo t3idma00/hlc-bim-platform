@@ -45,7 +45,7 @@ export function FenestrationFramePickerCell({
   return (
     <div
       ref={pickerRef}
-      className="relative min-h-[24px] w-full"
+      className="relative min-h-[24px] min-w-0 w-full"
       onKeyDown={(event) => {
         if (event.key === "Escape") setPickerIsOpen(false);
       }}
@@ -57,9 +57,9 @@ export function FenestrationFramePickerCell({
         aria-expanded={pickerIsOpen}
         title={title ?? selectedValue}
         onClick={() => setPickerIsOpen((current) => !current)}
-        className={`relative min-h-[28px] w-full cursor-pointer bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
+        className={`relative min-h-[28px] min-w-0 w-full cursor-pointer bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
       >
-        <span>{selectedValue}</span>
+        <span className="min-w-0 whitespace-normal break-words">{selectedValue}</span>
         <PickerChevron open={pickerIsOpen} />
       </button>
       {pickerIsOpen ? (

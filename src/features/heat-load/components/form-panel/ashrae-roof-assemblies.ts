@@ -2,6 +2,7 @@ import { formatSource, matchesText } from "./ashrae-calculations/common";
 import type { FactorResult } from "./ashrae-calculations/types";
 
 type RoofCeilingMode = "with" | "without";
+export type RoofExposure = "exterior" | "intermediate";
 
 type RoofLayer = {
   label: string;
@@ -26,6 +27,8 @@ const CH24_TABLES_SOURCE =
   "ASHRAE 1997 Fundamentals Handbook (SI), Ch24 Tables 1, 3, and 4";
 const CH28_TABLE31_SOURCE =
   "ASHRAE 1997 Fundamentals Handbook (SI), Ch28 Table 31, p.28.42";
+export const DEFAULT_ROOF_ASSEMBLY_LABEL = "Concrete Slab Roof";
+export const INTERMEDIATE_ROOF_SELECTION = "Intermediate Roof";
 
 const outsideRoofFilm: RoofLayer = {
   label: "Outside roof surface film",
@@ -37,6 +40,16 @@ const insideRoofFilm: RoofLayer = {
   label: "Inside roof surface film",
   resistanceM2KPerW: 0.121,
   reference: "Ch28 Table 30 note",
+};
+
+const adjacentSideInsideFilm: RoofLayer = {
+  ...insideRoofFilm,
+  label: "Adjacent-side inside ceiling surface film",
+};
+
+const roomSideInsideFilm: RoofLayer = {
+  ...insideRoofFilm,
+  label: "Room-side inside ceiling surface film",
 };
 
 const suspendedCeilingLayers: RoofLayer[] = [
@@ -119,7 +132,12 @@ const roofAssemblies: RoofAssembly[] = [
 ];
 
 export const roofAssemblyLabels = roofAssemblies.map((assembly) => assembly.label);
+export const roofRouteOptions = [...roofAssemblyLabels, INTERMEDIATE_ROOF_SELECTION];
 export const roofDetailOptions = ["With suspended ceiling", "Without suspended ceiling"];
+
+export function isIntermediateRoofSelection(type: string | undefined | null) {
+  return type === INTERMEDIATE_ROOF_SELECTION;
+}
 
 export function getRoofAssembly(type: string | undefined | null) {
   return roofAssemblies.find((assembly) =>
@@ -129,11 +147,22 @@ export function getRoofAssembly(type: string | undefined | null) {
 }
 
 export function getDefaultRoofThicknessMm(type: string | undefined | null) {
-  return getRoofAssembly(type)?.defaultThicknessMm ?? 150;
+  const assemblyType = isIntermediateRoofSelection(type) ? DEFAULT_ROOF_ASSEMBLY_LABEL : type;
+  return getRoofAssembly(assemblyType)?.defaultThicknessMm ?? 150;
+}
+
+export function normalizeRoofAssemblyLabel(type: string | undefined | null, fallback = DEFAULT_ROOF_ASSEMBLY_LABEL) {
+  if (isIntermediateRoofSelection(type)) {
+    return fallback;
+  }
+
+  return getRoofAssembly(type)?.label ?? fallback;
 }
 
 export function normalizeRoofDetail(detail: string | undefined | null) {
-  return detail?.toLowerCase().includes("without ceiling")
+  const normalizedDetail = detail?.toLowerCase() ?? "";
+
+  return normalizedDetail.includes("without")
     ? roofDetailOptions[1]
     : roofDetailOptions[0];
 }
@@ -143,7 +172,7 @@ export function getRoofCeilingMode(detail: string | undefined | null): RoofCeili
 }
 
 export function resolveRoofCltdMapping(type: string, detail?: string) {
-  const assembly = getRoofAssembly(type);
+  const assembly = getRoofAssembly(normalizeRoofAssemblyLabel(type));
 
   if (!assembly) {
     return null;
@@ -163,8 +192,9 @@ export function resolveRoofAssemblyUFactor(
   detail: string | undefined,
   thicknessMm: number,
   source: string,
+  exposure: RoofExposure = "exterior",
 ): FactorResult | null {
-  const assembly = getRoofAssembly(type);
+  const assembly = getRoofAssembly(normalizeRoofAssemblyLabel(type));
 
   if (!assembly) {
     return null;
@@ -173,11 +203,21 @@ export function resolveRoofAssemblyUFactor(
   const ceilingMode = getRoofCeilingMode(detail);
   const coreThicknessMm = thicknessMm > 0 ? thicknessMm : assembly.defaultThicknessMm;
   const coreLayer = { ...assembly.coreLayer, thicknessMm: coreThicknessMm };
+  const boundaryLayers =
+    exposure === "intermediate"
+      ? {
+          outside: adjacentSideInsideFilm,
+          inside: roomSideInsideFilm,
+        }
+      : {
+          outside: outsideRoofFilm,
+          inside: insideRoofFilm,
+        };
   const layers = [
-    outsideRoofFilm,
+    boundaryLayers.outside,
     coreLayer,
     ...(ceilingMode === "with" ? assembly.ceilingLayers : []),
-    insideRoofFilm,
+    boundaryLayers.inside,
   ];
   const totalResistance = layers.reduce((sum, layer) => sum + layerResistance(layer), 0);
 
@@ -192,18 +232,22 @@ export function resolveRoofAssemblyUFactor(
       return `${layer.label}${thicknessText}`;
     })
     .join(" + ");
+  const exposureText =
+    exposure === "intermediate"
+      ? "intermediate roof/ceiling U-factor with two inside surface films; exterior roof solar CLTD is not applied in Section 3"
+      : "solar-exposed exterior roof U-factor";
 
   return {
     value,
     source: formatSource(
       source === "Current application lookup data" ? CH24_TABLES_SOURCE : `${source}; ${CH24_TABLES_SOURCE}`,
-      `${assembly.label} U = 1 / Rtotal = ${value.toFixed(3)} W/m2K. Rtotal ${totalResistance.toFixed(3)} m2K/W from ${materialText}. ${assembly.auditNote}`,
+      `${assembly.label} ${exposureText}; U = 1 / Rtotal = ${value.toFixed(3)} W/m2K. Rtotal ${totalResistance.toFixed(3)} m2K/W from ${materialText}. ${assembly.auditNote}`,
     ),
   };
 }
 
 export function getRoofAssemblyReference(type: string, detail?: string) {
-  const assembly = getRoofAssembly(type);
+  const assembly = getRoofAssembly(normalizeRoofAssemblyLabel(type));
   const mapping = resolveRoofCltdMapping(type, detail);
 
   if (!assembly || !mapping) {
@@ -214,6 +258,21 @@ export function getRoofAssemblyReference(type: string, detail?: string) {
     `${CH28_TABLE31_SOURCE}: ${mapping.basis}`,
     "Ch28 Table 30 gives hourly roof CLTD by selected roof number",
     `${CH24_TABLES_SOURCE}: U-factor is calculated from the listed representative layers`,
+  ].join("; ");
+}
+
+export function getIntermediateRoofAssemblyReference(type: string, detail?: string) {
+  const assembly = getRoofAssembly(normalizeRoofAssemblyLabel(type));
+  const ceilingMode = getRoofCeilingMode(detail);
+
+  if (!assembly) {
+    return "ASHRAE 1997 Chapter 28 interior-surface method for intermediate roof/ceiling transmission; U-factor from selected roof/ceiling assembly; exterior roof solar CLTD is not applied";
+  }
+
+  return [
+    "ASHRAE 1997 Chapter 28 interior-surface method for partitions, ceilings, and floors: Q = U x A x (Tadjacent - Tindoor)",
+    `${CH24_TABLES_SOURCE}: U-factor is calculated from representative ${assembly.label} layers ${ceilingMode === "with" ? "with suspended ceiling resistance" : "without suspended ceiling resistance"}`,
+    "Solar-exposed roof CLTD from Chapter 28 Table 30 is reserved for Section 1 exterior roof loads",
   ].join("; ");
 }
 

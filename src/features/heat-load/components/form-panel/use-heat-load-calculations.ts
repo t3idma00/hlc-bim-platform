@@ -39,6 +39,13 @@ type VentilationRate = {
   perArea: number;
 };
 
+const legacySection5RowIds: Record<string, string> = {
+  "5.2": "5.3",
+  "5.3": "5.4",
+  "5.4": "5.5",
+  "5.5": "5.6",
+};
+
 export function useHeatLoadCalculations({
   formValues,
   sheetValues,
@@ -71,7 +78,8 @@ export function useHeatLoadCalculations({
     };
     const getVal = (row: Row, key: string) => {
       const sheetKey = `${row.id}_${key}`;
-      const rawValue = sheetValues[sheetKey] ?? row.values[key] ?? "";
+      const legacySheetKey = legacySection5RowIds[row.id] ? `${legacySection5RowIds[row.id]}_${key}` : "";
+      const rawValue = sheetValues[sheetKey] ?? sheetValues[legacySheetKey] ?? row.values[key] ?? "";
       const normalizedValue = normalizeSheetCellValue(row, key, rawValue);
 
       if (normalizedValue !== rawValue) {
@@ -148,7 +156,7 @@ function calculateSection1Row(
   const detail = getVal(row, "detail");
   const thicknessMm = getNum(getVal(row, "thickness"));
   const area = getNum(getVal(row, "calcValue"));
-  setVal(`${row.id}_reference`, getSection1Reference(item, type, direction));
+  setVal(`${row.id}_reference`, getSection1Reference(item, type, direction, detail));
 
   const allGlassResult =
     row.id === "1.5" && direction === "All"
@@ -425,7 +433,7 @@ function calculateSection3Row(
     context: state.designContext,
   });
 
-  setVal(`${row.id}_reference`, getSection3Reference(item, typeA));
+  setVal(`${row.id}_reference`, getSection3Reference(item, typeA, typeB));
   if (isLegacySection3Row) {
     setVal(`${row.id}_item`, item);
     setVal(`${row.id}_typeA`, typeA);
@@ -489,26 +497,37 @@ function calculateSection5Row(
 ) {
   const item = getVal(row, "item");
   const application = getVal(row, "application");
-  const isLatent = item.toLowerCase().includes("latent");
-  const gainFactor = resolveAshraeInternalHeatGain({ item, application, isLatent });
+  const isPeople = item.includes("People");
+  const isAdditional = item.includes("Additional");
+  const gainFactor = resolveAshraeInternalHeatGain({ item, application });
+  const latentGainFactor = isPeople
+    ? resolveAshraeInternalHeatGain({ item, application, isLatent: true })
+    : null;
   const clfFactor = resolveAshraeInternalClf({
     item,
     zoneType: getVal(row, "zone"),
     hoursInUse: getNum(getVal(row, "hoursInUse")),
     hoursAfterStart: getNum(getVal(row, "hoursAfterStart")),
-    isLatent,
   });
-  const gain = item.includes("Additional") ? getNum(getVal(row, "heatGain")) : gainFactor.value;
+  const gain = isAdditional ? getNum(getVal(row, "heatGain")) : gainFactor.value;
+  const latentGain = isAdditional ? getNum(getVal(row, "latentGain")) : latentGainFactor?.value ?? 0;
   const qty = getNum(getVal(row, "qty"));
-  const clf = item.includes("Additional") ? getNum(getVal(row, "clf")) || 1 : clfFactor.value;
-  const heatLoad = gain !== 0 && qty !== 0 ? gain * qty * clf : 0;
+  const clf = isAdditional ? getNum(getVal(row, "clf")) || 1 : clfFactor.value;
+  const heatLoad = qty * (gain * clf + latentGain);
   setVal(`${row.id}_reference`, getSection5Reference(item));
-  if (!item.includes("Additional")) setVal(`${row.id}_heatGain`, gain.toFixed(2));
-  if (!item.includes("Additional")) setVal(`${row.id}_clf`, clf.toFixed(2));
+  if (!isAdditional) setVal(`${row.id}_heatGain`, gain.toFixed(2));
+  if (!isAdditional) setVal(`${row.id}_clf`, clf.toFixed(2));
+  if (isPeople && latentGainFactor) setVal(`${row.id}_latentGain`, latentGainFactor.value.toFixed(2));
+  if (!isPeople && !isAdditional) setVal(`${row.id}_latentGain`, "");
   setVal(`${row.id}_heatLoad`, heatLoad.toFixed(2));
   setSource(row.id, "heatGain", gainFactor.source);
+  setSource(
+    row.id,
+    "latentGain",
+    isPeople && latentGainFactor ? `${latentGainFactor.source}; latent load is instantaneous` : "",
+  );
   setSource(row.id, "clf", clfFactor.source);
-  setSource(row.id, "heatLoad", "Q = heat gain x quantity x CLF");
+  setSource(row.id, "heatLoad", "Q = quantity x (sensible heat gain x CLF + latent heat gain)");
   return heatLoad;
 }
 
@@ -553,7 +572,7 @@ function calculateSection6Row(
     "totalFlowRate",
     isManualFlow
       ? "Manual user-entered outdoor-air flow"
-      : "Vbz = people x Rp + area x Ra, from ANSI/ASHRAE 62.1-2007 Table 03",
+      : "Vbz = people x Rp + floor area (m2) x Ra, from ANSI/ASHRAE 62.1-2007 Table 03",
   );
   setSource(row.id, "sensible", "Cooling sizing sensible = max(0, ASHRAE 1997 Ch28 Eq. 22: 1.23 x L/s x deltaT)");
   setSource(row.id, "latent", "Cooling sizing latent = max(0, ASHRAE 1997 Ch28 Eq. 23: 3010 x L/s x deltaW)");
