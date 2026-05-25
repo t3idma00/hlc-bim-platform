@@ -1,3 +1,5 @@
+import { calculateSHGF } from "@/lib/calculations/solar-calculations";
+
 import section2Tables from "../ashrae-tables/section-2-1997.json";
 import { getAshraeZoneCode } from "../heat-load-zone-labels";
 
@@ -37,6 +39,7 @@ const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const latitudes = [16, 24, 32, 40, 48, 56, 64];
 const shadingCoefficientSource1997 = "ASHRAE 1997 Ch29 Tables 11, 25, 26, 29";
 const solarHeatGainFactorSource1997 = "ASHRAE 1997 Ch29 Tables 15-21";
+const solarHeatGainFactorSourceCurrent = "NASA/Open-Meteo solar irradiance plane-of-array calculation";
 const solarCoolingLoadSource1997 = "ASHRAE 1997 Ch28 Tables 35B and 36";
 const domedSkylightSource = "ASHRAE 1997 Ch29 Table 12, p.29.26";
 const removedIndoorShadeLabels = new Set([
@@ -71,8 +74,28 @@ const directionCodeByLabel: Record<string, string> = {
   HOR: "Hor",
 };
 
+const surfaceAzimuthByDirection: Record<string, number> = {
+  North: 0,
+  Northeast: 45,
+  East: 90,
+  Southeast: 135,
+  South: 180,
+  Southwest: 225,
+  West: 270,
+  Northwest: 315,
+  HOR: 180,
+};
+
 function directionCode(direction: string) {
   return directionCodeByLabel[direction] ?? "N";
+}
+
+function surfaceTilt(direction: string) {
+  return direction === "HOR" ? 0 : 90;
+}
+
+function surfaceAzimuth(direction: string) {
+  return surfaceAzimuthByDirection[direction] ?? 180;
 }
 
 function hourKey(hour: number) {
@@ -249,10 +272,52 @@ function resolveAshrae1997Shgf(input: {
   };
 }
 
+function resolveCurrentSolarHeatGain(input: {
+  direction: string;
+  context: DesignConditionContext;
+}): FactorResult | null {
+  if (input.context.source !== "current" || !input.context.solar.hasData) {
+    return null;
+  }
+
+  const tilt = surfaceTilt(input.direction);
+  const azimuth = surfaceAzimuth(input.direction);
+  const result = calculateSHGF({
+    dni: input.context.solar.dni,
+    dhi: input.context.solar.dhi,
+    ghi: input.context.solar.ghi,
+    zenith: input.context.solar.zenith,
+    azimuth: input.context.solar.azimuth,
+    surfaceTilt: tilt,
+    surfaceAzimuth: azimuth,
+  });
+
+  return {
+    value: result.shgf,
+    source: formatSource(
+      solarHeatGainFactorSourceCurrent,
+      [
+        `${input.direction} surface tilt ${tilt} deg, azimuth ${azimuth} deg`,
+        `DNI ${input.context.solar.dni.toFixed(2)} W/m2`,
+        `DHI ${input.context.solar.dhi.toFixed(2)} W/m2`,
+        `GHI ${input.context.solar.ghi.toFixed(2)} W/m2`,
+        `solar zenith ${input.context.solar.zenith.toFixed(2)} deg`,
+        `solar azimuth ${input.context.solar.azimuth.toFixed(2)} deg`,
+        `beam ${result.components.beam.toFixed(2)} W/m2`,
+        `diffuse ${result.components.diffuse.toFixed(2)} W/m2`,
+        `ground-reflected ${result.components.reflected.toFixed(2)} W/m2`,
+      ].join("; "),
+    ),
+  };
+}
+
 export function resolveAshraeSolarHeatGain(input: {
   direction: string;
   context: DesignConditionContext;
 }): FactorResult {
+  const currentValue = resolveCurrentSolarHeatGain(input);
+  if (currentValue) return currentValue;
+
   const ashraeValue = resolveAshrae1997Shgf(input);
   if (ashraeValue) return ashraeValue;
 

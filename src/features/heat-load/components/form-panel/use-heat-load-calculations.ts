@@ -351,6 +351,8 @@ function calculateSection2Row(
     factors.solarHeatGain.value *
     factors.solarCoolingLoadFactor.value *
     area;
+  const usesCurrentSolar =
+    state.designContext.source === "current" && state.designContext.solar.hasData;
 
   setVal(`${row.id}_sc`, factors.effectiveCoefficient.value.toFixed(2));
   setVal(`${row.id}_shg`, factors.solarHeatGain.value.toFixed(2));
@@ -359,13 +361,17 @@ function calculateSection2Row(
   setSource(row.id, "sc", factors.effectiveCoefficient.source);
   setSource(row.id, "shg", factors.solarHeatGain.source);
   setSource(row.id, "clf", factors.solarCoolingLoadFactor.source);
-  setSource(row.id, "result", "ASHRAE 1997 Section 2: Q = SC x SHGF x CLF x area");
+  setSource(row.id, "result", "Section 2: Q = SC x SHGF x CLF x area");
   setVal(
     `${row.id}_calculationTrace`,
     [
-      "ASHRAE 1997 simplified solar glass method",
+      usesCurrentSolar
+        ? "NASA/Open-Meteo plane-of-array solar glass method"
+        : "ASHRAE 1997 simplified solar glass method",
       "Q = SC x SHGF x CLF x area",
-      "SHGF month and latitude follow the active design-condition station basis.",
+      usesCurrentSolar
+        ? "SHGF is calculated from DNI, DHI, GHI, solar zenith, solar azimuth, and window orientation."
+        : "SHGF month and latitude follow the active design-condition station basis.",
       `SC: ${factors.effectiveCoefficient.value.toFixed(3)}`,
       `SHGF: ${factors.solarHeatGain.value.toFixed(2)} W/m2`,
       `CLF: ${factors.solarCoolingLoadFactor.value.toFixed(3)}`,

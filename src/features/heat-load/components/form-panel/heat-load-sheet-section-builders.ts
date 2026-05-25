@@ -127,7 +127,6 @@ export function buildSection3(): Section {
       { key: "direction", label: "Direction", wrap: true, width: "10%" },
       { key: "typeA", label: "Type", wrap: true, width: "17%", editable: true },
       { key: "typeB", label: "Construction", wrap: true, width: "17%", editable: true },
-      { key: "adjacentTemperature", label: "Adj. temp", unit: "temperature", align: "right", width: "9%", editable: true },
       { key: "uFactor", label: "U Factor", unit: "uFactor", align: "right", width: "8%" },
       { key: "cltd", label: "TD", unit: "temperatureDelta", align: "right", width: "7%" },
       { key: "calcValue", label: "Area", unit: "area", align: "right", width: "9%", editable: true },
