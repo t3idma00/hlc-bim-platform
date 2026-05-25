@@ -171,9 +171,8 @@ export default function HeatLoadWorkspace() {
   }, []);
 
   const handleFormChange = (name: string, value: string) => {
-    setProjectData((prev) => ({
-      ...prev,
-      rooms: prev.rooms.map((room) =>
+    setProjectData((prev) => {
+      const nextRooms = prev.rooms.map((room) =>
         room.id === activeRoomId
           ? {
               ...room,
@@ -181,14 +180,18 @@ export default function HeatLoadWorkspace() {
               sheetValues: applyFormValueToSheetValues(room.sheetValues ?? {}, name, value),
             }
           : room
-      ),
-    }));
+      );
+
+      return {
+        ...prev,
+        rooms: synchronizeSharedWallBoundaries(nextRooms),
+      };
+    });
   };
 
   const handleSheetChange = (name: string, value: string) => {
-    setProjectData((prev) => ({
-      ...prev,
-      rooms: prev.rooms.map((room) => {
+    setProjectData((prev) => {
+      const nextRooms = prev.rooms.map((room) => {
         if (room.id === activeRoomId) {
           const nextSheetValues = applyLinkedRoofSheetValue(room.sheetValues ?? {}, name, value);
 
@@ -199,8 +202,13 @@ export default function HeatLoadWorkspace() {
           };
         }
         return room;
-      }),
-    }));
+      });
+
+      return {
+        ...prev,
+        rooms: synchronizeSharedWallBoundaries(nextRooms),
+      };
+    });
   };
 
   const handleAddRoom = () => {
@@ -224,9 +232,8 @@ export default function HeatLoadWorkspace() {
     const ownWall = OPPOSITE_ROOM_WALL[addRoomTargetWall];
     const offsetMeters = parseSignedRoomNumber(addRoomOffset);
 
-    setProjectData((prev) => ({
-      ...prev,
-      rooms: [
+    setProjectData((prev) => {
+      const nextRooms = [
         ...prev.rooms,
         {
           id: newRoomId,
@@ -245,8 +252,13 @@ export default function HeatLoadWorkspace() {
             offsetMeters,
           },
         },
-      ],
-    }));
+      ];
+
+      return {
+        ...prev,
+        rooms: synchronizeSharedWallBoundaries(nextRooms),
+      };
+    });
     setActiveRoomId(newRoomId);
     setShowAddRoomModal(false);
   };
@@ -511,7 +523,7 @@ export default function HeatLoadWorkspace() {
     setProjectData({
       version: "1.2",
       lastSaved: saved.lastSaved || new Date().toISOString(),
-      rooms: resolveRoomPlacements(rooms),
+      rooms: resolveRoomPlacements(synchronizeSharedWallBoundaries(rooms)),
     });
 
     setCurrentProjectId(project.id);
@@ -1001,6 +1013,38 @@ export default function HeatLoadWorkspace() {
 
 // ==================== HELPER FUNCTIONS ====================
 
+function synchronizeSharedWallBoundaries(rooms: ProjectData["rooms"]): ProjectData["rooms"] {
+  const normalizedRooms = rooms.map((room) => ({
+    ...room,
+    formValues: { ...room.formValues },
+  }));
+  const roomsById = new Map(normalizedRooms.map((room) => [room.id, room]));
+
+  normalizedRooms.forEach((room) => {
+    const attachedRoomId = room.placement?.attachToRoomId;
+
+    if (!attachedRoomId) {
+      return;
+    }
+
+    const targetRoom = roomsById.get(attachedRoomId);
+    if (!targetRoom) {
+      return;
+    }
+
+    const targetWall = getPlacementWall(room.placement?.targetWall ?? room.placement?.targetAnchor, "East");
+    const ownWall = getPlacementWall(
+      room.placement?.ownWall ?? room.placement?.ownAnchor,
+      OPPOSITE_ROOM_WALL[targetWall]
+    );
+
+    room.formValues[getWallBoundaryFieldName(ownWall)] = "Interior";
+    targetRoom.formValues[getWallBoundaryFieldName(targetWall)] = "Interior";
+  });
+
+  return normalizedRooms;
+}
+
 function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"] {
   const placedRooms: ProjectData["rooms"] = [];
   let cursorX = 0;
@@ -1260,6 +1304,10 @@ function getWallTypeFieldName(wall: RoomWall) {
 
 function getWallWidthFieldName(wall: RoomWall) {
   return `wall${wall}Width`;
+}
+
+function getWallBoundaryFieldName(wall: RoomWall) {
+  return `wall${wall}Boundary`;
 }
 
 function applySheetValueToFormValues(formValues: FormValues, sheetKey: string, sheetValue: string): FormValues {
