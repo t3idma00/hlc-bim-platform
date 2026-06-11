@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getWallAppearanceByType, type WallAppearance, type WallPatternKind } from "@/data/assets";
 import type { RoomData } from "@/types";
 import { createBucketedIsoString, fetchCachedJson } from "@/lib/client-fetch-cache";
@@ -17,6 +17,8 @@ const BASE_GRID_SIZE = 40;
 const DEFAULT_WALL_THICKNESS = 0.2;
 const DIMENSION_GAP = 12;
 const GRID_TARGET_SIZE = 44;
+const MIN_CANVAS_SCALE = 0.4;
+const MAX_CANVAS_SCALE = 4;
 const EDITOR_SNAP_DIVISIONS = 4;
 const EDITOR_MIN_WALL_LENGTH = 0.4;
 const EDITOR_DEFAULT_WINDOW_WIDTH = 1.2;
@@ -363,8 +365,10 @@ export function HeatLoadCanvasPanel({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const canvasFrameRef = useRef<HTMLDivElement | null>(null);
   const unitSystem = normalizeUnitSystem(formValues.unitSystem);
   const [scale, setScale] = useState(1);
+  const [isCanvasFullscreen, setIsCanvasFullscreen] = useState(false);
   const [solarState, setSolarState] = useState<SolarState>({
     status: "loading",
     snapshot: null,
@@ -374,6 +378,7 @@ export function HeatLoadCanvasPanel({
   const [selectedObjectKind, setSelectedObjectKind] = useState<EditorObjectKind>("workDesk");
   const [showObjectMenu, setShowObjectMenu] = useState(false);
   const [editorRevision, setEditorRevision] = useState(0);
+  const [wallSummary, setWallSummary] = useState("No walls drawn yet");
   const [historyControls, setHistoryControls] = useState({
     canUndo: false,
     canRedo: false,
@@ -397,9 +402,19 @@ export function HeatLoadCanvasPanel({
   const redoStackRef = useRef<EditorSnapshot[]>([]);
   const suppressFormReseedCountRef = useRef(0);
 
-  const refreshEditorUi = () => {
+  const refreshEditorUi = useCallback(() => {
+    setWallSummary(
+      getCanvasSummary(
+        formValues,
+        editorWallsRef.current,
+        editorOpeningsRef.current,
+        editorObjectsRef.current,
+        draftWallStartRef.current,
+        unitSystem
+      )
+    );
     setEditorRevision((previousValue) => previousValue + 1);
-  };
+  }, [formValues, unitSystem]);
 
   const clearEditorDraft = () => {
     draftWallStartRef.current = null;
@@ -653,7 +668,7 @@ export function HeatLoadCanvasPanel({
       clearEditorDraft();
       refreshEditorUi();
     }
-  }, [editorTool]);
+  }, [editorTool, refreshEditorUi]);
 
   useEffect(() => {
     if (suppressFormReseedCountRef.current > 0) {
@@ -672,7 +687,24 @@ export function HeatLoadCanvasPanel({
     clearEditorDraft();
     hoveredSnapTargetRef.current = null;
     refreshEditorUi();
-  }, [formValues]);
+  }, [formValues, refreshEditorUi]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const handleFullscreenChange = () => {
+      setIsCanvasFullscreen(document.fullscreenElement === canvasFrameRef.current);
+      setEditorRevision((previousValue) => previousValue + 1);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -703,7 +735,7 @@ export function HeatLoadCanvasPanel({
     return () => {
       document.removeEventListener("pointerdown", handleDocumentPointerDown);
     };
-  }, []);
+  }, [refreshEditorUi]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -711,12 +743,15 @@ export function HeatLoadCanvasPanel({
     }
 
     if (!("geolocation" in navigator)) {
-      setSolarState({
-        status: "unsupported",
-        snapshot: null,
-        message: "Geolocation is not supported in this browser.",
-      });
-      return;
+      const timeoutId = window.setTimeout(() => {
+        setSolarState({
+          status: "unsupported",
+          snapshot: null,
+          message: "Geolocation is not supported in this browser.",
+        });
+      }, 0);
+
+      return () => window.clearTimeout(timeoutId);
     }
 
     let cancelled = false;
@@ -1382,7 +1417,7 @@ export function HeatLoadCanvasPanel({
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault();
       const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
-      setScale((previousScale) => Math.max(0.4, Math.min(previousScale * zoomFactor, 4)));
+      setScale((previousScale) => clampCanvasScale(previousScale * zoomFactor));
     };
 
     const redrawCanvas = () => {
@@ -2054,6 +2089,7 @@ export function HeatLoadCanvasPanel({
     rooms,
     activeRoomId,
     redoEditorChange,
+    refreshEditorUi,
     scale,
     solarState,
     selectedObjectKind,
@@ -2061,18 +2097,8 @@ export function HeatLoadCanvasPanel({
     undoEditorChange,
   ]);
 
-  const editorWalls = editorWallsRef.current;
-  const editorOpenings = editorOpeningsRef.current;
   const canUndo = historyControls.canUndo;
   const canRedo = historyControls.canRedo;
-  const wallSummary = getCanvasSummary(
-    formValues,
-    editorWalls,
-    editorOpenings,
-    editorObjectsRef.current,
-    draftWallStartRef.current,
-    unitSystem
-  );
   const sunSummary = getSunSummary(solarState);
   const compassMarker =
     solarState.status === "ready" && solarState.snapshot.altitude > 0
@@ -2086,6 +2112,64 @@ export function HeatLoadCanvasPanel({
       : editorTool === "delete"
         ? "cursor-not-allowed"
         : "cursor-default";
+
+  const handleToggleCanvasFullscreen = async () => {
+    const canvasFrame = canvasFrameRef.current;
+
+    if (!canvasFrame || typeof document === "undefined") {
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        return;
+      }
+
+      await canvasFrame.requestFullscreen();
+    } catch {
+      // Browser fullscreen can be denied; keep the canvas usable without surfacing a blocking error.
+    }
+  };
+
+  const handleFitDrawnArea = () => {
+    const canvas = canvasRef.current;
+
+    if (!canvas || canvas.clientWidth <= 0 || canvas.clientHeight <= 0) {
+      return;
+    }
+
+    const metrics = getRenderedRoomPlanMetrics(
+      canvas.clientWidth,
+      canvas.clientHeight,
+      BASE_GRID_SIZE,
+      0,
+      0,
+      rooms,
+      activeRoomId,
+      formValues
+    );
+
+    offsetRef.current = { x: 0, y: 0 };
+
+    if (metrics.roomPlans.length === 0) {
+      setScale(1);
+      refreshEditorUi();
+      return;
+    }
+
+    const horizontalPadding = Math.min(120, Math.max(56, metrics.drawWidth * 0.14));
+    const verticalPadding = Math.min(100, Math.max(48, metrics.drawHeight * 0.14));
+    const availableWidth = Math.max(metrics.drawWidth - horizontalPadding * 2, 80);
+    const availableHeight = Math.max(metrics.drawHeight - verticalPadding * 2, 80);
+    const targetPixelsPerMeter = Math.min(
+      availableWidth / metrics.planWidth,
+      availableHeight / metrics.planHeight
+    );
+
+    setScale(clampCanvasScale(targetPixelsPerMeter / BASE_GRID_SIZE));
+    refreshEditorUi();
+  };
 
   return (
     <section ref={workspaceRef} className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-white">
@@ -2107,7 +2191,10 @@ export function HeatLoadCanvasPanel({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-4">
-        <div className="flex h-full w-full flex-1 overflow-hidden border border-sky-100 bg-[#dbeafe]">
+        <div
+          ref={canvasFrameRef}
+          className="flex h-full w-full flex-1 overflow-hidden border border-sky-100 bg-[#dbeafe]"
+        >
           <div className="relative z-20 w-14 overflow-visible border-r border-[#44536a] bg-[#5d6b7d]/97 shadow-lg shadow-slate-900/18 backdrop-blur">
             <div className="flex h-full w-full flex-col items-center gap-1 pt-2">
               {TOOL_OPTIONS.map((tool) => {
@@ -2239,12 +2326,33 @@ export function HeatLoadCanvasPanel({
           </div>
 
           <div className="relative min-w-0 flex-1">
+            <div className="absolute right-0 top-0 z-40 flex flex-col overflow-hidden rounded-bl-lg border-b border-l border-slate-200 bg-white/95 shadow-sm shadow-slate-900/10 backdrop-blur">
+              <button
+                type="button"
+                aria-label={isCanvasFullscreen ? "Exit fullscreen" : "Open fullscreen"}
+                title={isCanvasFullscreen ? "Exit fullscreen" : "Open fullscreen"}
+                onClick={handleToggleCanvasFullscreen}
+                className="flex h-9 w-9 items-center justify-center text-slate-700 transition hover:bg-slate-50 hover:text-[#be123c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-100"
+              >
+                <CanvasCornerIcon mode={isCanvasFullscreen ? "restore" : "fullscreen"} />
+              </button>
+              <div className="h-px bg-slate-200" />
+              <button
+                type="button"
+                aria-label="Fit drawn plan"
+                title="Fit drawn plan"
+                onClick={handleFitDrawnArea}
+                className="flex h-9 w-9 items-center justify-center text-slate-700 transition hover:bg-slate-50 hover:text-[#be123c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-100"
+              >
+                <CanvasCornerIcon mode="fit" />
+              </button>
+            </div>
             <canvas
               id="heat-load-2d-canvas"
               ref={canvasRef}
               className={`h-full w-full ${canvasCursorClass}`}
             />
-            <div className="pointer-events-none absolute right-4 top-6">
+            <div className="pointer-events-none absolute right-16 top-6">
               <CompassOverlay marker={compassMarker} />
             </div>
           </div>
@@ -2260,6 +2368,64 @@ export function HeatLoadCanvasPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+function CanvasCornerIcon({ mode }: { mode: "fullscreen" | "restore" | "fit" }) {
+  if (mode === "restore") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-4 w-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="square"
+        strokeLinejoin="miter"
+      >
+        <path d="M9 5v4H5" />
+        <path d="M15 5v4h4" />
+        <path d="M9 19v-4H5" />
+        <path d="M15 19v-4h4" />
+      </svg>
+    );
+  }
+
+  if (mode === "fit") {
+    return (
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        className="h-4 w-4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="square"
+        strokeLinejoin="miter"
+      >
+        <path d="M8 15H5v4h4" />
+        <path d="M16 9h3V5h-4" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="square"
+      strokeLinejoin="miter"
+    >
+      <path d="M9 5H5v4" />
+      <path d="M15 5h4v4" />
+      <path d="M5 15v4h4" />
+      <path d="M19 15v4h-4" />
+    </svg>
   );
 }
 
@@ -4530,6 +4696,14 @@ function getGridMetrics(scale: number): GridMetrics {
     gridSpacing: pixelsPerMeter * gridStepMeters,
     subStepSpacing: (pixelsPerMeter * gridStepMeters) / 4,
   };
+}
+
+function clampCanvasScale(scale: number) {
+  if (!Number.isFinite(scale)) {
+    return 1;
+  }
+
+  return Math.max(MIN_CANVAS_SCALE, Math.min(scale, MAX_CANVAS_SCALE));
 }
 
 function getRoundedGridStep(desiredStepMeters: number) {

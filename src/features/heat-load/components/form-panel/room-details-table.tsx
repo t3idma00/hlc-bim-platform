@@ -2,7 +2,6 @@ import { DirectionDimensionCell, TopSelectField } from "./top-form-fields";
 import type { UnitSystem } from "@/lib/units";
 import {
   boundaryFieldName,
-  getSurfaceBoundary,
   wallBoundaryOptions,
   type BoundaryOwner,
   type CardinalWall,
@@ -51,6 +50,37 @@ const roomRowsBySurface: Record<SurfaceType, RoomRow[]> = {
   ],
 };
 
+export function RoomDetailsSurfaceTabs({
+  surfaceType,
+  onSurfaceChange,
+}: {
+  surfaceType: SurfaceType;
+  onSurfaceChange: (surfaceType: SurfaceType) => void;
+}) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-md border border-slate-200 bg-slate-100 p-0.5">
+      {surfaceTabs.map((tab) => {
+        const isActive = surfaceType === tab.key;
+
+        return (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => onSurfaceChange(tab.key)}
+            className={`min-w-16 rounded px-2.5 py-1.5 text-[11px] font-semibold transition ${
+              isActive
+                ? "bg-[#be123c] text-white shadow-sm"
+                : "text-slate-600 hover:bg-white hover:text-slate-950"
+            }`}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function RoomDetailsHeader({
   surfaceType,
   onSurfaceChange,
@@ -60,31 +90,12 @@ export function RoomDetailsHeader({
 }) {
   return (
     <th
-      className="border border-slate-300 bg-[#ffe7ee] px-0 py-0 text-left text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]"
+      className="border border-slate-200 bg-slate-50 px-0 py-0 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[#9f1239]"
       colSpan={2}
     >
-      <div className="flex items-end justify-between gap-3 px-2 pt-2">
-        <span className="pb-2">Room Details</span>
-        <div className="flex items-end">
-          {surfaceTabs.map((tab) => {
-            const isActive = surfaceType === tab.key;
-
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => onSurfaceChange(tab.key)}
-                className={`relative flex h-7 w-[78px] items-center justify-center border px-3 text-[9px] font-semibold normal-case tracking-[0.14em] leading-none ${
-                  isActive
-                    ? "-mb-px z-10 border-[#9f1239] border-b-[#fff8fa] bg-[#9f1239] text-white"
-                    : "border-slate-300 bg-[#fff4f7] text-slate-900"
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
+      <div className="flex items-center justify-between gap-3 px-3 py-3">
+        <span>Room Details</span>
+        <RoomDetailsSurfaceTabs surfaceType={surfaceType} onSurfaceChange={onSurfaceChange} />
       </div>
     </th>
   );
@@ -96,29 +107,32 @@ export function RoomDetailsRow({
   values,
   unitSystem,
   onFieldChange,
+  onSelectFieldChange,
 }: {
   surfaceType: SurfaceType;
   rowIndex: number;
   values: FormValues;
   unitSystem: UnitSystem;
   onFieldChange: (name: string, value: string) => void;
+  onSelectFieldChange: (name: string, value: string) => void;
 }) {
   const roomRow = roomRowsBySurface[surfaceType][rowIndex];
   const boundaryOwner = getBoundaryOwner(surfaceType);
+  const boundaryName = boundaryFieldName(boundaryOwner, roomRow.defaultDirection);
 
   return (
     <>
-      <td className="border border-slate-300 bg-[#fff4f7] p-0">
+      <td className="border border-slate-200 bg-slate-50 p-0">
         <TopSelectField
           ariaLabel={`${roomRow.defaultDirection} direction`}
           name={`${roomRow.name}Direction`}
-          value={values[`${roomRow.name}Direction`] ?? roomRow.defaultDirection}
+          value={values[`${roomRow.name}Direction`] ?? ""}
           options={roomRow.options}
-          onValueChange={onFieldChange}
+          onValueChange={onSelectFieldChange}
         />
       </td>
-      <td className="border border-slate-300 bg-white p-0">
-        <div className="grid min-h-[30px] grid-cols-[minmax(0,1fr)_72px]">
+      <td className="border border-slate-200 bg-white p-0">
+        <div className="grid min-h-[34px] grid-cols-[minmax(0,1fr)_100px]">
           <DirectionDimensionCell
             name={roomRow.name}
             surfaceType={surfaceType}
@@ -128,13 +142,12 @@ export function RoomDetailsRow({
           />
           <select
             aria-label={`${roomRow.defaultDirection} ${boundaryOwner} boundary`}
-            value={getSurfaceBoundary(values, boundaryOwner, roomRow.defaultDirection)}
-            onChange={(event) =>
-              onFieldChange(boundaryFieldName(boundaryOwner, roomRow.defaultDirection), event.target.value)
-            }
-            className="h-full min-h-[30px] border-l border-slate-200 bg-[#fff4f7] px-1 text-[9px] font-semibold text-slate-900 outline-none"
+            value={values[boundaryName] ?? ""}
+            onChange={(event) => onSelectFieldChange(boundaryName, event.target.value)}
+            className="h-full min-h-[34px] border-l border-slate-200 bg-slate-50 px-1.5 text-[11px] font-semibold text-slate-900 outline-none transition focus:bg-white focus:ring-2 focus:ring-inset focus:ring-rose-100"
             title={`${getBoundaryTitlePrefix(surfaceType)} boundary controls the cooling-load section routing.`}
           >
+            <option value="">Select</option>
             {wallBoundaryOptions.map((option) => (
               <option key={option} value={option}>
                 {option}

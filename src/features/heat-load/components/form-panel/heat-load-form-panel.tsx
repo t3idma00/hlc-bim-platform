@@ -1,18 +1,22 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { fetchCachedJson } from "@/lib/client-fetch-cache";
 import { calculateRelativeHumidityFromWetBulb, calculateWetBulbFromRelativeHumidity } from "@/lib/calculations";
 import { normalizeUnitSystem, unitLabel, type UnitSystem } from "@/lib/units";
 
-import { DesignConditionsHeader, DesignConditionsRow } from "./design-conditions-table";
+import { DesignConditionsRow } from "./design-conditions-table";
 import { HeatLoadSheet } from "./heat-load-sheet";
-import { RoomDetailsHeader, RoomDetailsRow } from "./room-details-table";
+import { RoomDetailsRow, RoomDetailsSurfaceTabs } from "./room-details-table";
 import { roofDetailOptions } from "./ashrae-roof-assemblies";
+import { CompletionBadge } from "./completion-badge";
+import { isManualSelectComplete, manualSelectMarkerKey, manualSelectMarkerValue } from "./progress-tracking";
 
 type SurfaceType = "walls" | "windows" | "doors";
-type DesignConditionSource = "current" | "ashrae-2017";
+type DesignConditionSource = "" | "current" | "ashrae-2017";
+type SetupTabKey = "location" | "source" | "conditions" | "roomDetails";
+type FormSectionKey = "setup";
 
 export type FormValues = Record<string, string>;
 type SheetValues = Record<string, string>;
@@ -132,8 +136,19 @@ type OutdoorDesignCache = {
 
 const topSectionRows = [0, 1, 2, 3];
 const CLTD_REFERENCE_MONTH = 7;
+const DEFAULT_DESIGN_PERCENTILE = "1";
 const CURRENT_SUPPORTED_PERCENTILES = ["0.4", "1", "2", "5"] as const;
 const ASHRAE_SUPPORTED_PERCENTILES = ["0.4", "1", "2"] as const;
+const linkedManualSheetSelectFields: Record<string, string[]> = {
+  wallNorthDirection: ["1.1_direction", "3.2N_direction"],
+  wallEastDirection: ["1.2_direction", "3.2E_direction"],
+  wallSouthDirection: ["1.3_direction", "3.2S_direction"],
+  wallWestDirection: ["1.4_direction", "3.2W_direction"],
+  windowNorthDirection: ["2.1_direction"],
+  windowEastDirection: ["2.2_direction"],
+  windowSouthDirection: ["2.3_direction"],
+  windowWestDirection: ["2.4_direction"],
+};
 const MONTH_LABELS = [
   "January",
   "February",
@@ -154,59 +169,59 @@ export const initialFormValues: FormValues = {
   selectedCountryCode: "",
   selectedCity: "",
   unitSystem: "imperial",
-  wallNorthDirection: "North",
+  wallNorthDirection: "",
   wallNorthLength: "6.096",
   wallNorthWidth: "200",
   wallNorthHeight: "2.4384",
   wallNorthType: "W04 Reinforced concrete frame with 200 mm cement block infill",
-  wallNorthBoundary: "Exterior",
-  wallEastDirection: "East",
+  wallNorthBoundary: "",
+  wallEastDirection: "",
   wallEastLength: "3.048",
   wallEastWidth: "200",
   wallEastHeight: "2.4384",
   wallEastType: "W04 Reinforced concrete frame with 200 mm cement block infill",
-  wallEastBoundary: "Exterior",
-  wallSouthDirection: "South",
+  wallEastBoundary: "",
+  wallSouthDirection: "",
   wallSouthLength: "6.096",
   wallSouthWidth: "200",
   wallSouthHeight: "2.4384",
   wallSouthType: "W04 Reinforced concrete frame with 200 mm cement block infill",
-  wallSouthBoundary: "Exterior",
-  wallWestDirection: "West",
+  wallSouthBoundary: "",
+  wallWestDirection: "",
   wallWestLength: "3.048",
   wallWestWidth: "200",
   wallWestHeight: "2.4384",
   wallWestType: "W04 Reinforced concrete frame with 200 mm cement block infill",
-  wallWestBoundary: "Exterior",
-  windowNorthDirection: "North",
+  wallWestBoundary: "",
+  windowNorthDirection: "",
   windowNorthLength: "",
   windowNorthWidth: "",
   windowNorthHeight: "",
-  windowEastDirection: "East",
+  windowEastDirection: "",
   windowEastLength: "",
   windowEastWidth: "1.2192",
   windowEastHeight: "1.2192",
-  windowSouthDirection: "South",
+  windowSouthDirection: "",
   windowSouthLength: "",
   windowSouthWidth: "",
   windowSouthHeight: "",
-  windowWestDirection: "West",
+  windowWestDirection: "",
   windowWestLength: "",
   windowWestWidth: "",
   windowWestHeight: "",
-  doorNorthDirection: "North",
+  doorNorthDirection: "",
   doorNorthLength: "",
   doorNorthWidth: "",
   doorNorthHeight: "",
-  doorEastDirection: "East",
+  doorEastDirection: "",
   doorEastLength: "",
   doorEastWidth: "",
   doorEastHeight: "",
-  doorSouthDirection: "South",
+  doorSouthDirection: "",
   doorSouthLength: "",
   doorSouthWidth: "0.9144",
   doorSouthHeight: "2.1336",
-  doorWestDirection: "West",
+  doorWestDirection: "",
   doorWestLength: "",
   doorWestWidth: "",
   doorWestHeight: "",
@@ -216,16 +231,16 @@ export const initialFormValues: FormValues = {
   outsideCondition: "35",
   dryBulbTemp: "35",
   wetBulbTemp: "",
-  dryBulbPercentile: "1",
-  designYear: String(new Date().getUTCFullYear() - 1),
-  designConditionSource: "current",
+  dryBulbPercentile: "",
+  designYear: "",
+  designConditionSource: "",
   currentOutdoorDesignData: "",
   ashraeOutdoorDesignData: "",
   insideCondition: "24",
   conditionDifference: "11",
-  conditionType: "Relative Humidity",
+  conditionType: "",
   conditionValue: "55",
-  indoorConditionType: "Relative Humidity",
+  indoorConditionType: "",
   indoorConditionValue: "50",
   solarDni: "",
   solarDhi: "",
@@ -293,7 +308,11 @@ function parseConditionValue(value: string): number | null {
 }
 
 function getDesignConditionSource(value: string | undefined): DesignConditionSource {
-  return value === "ashrae-2017" || value === "ashrae-2005" ? "ashrae-2017" : "current";
+  if (value === "ashrae-2017" || value === "ashrae-2005") {
+    return "ashrae-2017";
+  }
+
+  return value === "current" ? "current" : "";
 }
 
 function parseOutdoorDesignCache(value: string | undefined): OutdoorDesignCache | null {
@@ -450,6 +469,71 @@ function monthLabel(month: number | null | undefined) {
   return MONTH_LABELS[index] ?? "July";
 }
 
+function fieldIsComplete(value: string | undefined) {
+  return Boolean(value?.trim());
+}
+
+function completionPercent(items: boolean[]) {
+  if (!items.length) {
+    return 0;
+  }
+
+  return Math.round((items.filter(Boolean).length / items.length) * 100);
+}
+
+function getSetupCompletion(values: FormValues, source: DesignConditionSource) {
+  const walls = ["North", "East", "South", "West"];
+  const wallChecks = walls.flatMap((wall) => [
+    isManualSelectComplete(values, `wall${wall}Direction`, values[`wall${wall}Direction`]),
+    fieldIsComplete(values[`wall${wall}Length`]),
+    fieldIsComplete(values[`wall${wall}Height`]),
+    isManualSelectComplete(values, `wall${wall}Boundary`, values[`wall${wall}Boundary`]),
+  ]);
+  const openingChecks = ["window", "door"].flatMap((owner) =>
+    walls.flatMap((wall) => {
+      const fieldPrefix = `${owner}${wall}`;
+      const openingFields = [
+        values[`${fieldPrefix}Direction`],
+        values[`${fieldPrefix}Width`],
+        values[`${fieldPrefix}Height`],
+        values[`${fieldPrefix}Boundary`],
+      ];
+      const openingIsInUse = openingFields.some(fieldIsComplete);
+
+      if (!openingIsInUse) {
+        return [];
+      }
+
+      return [
+        isManualSelectComplete(values, `${fieldPrefix}Direction`, values[`${fieldPrefix}Direction`]),
+        fieldIsComplete(values[`${fieldPrefix}Width`]),
+        fieldIsComplete(values[`${fieldPrefix}Height`]),
+        isManualSelectComplete(values, `${fieldPrefix}Boundary`, values[`${fieldPrefix}Boundary`]),
+      ];
+    }),
+  );
+  const outdoorTypeIsComplete = isManualSelectComplete(values, "conditionType", values.conditionType);
+  const indoorTypeIsComplete = isManualSelectComplete(values, "indoorConditionType", values.indoorConditionType);
+  const designYearCheck =
+    source === "current" ? [isManualSelectComplete(values, "designYear", values.designYear)] : [];
+
+  return completionPercent([
+    isManualSelectComplete(values, "selectedCountry", values.selectedCountry),
+    isManualSelectComplete(values, "selectedCity", values.selectedCity),
+    fieldIsComplete(source),
+    fieldIsComplete(values.dryBulbTemp),
+    isManualSelectComplete(values, "dryBulbPercentile", values.dryBulbPercentile),
+    ...designYearCheck,
+    outdoorTypeIsComplete,
+    outdoorTypeIsComplete && fieldIsComplete(values.conditionValue),
+    fieldIsComplete(values.insideCondition),
+    indoorTypeIsComplete,
+    indoorTypeIsComplete && fieldIsComplete(values.indoorConditionValue),
+    ...wallChecks,
+    ...openingChecks,
+  ]);
+}
+
 async function resolveSelectedLocation(input: {
   country: string;
   city: string;
@@ -538,6 +622,10 @@ export function HeatLoadFormPanel({
   const [designTempLoading, setDesignTempLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [designTempError, setDesignTempError] = useState<string | null>(null);
+  const [activeSetupTab, setActiveSetupTab] = useState<SetupTabKey>("location");
+  const [collapsedSections, setCollapsedSections] = useState<Record<FormSectionKey, boolean>>({
+    setup: true,
+  });
 
   const previousOutdoorConditionType = useRef(formValues.conditionType);
   const previousIndoorConditionType = useRef(formValues.indoorConditionType);
@@ -547,20 +635,46 @@ export function HeatLoadFormPanel({
   const currentOutdoorDesignCache = parseOutdoorDesignCache(formValues.currentOutdoorDesignData);
   const ashraeOutdoorDesignCache = parseOutdoorDesignCache(formValues.ashraeOutdoorDesignData);
   const activeOutdoorDesignCache =
-    designConditionSource === "ashrae-2017" ? ashraeOutdoorDesignCache : currentOutdoorDesignCache;
+    designConditionSource === "ashrae-2017"
+      ? ashraeOutdoorDesignCache
+      : designConditionSource === "current"
+        ? currentOutdoorDesignCache
+        : null;
   const designConditionSourceSummary =
-    designConditionSource === "current"
+    !designConditionSource
+      ? "Select a design condition source to populate outdoor design conditions and drive CLTD and SHGF context."
+      : designConditionSource === "current"
       ? currentOutdoorDesignCache?.year
         ? `${currentOutdoorDesignCache.label || "NASA/Open-Meteo Weather"} historical source. Annual ${currentOutdoorDesignCache.percentile}% dry-bulb selection from ${currentOutdoorDesignCache.year}; selected month ${monthLabel(currentOutdoorDesignCache.hottestMonth)} drives CLTD and SHGF.`
         : "NASA/Open-Meteo weather source uses the annual hourly dry-bulb percentile; the selected hour's month drives CLTD and SHGF."
       : ashraeOutdoorDesignCache?.stationName
         ? `ASHRAE station source. ${ashraeOutdoorDesignCache.stationName}${ashraeOutdoorDesignCache.stationWmo ? ` (${ashraeOutdoorDesignCache.stationWmo})` : ""}${ashraeOutdoorDesignCache.stationLocation ? ` | ${ashraeOutdoorDesignCache.stationLocation}` : ""}${ashraeOutdoorDesignCache.stationSourceEdition ? ` | ASHRAE ${ashraeOutdoorDesignCache.stationSourceEdition}` : ""}${typeof ashraeOutdoorDesignCache.hottestMonth === "number" ? ` | design month ${ashraeOutdoorDesignCache.hottestMonth} linked to CLTD and SHGF` : ""}${typeof ashraeOutdoorDesignCache.latitude === "number" ? ` | station latitude ${ashraeOutdoorDesignCache.latitude.toFixed(2)} deg` : ""}${typeof ashraeOutdoorDesignCache.stationDistanceKm === "number" ? ` | ${ashraeOutdoorDesignCache.stationDistanceKm.toFixed(1)} km from selected city` : ""}.`
         : "ASHRAE annual station design conditions link the station hottest month and latitude to CLTD correction and Section 2 SHGF.";
+  const setupCompletion = getSetupCompletion(formValues, designConditionSource);
 
   const updateFieldIfChanged = (name: string, value: string) => {
     if ((formValues[name] ?? "") !== value) {
       onFieldChange(name, value);
     }
+  };
+
+  const markLinkedManualSheetSelections = (name: string, value: string) => {
+    linkedManualSheetSelectFields[name]?.forEach((sheetKey) => {
+      onSheetChange(manualSelectMarkerKey(sheetKey), manualSelectMarkerValue(value));
+    });
+  };
+
+  const handleManualSelectFieldChange = (name: string, value: string) => {
+    onFieldChange(name, value);
+    onFieldChange(manualSelectMarkerKey(name), manualSelectMarkerValue(value));
+    markLinkedManualSheetSelections(name, value);
+  };
+
+  const toggleSection = (section: FormSectionKey) => {
+    setCollapsedSections((current) => ({
+      ...current,
+      [section]: !current[section],
+    }));
   };
 
   const clearOutdoorFields = () => {
@@ -577,17 +691,24 @@ export function HeatLoadFormPanel({
 
   const applyOutdoorDesignCache = (cache: OutdoorDesignCache | null) => {
     if (!cache) {
+      clearOutdoorFields();
       return;
     }
 
-    const currentType = formValues.conditionType ?? "Relative Humidity";
+    const currentType = formValues.conditionType ?? "";
     const conditionValue =
-      currentType === "Wet bulb temperature" ? cache.wetBulbTemp : cache.relativeHumidity;
+      currentType === "Wet bulb temperature"
+        ? cache.wetBulbTemp
+        : currentType === "Relative Humidity"
+          ? cache.relativeHumidity
+          : "";
 
     updateFieldIfChanged("dryBulbTemp", cache.dryBulbTemp);
     updateFieldIfChanged("outsideCondition", cache.dryBulbTemp);
     updateFieldIfChanged("wetBulbTemp", cache.wetBulbTemp);
-    updateFieldIfChanged("conditionValue", conditionValue);
+    if (conditionValue) {
+      updateFieldIfChanged("conditionValue", conditionValue);
+    }
     updateFieldIfChanged("solarDni", cache.solarDni);
     updateFieldIfChanged("solarDhi", cache.solarDhi);
     updateFieldIfChanged("solarGhi", cache.solarGhi);
@@ -611,20 +732,21 @@ export function HeatLoadFormPanel({
         setCountryOptions(countries);
 
         if (!countries.length) {
+          onFieldChange("selectedCountry", "");
+          onFieldChange("selectedCountryCode", "");
           return;
         }
 
         const selected = formValues.selectedCountry;
-        const nextCountry =
-          selected && countries.some((item) => item.name === selected)
-            ? selected
-            : countries[0].name;
-        const matched = countries.find((item) => item.name === nextCountry);
+        const matched = selected ? countries.find((item) => item.name === selected) : undefined;
 
-        if (formValues.selectedCountry !== nextCountry) {
-          onFieldChange("selectedCountry", nextCountry);
+        if (!matched) {
+          onFieldChange("selectedCountry", "");
+          onFieldChange("selectedCountryCode", "");
+          return;
         }
-        onFieldChange("selectedCountryCode", matched?.iso2 ?? "");
+
+        onFieldChange("selectedCountryCode", matched.iso2 ?? "");
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to load countries.";
         setLocationError(message);
@@ -664,8 +786,8 @@ export function HeatLoadFormPanel({
         }
 
         const selected = formValues.selectedCity;
-        if (!selected || !cities.includes(selected)) {
-          onFieldChange("selectedCity", cities[0]);
+        if (selected && !cities.includes(selected)) {
+          onFieldChange("selectedCity", "");
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to load cities.";
@@ -680,9 +802,11 @@ export function HeatLoadFormPanel({
   }, [formValues.selectedCountry]);
 
   function handleCountryChange(nextCountry: string) {
-    onFieldChange("selectedCountry", nextCountry);
+    handleManualSelectFieldChange("selectedCountry", nextCountry);
     const matched = countryOptions.find((item) => item.name === nextCountry);
     onFieldChange("selectedCountryCode", matched?.iso2 ?? "");
+    onFieldChange("selectedCity", "");
+    onFieldChange(manualSelectMarkerKey("selectedCity"), "");
   }
 
   function handleUnitSystemChange(nextUnitSystem: UnitSystem) {
@@ -722,11 +846,15 @@ export function HeatLoadFormPanel({
   }, [formValues.selectedCountry, formValues.selectedCountryCode, formValues.selectedCity]);
 
   useEffect(() => {
+    if (!formValues.dryBulbPercentile) {
+      return;
+    }
+
     if (
       designConditionSource === "current" &&
       !CURRENT_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof CURRENT_SUPPORTED_PERCENTILES)[number])
     ) {
-      onFieldChange("dryBulbPercentile", "1");
+      onFieldChange("dryBulbPercentile", "");
       return;
     }
 
@@ -734,18 +862,25 @@ export function HeatLoadFormPanel({
       designConditionSource === "ashrae-2017" &&
       !ASHRAE_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof ASHRAE_SUPPORTED_PERCENTILES)[number])
     ) {
-      onFieldChange("dryBulbPercentile", "1");
+      onFieldChange("dryBulbPercentile", "");
     }
   }, [designConditionSource, formValues.dryBulbPercentile, onFieldChange]);
 
   useEffect(() => {
     applyOutdoorDesignCache(activeOutdoorDesignCache);
-  }, [designConditionSource, formValues.currentOutdoorDesignData, formValues.ashraeOutdoorDesignData]);
+  }, [
+    designConditionSource,
+    formValues.currentOutdoorDesignData,
+    formValues.ashraeOutdoorDesignData,
+    formValues.conditionType,
+  ]);
 
   useEffect(() => {
     async function updateCurrentDesignConditions() {
       const country = formValues.selectedCountry?.trim();
       const city = formValues.selectedCity?.trim();
+      const designPercentile = formValues.dryBulbPercentile || DEFAULT_DESIGN_PERCENTILE;
+
       if (!country || !city || designConditionSource !== "current") {
         return;
       }
@@ -774,7 +909,7 @@ export function HeatLoadFormPanel({
           throw new Error("No annual hourly dry-bulb values were returned for the selected city.");
         }
 
-        const selectedPercent = Number(formValues.dryBulbPercentile || "1");
+        const selectedPercent = Number(designPercentile);
         const dryBulb = computePercentile(dryBulbSeries, 100 - selectedPercent);
         const designHour = findNearestDesignHour(hourlyDryBulb, dryBulb);
         const designMonth = getMonthFromDateTime(designHour?.time);
@@ -827,7 +962,7 @@ export function HeatLoadFormPanel({
           solarAzimuth: solarSnapshot.solarAzimuth,
           latitude: resolvedLocation.latitude,
           longitude: resolvedLocation.longitude,
-          percentile: formValues.dryBulbPercentile,
+          percentile: designPercentile,
           year: String(year),
           stationSourceEdition: historyPayload.source,
           standardPressureKPa: 101.325,
@@ -863,12 +998,14 @@ export function HeatLoadFormPanel({
     async function updateAshraeDesignConditions() {
       const country = formValues.selectedCountry?.trim();
       const city = formValues.selectedCity?.trim();
+      const designPercentile = formValues.dryBulbPercentile || DEFAULT_DESIGN_PERCENTILE;
+
       if (!country || !city || designConditionSource !== "ashrae-2017") {
         return;
       }
 
       if (
-        !ASHRAE_SUPPORTED_PERCENTILES.includes(formValues.dryBulbPercentile as (typeof ASHRAE_SUPPORTED_PERCENTILES)[number])
+        !ASHRAE_SUPPORTED_PERCENTILES.includes(designPercentile as (typeof ASHRAE_SUPPORTED_PERCENTILES)[number])
       ) {
         return;
       }
@@ -887,7 +1024,7 @@ export function HeatLoadFormPanel({
           latitude: String(resolvedLocation.latitude),
           longitude: String(resolvedLocation.longitude),
           country,
-          percentile: formValues.dryBulbPercentile,
+          percentile: designPercentile,
         });
 
         const ashraePayload = await fetchCachedJson<AshraeDesignConditionsResponse & { error?: string }>(
@@ -966,7 +1103,7 @@ export function HeatLoadFormPanel({
   ]);
 
   useEffect(() => {
-    const currentType = formValues.conditionType ?? "Relative Humidity";
+    const currentType = formValues.conditionType ?? "";
     const previousType = previousOutdoorConditionType.current;
 
     if (currentType === previousType) {
@@ -974,6 +1111,14 @@ export function HeatLoadFormPanel({
     }
 
     previousOutdoorConditionType.current = currentType;
+
+    if (!currentType) {
+      return;
+    }
+
+    if (activeOutdoorDesignCache) {
+      return;
+    }
 
     const dryBulb = parseConditionValue(formValues.dryBulbTemp);
     const currentValue = parseConditionValue(formValues.conditionValue);
@@ -996,12 +1141,22 @@ export function HeatLoadFormPanel({
     if ((formValues.conditionValue ?? "") !== formattedValue) {
       onFieldChange("conditionValue", formattedValue);
     }
-  }, [formValues.conditionType, formValues.conditionValue, formValues.dryBulbTemp, onFieldChange]);
+  }, [
+    activeOutdoorDesignCache,
+    formValues.conditionType,
+    formValues.conditionValue,
+    formValues.dryBulbTemp,
+    onFieldChange,
+  ]);
 
   useEffect(() => {
     const dryBulb = parseConditionValue(formValues.dryBulbTemp);
-    const currentType = formValues.conditionType ?? "Relative Humidity";
+    const currentType = formValues.conditionType ?? "";
     const currentValue = parseConditionValue(formValues.conditionValue);
+
+    if (!currentType) {
+      return;
+    }
 
     if (dryBulb === null || currentValue === null) {
       if ((formValues.wetBulbTemp ?? "") !== "") {
@@ -1036,7 +1191,7 @@ export function HeatLoadFormPanel({
   ]);
 
   useEffect(() => {
-    const currentType = formValues.indoorConditionType ?? "Relative Humidity";
+    const currentType = formValues.indoorConditionType ?? "";
     const previousType = previousIndoorConditionType.current;
 
     if (currentType === previousType) {
@@ -1044,6 +1199,10 @@ export function HeatLoadFormPanel({
     }
 
     previousIndoorConditionType.current = currentType;
+
+    if (!currentType) {
+      return;
+    }
 
     const dryBulb = parseConditionValue(formValues.insideCondition);
     const currentValue = parseConditionValue(formValues.indoorConditionValue);
@@ -1101,148 +1260,217 @@ export function HeatLoadFormPanel({
   ]);
 
   return (
-    <aside className="min-h-0 overflow-hidden border-b border-rose-100 bg-[#fff8fa] xl:border-r xl:border-b-0">
+    <aside className="min-h-0 overflow-hidden border-b border-slate-200 bg-slate-50 xl:border-r xl:border-b-0">
       <div className="flex h-full min-h-0 flex-col">
-        <div className="border-b border-rose-100 px-4 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-[#be123c]">Heat Load Form</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Load Input Sheet</h2>
+        <div className="border-b border-slate-200 bg-white px-4 py-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#be123c]">Heat Load Form</p>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Load Input Sheet</h2>
+              <p className="mt-1 text-[11px] font-medium text-slate-600">
+                Units: {unitLabel(unitSystem, "length")}, {unitLabel(unitSystem, "area")},{" "}
+                {unitLabel(unitSystem, "temperature")}, {unitLabel(unitSystem, "heat")}
+              </p>
             </div>
-            <div className="inline-flex overflow-hidden border border-rose-200 bg-white text-[10px] font-semibold text-slate-900">
+
+            <div className="inline-flex w-fit shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-semibold text-slate-900">
               <button
                 type="button"
                 onClick={() => handleUnitSystemChange("si")}
-                className={`px-3 py-1.5 ${unitSystem === "si" ? "bg-[#fff4f7] text-[#9f1239]" : "bg-white text-slate-700"}`}
+                className={`rounded px-2.5 py-1.5 transition ${
+                  unitSystem === "si" ? "bg-white text-[#9f1239] shadow-sm" : "text-slate-600 hover:text-slate-950"
+                }`}
               >
                 SI Unit
               </button>
               <button
                 type="button"
                 onClick={() => handleUnitSystemChange("imperial")}
-                className={`border-l border-rose-200 px-3 py-1.5 ${
-                  unitSystem === "imperial" ? "bg-[#fff4f7] text-[#9f1239]" : "bg-white text-slate-700"
+                className={`rounded px-2.5 py-1.5 transition ${
+                  unitSystem === "imperial"
+                    ? "bg-[#be123c] text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-950"
                 }`}
               >
                 IP Units
               </button>
             </div>
           </div>
-          <p className="mt-2 text-[10px] font-semibold text-slate-600">
-            Units: {unitLabel(unitSystem, "length")}, {unitLabel(unitSystem, "area")}, {unitLabel(unitSystem, "temperature")}, {unitLabel(unitSystem, "heat")}
-          </p>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-1">
-          <div className="space-y-3">
-            <div className="border border-rose-200 bg-white px-2 py-2">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]">
-                Location Selection
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="grid gap-1 text-[10px] font-semibold text-slate-700">
-                  Country
-                  <select
-                    value={formValues.selectedCountry}
-                    onChange={(event) => handleCountryChange(event.target.value)}
-                    disabled={countryLoading || countryOptions.length === 0}
-                    className="h-7 border border-rose-200 bg-white px-2 text-[10px] font-medium text-slate-900"
-                  >
-                    {countryOptions.map((option) => (
-                      <option key={option.name} value={option.name}>
-                        {option.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <div className="space-y-3 pb-3">
+            <FormSectionCard
+              number="1"
+              title="Project Setup"
+              description="Location, source, and design condition inputs grouped into one compact workflow."
+              progress={setupCompletion}
+              collapsed={collapsedSections.setup}
+              onToggle={() => toggleSection("setup")}
+            >
+              <SetupTabs activeTab={activeSetupTab} onTabChange={setActiveSetupTab} />
 
-                <label className="grid gap-1 text-[10px] font-semibold text-slate-700">
-                  City
-                  <select
-                    value={formValues.selectedCity}
-                    onChange={(event) => onFieldChange("selectedCity", event.target.value)}
-                    disabled={cityLoading || cityOptions.length === 0}
-                    className="h-7 border border-rose-200 bg-white px-2 text-[10px] font-medium text-slate-900"
-                  >
-                    {cityOptions.map((city) => (
-                      <option key={city} value={city}>
-                        {city}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+              <div className="mt-3">
+                <div
+                  id="setup-tab-panel-location"
+                  role="tabpanel"
+                  aria-labelledby="setup-tab-location"
+                  hidden={activeSetupTab !== "location"}
+                >
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="grid gap-1.5 text-[11px] font-semibold text-slate-700">
+                      Country
+                      <select
+                        value={formValues.selectedCountry}
+                        onChange={(event) => handleCountryChange(event.target.value)}
+                        disabled={countryLoading || countryOptions.length === 0}
+                        className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-900 outline-none transition focus:border-[#be123c] focus:ring-2 focus:ring-rose-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      >
+                        <option value="">Select country</option>
+                        {countryOptions.map((option) => (
+                          <option key={option.name} value={option.name}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-              {locationError ? <p className="mt-2 text-[10px] text-rose-700">{locationError}</p> : null}
-              {designTempLoading ? <p className="mt-2 text-[10px] text-slate-600">Updating design temperatures...</p> : null}
-              {designTempError ? <p className="mt-2 text-[10px] text-rose-700">{designTempError}</p> : null}
-            </div>
+                    <label className="grid gap-1.5 text-[11px] font-semibold text-slate-700">
+                      City
+                      <select
+                        value={formValues.selectedCity}
+                        onChange={(event) => handleManualSelectFieldChange("selectedCity", event.target.value)}
+                        disabled={cityLoading || cityOptions.length === 0}
+                        className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-900 outline-none transition focus:border-[#be123c] focus:ring-2 focus:ring-rose-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                      >
+                        <option value="">Select city</option>
+                        {cityOptions.map((city) => (
+                          <option key={city} value={city}>
+                            {city}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
 
-            <div className="border border-rose-200 bg-white px-2 py-2">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9f1239]">
-                Design Condition Source
-              </p>
-              <div className="flex flex-wrap gap-4 text-[10px] font-semibold text-slate-800">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="designConditionSource"
-                    value="current"
-                    checked={designConditionSource === "current"}
-                    onChange={() => handleDesignConditionSourceChange("current")}
-                    className="h-3.5 w-3.5 border-rose-300 text-[#9f1239]"
+                  <StatusMessages
+                    locationError={locationError}
+                    designTempLoading={designTempLoading}
+                    designTempError={designTempError}
                   />
-                  NASA/Open-Meteo Weather
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="designConditionSource"
-                    value="ashrae-2017"
-                    checked={designConditionSource === "ashrae-2017"}
-                    onChange={() => handleDesignConditionSourceChange("ashrae-2017")}
-                    className="h-3.5 w-3.5 border-rose-300 text-[#9f1239]"
-                  />
-                  ASHRAE Station Data
-                </label>
-              </div>
-              <p className="mt-2 text-[10px] text-slate-600">{designConditionSourceSummary}</p>
-            </div>
+                </div>
 
-            <table className="w-full table-fixed border-collapse text-[10px] leading-none text-slate-900">
-              <colgroup>
-                <col style={{ width: "22%" }} />
-                <col style={{ width: "30%" }} />
-                <col style={{ width: "18%" }} />
-                <col style={{ width: "30%" }} />
-              </colgroup>
-              <tbody>
-                <tr>
-                  <RoomDetailsHeader surfaceType={surfaceType} onSurfaceChange={setSurfaceType} />
-                  <DesignConditionsHeader
-                    sourceSummary={designConditionSourceSummary}
-                  />
-                </tr>
-                {topSectionRows.map((rowIndex) => (
-                  <tr key={rowIndex}>
-                    <RoomDetailsRow
-                      surfaceType={surfaceType}
-                      rowIndex={rowIndex}
-                      values={formValues}
-                      unitSystem={unitSystem}
-                      onFieldChange={onFieldChange}
+                <div
+                  id="setup-tab-panel-source"
+                  role="tabpanel"
+                  aria-labelledby="setup-tab-source"
+                  hidden={activeSetupTab !== "source"}
+                >
+                  <div className="grid gap-2 lg:grid-cols-2">
+                    <SourceOption
+                      label="NASA/Open-Meteo Weather"
+                      description="Uses annual hourly weather data and selected dry-bulb percentile."
+                      value="current"
+                      checked={designConditionSource === "current"}
+                      onChange={() => handleDesignConditionSourceChange("current")}
                     />
-                    <DesignConditionsRow
-                      rowIndex={rowIndex}
-                      values={formValues}
-                      unitSystem={unitSystem}
-                      designConditionSource={designConditionSource}
-                      onFieldChange={onFieldChange}
+                    <SourceOption
+                      label="ASHRAE Station Data"
+                      description="Uses matched ASHRAE station design conditions and hottest-month metadata."
+                      value="ashrae-2017"
+                      checked={designConditionSource === "ashrae-2017"}
+                      onChange={() => handleDesignConditionSourceChange("ashrae-2017")}
                     />
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  </div>
+                  <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-[11px] leading-snug text-slate-600">
+                    {designConditionSourceSummary}
+                  </div>
+                </div>
+
+                <div
+                  id="setup-tab-panel-conditions"
+                  role="tabpanel"
+                  aria-labelledby="setup-tab-conditions"
+                  hidden={activeSetupTab !== "conditions"}
+                >
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[560px] table-fixed border-collapse text-xs text-slate-900">
+                      <colgroup>
+                        <col style={{ width: "34%" }} />
+                        <col style={{ width: "66%" }} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th className="border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            Condition
+                          </th>
+                          <th className="border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            Input
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {topSectionRows.map((rowIndex) => (
+                          <tr key={rowIndex}>
+                            <DesignConditionsRow
+                              rowIndex={rowIndex}
+                              values={formValues}
+                              unitSystem={unitSystem}
+                              designConditionSource={designConditionSource}
+                              onFieldChange={onFieldChange}
+                              onSelectChange={handleManualSelectFieldChange}
+                            />
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div
+                  id="setup-tab-panel-roomDetails"
+                  role="tabpanel"
+                  aria-labelledby="setup-tab-roomDetails"
+                  hidden={activeSetupTab !== "roomDetails"}
+                >
+                  <div className="mb-3 flex justify-start">
+                    <RoomDetailsSurfaceTabs surfaceType={surfaceType} onSurfaceChange={setSurfaceType} />
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[540px] table-fixed border-collapse text-xs text-slate-900">
+                      <colgroup>
+                        <col style={{ width: "32%" }} />
+                        <col style={{ width: "68%" }} />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th className="border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            Direction
+                          </th>
+                          <th className="border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            Size and Boundary
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {topSectionRows.map((rowIndex) => (
+                          <tr key={rowIndex}>
+                            <RoomDetailsRow
+                              surfaceType={surfaceType}
+                              rowIndex={rowIndex}
+                              values={formValues}
+                              unitSystem={unitSystem}
+                              onFieldChange={onFieldChange}
+                              onSelectFieldChange={handleManualSelectFieldChange}
+                            />
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </FormSectionCard>
 
             <HeatLoadSheet
               formValues={formValues}
@@ -1252,8 +1480,187 @@ export function HeatLoadFormPanel({
             />
           </div>
         </div>
-
       </div>
     </aside>
+  );
+}
+
+function FormSectionCard({
+  number,
+  title,
+  description,
+  progress,
+  action,
+  compact = false,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  number: string;
+  title: string;
+  description?: string;
+  progress: number;
+  action?: ReactNode;
+  compact?: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const contentId = `heat-load-form-section-${number}`;
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_8px_22px_rgba(15,23,42,0.045)]">
+      <div className="flex flex-col gap-2 border-b border-slate-100 bg-gradient-to-r from-white to-slate-50 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-rose-50 text-xs font-semibold text-[#be123c] ring-1 ring-rose-100">
+            {number}
+          </span>
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+            </div>
+            {description ? <p className="mt-0.5 text-[11px] leading-snug text-slate-500">{description}</p> : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {action ? <div className={collapsed ? "hidden sm:block" : ""}>{action}</div> : null}
+          <CompletionBadge percent={progress} />
+          <button
+            type="button"
+            aria-expanded={!collapsed}
+            aria-controls={contentId}
+            onClick={onToggle}
+            title={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-[#be123c] focus:outline-none focus:ring-2 focus:ring-rose-100"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 20 20"
+              className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`}
+            >
+              <path
+                d="M5.5 8 10 12.5 14.5 8"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id={contentId} hidden={collapsed} className={compact ? "px-2 py-2" : "px-3 py-3"}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+const setupTabs: Array<{ key: SetupTabKey; label: string; eyebrow: string }> = [
+  { key: "location", label: "Location", eyebrow: "Climate" },
+  { key: "source", label: "Source", eyebrow: "Weather" },
+  { key: "conditions", label: "Conditions", eyebrow: "Design" },
+  { key: "roomDetails", label: "Room Details", eyebrow: "Envelope" },
+];
+
+function SetupTabs({
+  activeTab,
+  onTabChange,
+}: {
+  activeTab: SetupTabKey;
+  onTabChange: (tab: SetupTabKey) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="tablist" aria-label="Project setup sections">
+      <div className="grid min-w-[640px] grid-cols-4 gap-1">
+        {setupTabs.map((tab) => {
+          const isActive = activeTab === tab.key;
+
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`setup-tab-panel-${tab.key}`}
+              id={`setup-tab-${tab.key}`}
+              onClick={() => onTabChange(tab.key)}
+              className={`rounded-md border px-2.5 py-2 text-left transition ${
+                isActive
+                  ? "border-[#be123c] bg-white text-slate-950 shadow-sm"
+                  : "border-transparent text-slate-600 hover:bg-white hover:text-slate-950"
+              }`}
+            >
+              <span className={`block text-[9px] font-semibold uppercase tracking-[0.14em] ${isActive ? "text-[#be123c]" : "text-slate-400"}`}>
+                {tab.eyebrow}
+              </span>
+              <span className="mt-0.5 block text-xs font-semibold">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SourceOption({
+  label,
+  description,
+  value,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  value: DesignConditionSource;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 transition ${
+        checked
+          ? "border-[#be123c] bg-rose-50 shadow-[0_6px_16px_rgba(190,18,60,0.07)]"
+          : "border-slate-200 bg-white hover:border-rose-200 hover:bg-rose-50/40"
+      }`}
+    >
+      <input
+        type="radio"
+        name="designConditionSource"
+        value={value}
+        checked={checked}
+        onChange={onChange}
+        className="mt-0.5 h-3.5 w-3.5 border-slate-300 text-[#be123c] focus:ring-[#be123c]"
+      />
+      <span className="min-w-0">
+        <span className="block text-xs font-semibold text-slate-900">{label}</span>
+        <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">{description}</span>
+      </span>
+    </label>
+  );
+}
+
+function StatusMessages({
+  locationError,
+  designTempLoading,
+  designTempError,
+}: {
+  locationError: string | null;
+  designTempLoading: boolean;
+  designTempError: string | null;
+}) {
+  if (!locationError && !designTempLoading && !designTempError) {
+    return null;
+  }
+
+  return (
+    <div className="mt-3 space-y-1.5">
+      {locationError ? <p className="rounded-md bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700">{locationError}</p> : null}
+      {designTempLoading ? (
+        <p className="rounded-md bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">Updating design temperatures...</p>
+      ) : null}
+      {designTempError ? <p className="rounded-md bg-rose-50 px-2.5 py-1.5 text-[11px] text-rose-700">{designTempError}</p> : null}
+    </div>
   );
 }

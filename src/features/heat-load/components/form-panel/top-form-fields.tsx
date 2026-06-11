@@ -22,7 +22,7 @@ export function DirectionDimensionCell({
   const primaryFieldName = `${name}${isOpeningSurface ? "Width" : "Length"}`;
 
   return (
-    <div className="grid min-h-[30px] grid-cols-[20px_minmax(0,1fr)_10px_minmax(0,1fr)] items-center gap-x-1 px-2 py-1">
+    <div className="grid min-h-[34px] grid-cols-[24px_minmax(48px,1fr)_16px_minmax(48px,1fr)] items-center gap-x-1.5 px-2 py-1.5">
       <DimensionField
         label={primaryLabel}
         name={primaryFieldName}
@@ -58,14 +58,14 @@ function DimensionField({
 
   return (
     <>
-      <span className="text-[10px] font-semibold text-slate-900">{label}</span>
+      <span className="text-[11px] font-semibold text-slate-700">{label}</span>
       <input
         aria-label={name}
         name={name}
         type="text"
         value={displayValue}
         onChange={(event) => onValueChange(name, toCanonicalUnitValue(event.target.value, unitSystem, "length"))}
-        className="h-6 min-w-0 w-full border border-slate-200 bg-white px-1 text-center text-[10px] leading-snug text-slate-900 outline-none"
+        className="h-7 min-w-0 w-full rounded-md border border-slate-200 bg-white px-1.5 text-center text-[11px] font-medium leading-snug text-slate-900 outline-none transition focus:border-[#be123c] focus:ring-2 focus:ring-rose-100"
       />
     </>
   );
@@ -93,7 +93,7 @@ export function TopInputCell({
       type="text"
       value={value}
       onChange={(event) => onValueChange(name, event.target.value)}
-      className={`min-h-[30px] h-full w-full bg-transparent px-2 py-2 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
+      className={`min-h-[34px] h-full w-full bg-transparent px-2 py-1.5 text-[11px] leading-snug text-slate-900 outline-none transition focus:bg-white ${alignClass}`}
     />
   );
 }
@@ -108,7 +108,7 @@ export function TopStaticField({
   return (
     <div
       aria-label={ariaLabel}
-      className="flex min-h-[30px] h-full w-full items-center bg-[#fff4f7] px-2 py-2 text-left text-[10px] font-semibold leading-snug text-slate-900"
+      className="flex min-h-[34px] h-full w-full items-center bg-slate-50 px-2 py-1.5 text-left text-[11px] font-semibold leading-snug text-slate-900"
     >
       {value}
     </div>
@@ -134,8 +134,9 @@ export function TopSelectField({
       name={name}
       value={value}
       onChange={(event) => onValueChange(name, event.target.value)}
-      className="flex min-h-[30px] h-full w-full items-center bg-[#fff4f7] px-2 py-2 text-left text-[10px] font-semibold leading-snug text-slate-900 outline-none cursor-pointer"
+      className="flex min-h-[34px] h-full w-full cursor-pointer items-center bg-slate-50 px-2 py-1.5 text-left text-[11px] font-semibold leading-snug text-slate-900 outline-none transition focus:bg-white focus:ring-2 focus:ring-inset focus:ring-rose-100"
     >
+      <option value="">Select</option>
       {options.map((option) => (
         <option key={option} value={option}>
           {option}

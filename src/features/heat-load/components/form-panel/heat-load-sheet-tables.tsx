@@ -19,6 +19,8 @@ import { rowLooksLikeWall } from "./heat-load-wall-thickness";
 import { RowReferenceToggle } from "./heat-load-reference-toggle";
 import { getAshraeZoneLabel } from "./heat-load-zone-labels";
 import { WallTypePickerCell } from "./wall-type-picker-cell";
+import { CompletionBadge } from "./completion-badge";
+import { isManualSelectComplete, manualSelectMarkerKey } from "./progress-tracking";
 import {
   getNum,
   SECTION3_CONDITIONED_ADJACENT_SPACE,
@@ -31,11 +33,27 @@ import {
 } from "./ashrae-calculations";
 
 const SECTION3_INTERMEDIATE_FLOOR_CONSTRUCTION = "100 mm concrete wall + finish + plaster";
-const tableClass = "w-full table-auto border-collapse text-[10px] leading-none text-slate-900";
-const cellClass = "border border-slate-300 px-1 py-1 align-middle";
+const tableClass = "w-full table-fixed border-collapse text-[10px] leading-snug text-slate-900";
+const cellClass = "border border-slate-200 px-1.5 py-1.5 align-middle";
+const referenceColumnPercent = 5;
 
-function getColumnLabel(column: Column, unitSystem: UnitSystem): string {
-  return column.unit ? `${column.label} (${unitLabel(unitSystem, column.unit)})` : column.label;
+function getColumnLabel(column: Column, unitSystem: UnitSystem) {
+  if (!column.unit) {
+    return column.label;
+  }
+
+  const unit = unitLabel(unitSystem, column.unit);
+
+  if (column.key === "heatLoad" || column.key === "result") {
+    return (
+      <span className="flex flex-col items-center gap-0.5 leading-tight">
+        <span>Total Heat Load</span>
+        <span>({unit})</span>
+      </span>
+    );
+  }
+
+  return `${column.label} (${unit})`;
 }
 
 function formatSheetCellValue(value: string, column: Column, unitSystem: UnitSystem): string {
@@ -114,8 +132,62 @@ function formatFixedHeatValue(value: string, unitSystem: UnitSystem) {
   return toDisplayUnit(parsed, unitSystem, "heat").toFixed(0);
 }
 
+function cellIsComplete(value: string | undefined) {
+  const normalized = value?.trim();
+  return Boolean(normalized && normalized !== "N/A" && normalized !== "Not applicable" && normalized !== "-");
+}
+
+function cellHasSelectableControl(row: Section["rows"][number], column: Column) {
+  const rawOptions = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
+  const options = normalizeSelectOptions(row, column.key, rawOptions);
+  const rowWallType = row.values.type ?? row.values.typeA ?? row.values.typeB ?? "";
+  const locksWallThickness =
+    column.key === "thickness" &&
+    rowLooksLikeWall(row) &&
+    getWallCoreThicknessMm(rowWallType) !== null;
+
+  return options.length > 1 && !locksWallThickness;
+}
+
+function getSectionCompletion(input: {
+  columns: Column[];
+  rows: Section["rows"];
+  sheetValues: SheetValues;
+}) {
+  const checks = input.rows.flatMap((row) =>
+    input.columns
+      .filter((column) => column.editable || cellHasSelectableControl(row, column))
+      .map((column) => {
+        const cellKey = `${row.id}_${column.key}`;
+        const value = input.sheetValues[cellKey] ?? row.values[column.key];
+
+        return cellHasSelectableControl(row, column)
+          ? isManualSelectComplete(input.sheetValues, cellKey, value) && cellIsComplete(value)
+          : cellIsComplete(value);
+      }),
+  );
+
+  if (!checks.length) {
+    return 0;
+  }
+
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+}
+
+function getColumnWidth(column: Column, totalWeight: number) {
+  const weight = Number.parseFloat(column.width ?? "");
+  const fallbackWeight = totalWeight > 0 ? totalWeight : 1;
+
+  if (!Number.isFinite(weight) || weight <= 0 || totalWeight <= 0) {
+    return `${(100 - referenceColumnPercent) / fallbackWeight}%`;
+  }
+
+  return `${(weight / totalWeight) * (100 - referenceColumnPercent)}%`;
+}
+
 export function SectionTable({
   number,
+  displayNumber,
   title,
   columns,
   rows,
@@ -123,166 +195,212 @@ export function SectionTable({
   sheetValues,
   onCellChange,
 }: Section & {
+  displayNumber?: string;
   unitSystem: UnitSystem;
   sheetValues: SheetValues;
   onCellChange: (sectionNumber: string, rowId: string, key: string, value: string) => void;
 }) {
   const [openReferences, setOpenReferences] = useState<Record<string, boolean>>({});
+  const [collapsed, setCollapsed] = useState(true);
+  const contentId = `heat-load-calculation-section-${number}`;
+  const visibleNumber = displayNumber ?? number;
+  const completion = getSectionCompletion({ columns, rows, sheetValues });
+  const totalColumnWeight = columns.reduce((total, column) => {
+    const weight = Number.parseFloat(column.width ?? "");
+    return total + (Number.isFinite(weight) && weight > 0 ? weight : 1);
+  }, 0);
 
   return (
-    <table className={tableClass}>
-      <thead>
-        <tr>
-          <th className={`${cellClass} w-[42px] bg-[#ffe7ee] text-center text-[11px] font-semibold text-slate-900`}>
-            {number}
-          </th>
-          <th
-            className={`${cellClass} bg-[#ffe7ee] text-left text-[11px] font-semibold text-slate-900`}
-            colSpan={columns.length}
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_6px_18px_rgba(15,23,42,0.035)]">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white text-xs font-semibold text-[#be123c] ring-1 ring-slate-200">
+            {visibleNumber}
+          </span>
+          <h4 className="min-w-0 text-sm font-semibold text-slate-950">{title}</h4>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <CompletionBadge percent={completion} />
+          <button
+            type="button"
+            aria-expanded={!collapsed}
+            aria-controls={contentId}
+            onClick={() => setCollapsed((current) => !current)}
+            title={collapsed ? `Expand section ${visibleNumber}` : `Collapse section ${visibleNumber}`}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-[#be123c] focus:outline-none focus:ring-2 focus:ring-rose-100"
           >
-            {title}
-          </th>
-        </tr>
-        <tr>
-          <th className={`${cellClass} w-[42px] bg-white text-center text-[10px] font-semibold text-slate-900`} />
-          {columns.map((column) => (
-            <th
-              key={column.key}
-              className={`${cellClass} whitespace-normal break-words bg-white text-center text-[10px] font-semibold leading-tight text-slate-900`}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 20 20"
+              className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`}
             >
-              {getColumnLabel(column, unitSystem)}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => {
-          const referenceText = sheetValues[`${row.id}_reference`] ?? row.values.reference ?? "";
-          const calculationTrace = sheetValues[`${row.id}_calculationTrace`] ?? "";
-          const referenceIsOpen = Boolean(openReferences[row.id]);
-          const rowWallType = row.values.type ?? row.values.typeA ?? row.values.typeB ?? "";
-          const rowIsInactive = isInactiveSection3InteriorRow(number, row);
-          return (
-            <Fragment key={row.id}>
-              <tr>
-                <td className={`${cellClass} w-[42px] bg-white text-center font-medium text-slate-900`}>
-                  <RowReferenceToggle
-                    rowId={row.id}
-                    referenceText={referenceText}
-                    referenceIsOpen={referenceIsOpen}
-                    onToggleReference={() =>
-                      setOpenReferences((current) => ({
-                        ...current,
-                        [row.id]: !current[row.id],
-                      }))
-                    }
-                  />
-                </td>
-                {columns.map((column) => {
-                  const rawCellValue = row.values[column.key] ?? "";
-                  const cellValue = normalizeSheetCellValue(row, column.key, rawCellValue);
-                  const displayValue = getDisplayValue({
-                    row,
-                    column,
-                    cellValue,
-                    unitSystem,
-                    rowIsInactive,
-                  });
-                  const sourceTitle = sheetValues[`${row.id}_${column.key}_source`] ?? "";
-                  const titleText = sourceTitle ? `${displayValue}\n${sourceTitle}` : displayValue;
-                  const rawOptions = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
-                  const options = normalizeSelectOptions(row, column.key, rawOptions);
-                  const locksWallThickness =
-                    column.key === "thickness" &&
-                    rowLooksLikeWall(row) &&
-                    getWallCoreThicknessMm(rowWallType) !== null;
-                  const hasOptions = options.length > 0;
-                  const hasSelect = options.length > 1 && !locksWallThickness;
-                  const showsWallDetailsToggle =
-                    hasSelect &&
-                    !isSection3PartitionRow(row) &&
-                    isWallTypeColumn(row, column);
-                  const showsFenestrationDetailsToggle =
-                    hasSelect &&
-                    rowUsesTable5Fenestration(row) &&
-                    column.key === "detail";
-                  const fillClass = hasOptions || !column.editable ? "bg-[#fff4f7]" : "bg-white";
-
-                  return (
-                    <td key={column.key} className={`${cellClass} min-w-0 ${fillClass} p-0`}>
-                      {showsWallDetailsToggle ? (
-                        <WallTypePickerCell
-                          ariaLabel={`${row.id} ${column.label || column.key}`}
-                          value={cellValue}
-                          title={titleText}
-                          align={column.align ?? "left"}
-                          options={options}
-                          onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
-                        />
-                      ) : showsFenestrationDetailsToggle ? (
-                        <FenestrationFramePickerCell
-                          ariaLabel={`${row.id} ${column.label || column.key}`}
-                          value={cellValue}
-                          title={titleText}
-                          align={column.align ?? "left"}
-                          options={options}
-                          onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
-                        />
-                      ) : hasSelect ? (
-                        <SheetSelectCell
-                          ariaLabel={`${row.id} ${column.label || column.key}`}
-                          value={cellValue}
-                          title={titleText}
-                          align={column.align ?? "left"}
-                          options={options}
-                          getOptionLabel={(option) => formatSelectOptionLabel(row, column, option, unitSystem)}
-                          onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
-                        />
-                      ) : column.editable && !locksWallThickness && !hasOptions ? (
-                        <SheetInputCell
-                          ariaLabel={`${row.id} ${column.label || column.key}`}
-                          value={displayValue}
-                          title={titleText}
-                          align={column.align ?? "left"}
-                          onValueChange={(value) =>
-                            onCellChange(number, row.id, column.key, parseSheetCellInput(value, column, unitSystem))
-                          }
-                        />
-                      ) : (
-                        <SheetCell
-                          ariaLabel={`${row.id} ${column.label || column.key}`}
-                          value={displayValue}
-                          title={titleText}
-                          align={column.align ?? "left"}
-                          wrap={column.wrap}
-                        />
-                      )}
+              <path
+                d="M5.5 8 10 12.5 14.5 8"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id={contentId} hidden={collapsed} className="overflow-hidden">
+        <table className={tableClass}>
+          <colgroup>
+            <col style={{ width: `${referenceColumnPercent}%` }} />
+            {columns.map((column) => (
+              <col key={column.key} style={{ width: getColumnWidth(column, totalColumnWeight) }} />
+            ))}
+          </colgroup>
+          <thead>
+            <tr>
+              <th className={`${cellClass} bg-white text-center text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500`}>
+                Ref
+              </th>
+              {columns.map((column) => (
+                <th
+                  key={column.key}
+                  className={`${cellClass} whitespace-normal break-words bg-white text-center text-[9px] font-semibold leading-tight text-slate-700`}
+                >
+                  {getColumnLabel(column, unitSystem)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const referenceText = sheetValues[`${row.id}_reference`] ?? row.values.reference ?? "";
+              const calculationTrace = sheetValues[`${row.id}_calculationTrace`] ?? "";
+              const referenceIsOpen = Boolean(openReferences[row.id]);
+              const rowWallType = row.values.type ?? row.values.typeA ?? row.values.typeB ?? "";
+              const rowIsInactive = isInactiveSection3InteriorRow(number, row);
+              return (
+                <Fragment key={row.id}>
+                  <tr>
+                    <td className={`${cellClass} bg-white text-center font-medium text-slate-900`}>
+                      <RowReferenceToggle
+                        rowId={row.id}
+                        referenceText={referenceText}
+                        referenceIsOpen={referenceIsOpen}
+                        onToggleReference={() =>
+                          setOpenReferences((current) => ({
+                            ...current,
+                            [row.id]: !current[row.id],
+                          }))
+                        }
+                      />
                     </td>
-                  );
-                })}
-              </tr>
-              {(referenceText || calculationTrace) && referenceIsOpen ? (
-                <tr>
-                  <td className={`${cellClass} bg-[#fff4f7] text-left text-slate-900`} colSpan={columns.length + 1}>
-                    {referenceText ? (
-                      <div>
-                        <span className="font-semibold">ASHRAE reference: </span>
-                        <span>{referenceText}</span>
-                      </div>
-                    ) : null}
-                    {calculationTrace ? (
-                      <div className="mt-2 whitespace-pre-wrap border-t border-slate-200 pt-2 leading-snug">
-                        {calculationTrace}
-                      </div>
-                    ) : null}
-                  </td>
-                </tr>
-              ) : null}
-            </Fragment>
-          );
-        })}
-      </tbody>
-    </table>
+                    {columns.map((column) => {
+                      const cellKey = `${row.id}_${column.key}`;
+                      const rawCellValue = row.values[column.key] ?? "";
+                      const cellValue = normalizeSheetCellValue(row, column.key, rawCellValue);
+                      const displayValue = getDisplayValue({
+                        row,
+                        column,
+                        cellValue,
+                        unitSystem,
+                        rowIsInactive,
+                      });
+                      const sourceTitle = sheetValues[`${cellKey}_source`] ?? "";
+                      const titleText = sourceTitle ? `${displayValue}\n${sourceTitle}` : displayValue;
+                      const rawOptions = row.selectOptions?.[column.key] ?? column.selectOptions ?? [];
+                      const options = normalizeSelectOptions(row, column.key, rawOptions);
+                      const locksWallThickness =
+                        column.key === "thickness" &&
+                        rowLooksLikeWall(row) &&
+                        getWallCoreThicknessMm(rowWallType) !== null;
+                      const hasOptions = options.length > 0;
+                      const hasSelect = options.length > 1 && !locksWallThickness;
+                      const showsWallDetailsToggle =
+                        hasSelect &&
+                        !isSection3PartitionRow(row) &&
+                        isWallTypeColumn(row, column);
+                      const showsFenestrationDetailsToggle =
+                        hasSelect &&
+                        rowUsesTable5Fenestration(row) &&
+                        column.key === "detail";
+                      const selectWasManuallyChosen = sheetValues[manualSelectMarkerKey(cellKey)] === "1";
+                      const fillClass = hasOptions || !column.editable ? "bg-slate-50" : "bg-white";
+
+                      return (
+                        <td key={column.key} className={`${cellClass} min-w-0 ${fillClass} p-0`}>
+                          {showsWallDetailsToggle ? (
+                            <WallTypePickerCell
+                              ariaLabel={`${row.id} ${column.label || column.key}`}
+                              value={selectWasManuallyChosen ? cellValue : ""}
+                              title={titleText}
+                              align={column.align ?? "left"}
+                              options={options}
+                              onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
+                            />
+                          ) : showsFenestrationDetailsToggle ? (
+                            <FenestrationFramePickerCell
+                              ariaLabel={`${row.id} ${column.label || column.key}`}
+                              value={cellValue}
+                              title={titleText}
+                              align={column.align ?? "left"}
+                              options={options}
+                              onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
+                            />
+                          ) : hasSelect ? (
+                            <SheetSelectCell
+                              ariaLabel={`${row.id} ${column.label || column.key}`}
+                              value={cellValue}
+                              title={titleText}
+                              align={column.align ?? "left"}
+                              options={options}
+                              getOptionLabel={(option) => formatSelectOptionLabel(row, column, option, unitSystem)}
+                              onValueChange={(value) => onCellChange(number, row.id, column.key, value)}
+                            />
+                          ) : column.editable && !locksWallThickness && !hasOptions ? (
+                            <SheetInputCell
+                              ariaLabel={`${row.id} ${column.label || column.key}`}
+                              value={displayValue}
+                              title={titleText}
+                              align={column.align ?? "left"}
+                              onValueChange={(value) =>
+                                onCellChange(number, row.id, column.key, parseSheetCellInput(value, column, unitSystem))
+                              }
+                            />
+                          ) : (
+                            <SheetCell
+                              ariaLabel={`${row.id} ${column.label || column.key}`}
+                              value={displayValue}
+                              title={titleText}
+                              align={column.align ?? "left"}
+                              wrap={column.wrap}
+                            />
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  {(referenceText || calculationTrace) && referenceIsOpen ? (
+                    <tr>
+                      <td className={`${cellClass} bg-slate-50 text-left text-slate-900`} colSpan={columns.length + 1}>
+                        {referenceText ? (
+                          <div>
+                            <span className="font-semibold">ASHRAE reference: </span>
+                            <span>{referenceText}</span>
+                          </div>
+                        ) : null}
+                        {calculationTrace ? (
+                          <div className="mt-2 whitespace-pre-wrap border-t border-slate-200 pt-2 leading-snug">
+                            {calculationTrace}
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -424,7 +542,7 @@ function SheetCell({
     <div
       aria-label={ariaLabel}
       title={title ?? value}
-      className={`min-h-[24px] h-full min-w-0 w-full px-1 py-1 text-[10px] leading-snug text-slate-900 tabular-nums ${alignClass} ${wrapClass}`}
+      className={`min-h-[26px] h-full min-w-0 w-full px-1.5 py-1.5 text-[10px] leading-snug text-slate-900 tabular-nums ${alignClass} ${wrapClass}`}
     >
       {value || "\u00A0"}
     </div>
@@ -453,7 +571,7 @@ function SheetInputCell({
       value={value}
       title={title ?? value}
       onChange={(event) => onValueChange(event.target.value)}
-      className={`min-h-[24px] h-full min-w-0 w-full bg-transparent px-1 py-1 text-[10px] leading-snug text-slate-900 tabular-nums outline-none ${alignClass}`}
+      className={`min-h-[26px] h-full min-w-0 w-full bg-transparent px-1.5 py-1.5 text-[10px] leading-snug text-slate-900 tabular-nums outline-none transition focus:bg-white ${alignClass}`}
     />
   );
 }
@@ -478,14 +596,15 @@ function SheetSelectCell({
   const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
 
   return (
-    <div className="relative min-h-[24px] h-full min-w-0 w-full">
+    <div className="relative min-h-[26px] h-full min-w-0 w-full">
       <select
         aria-label={ariaLabel}
         value={value}
         title={title ?? value}
         onChange={(event) => onValueChange(event.target.value)}
-        className={`min-h-[24px] h-full min-w-0 w-full appearance-none cursor-pointer whitespace-normal bg-[#fff4f7] px-1 py-1 pr-5 text-[10px] leading-snug text-slate-900 outline-none ${alignClass}`}
+        className={`min-h-[26px] h-full min-w-0 w-full appearance-none cursor-pointer whitespace-normal bg-slate-50 px-1.5 py-1.5 pr-5 text-[10px] leading-snug text-slate-900 outline-none transition focus:bg-white focus:ring-2 focus:ring-inset focus:ring-rose-100 ${alignClass}`}
       >
+        <option value="">Select</option>
         {options.map((option) => (
           <option key={option} value={option}>
             {getOptionLabel ? getOptionLabel(option) : option}

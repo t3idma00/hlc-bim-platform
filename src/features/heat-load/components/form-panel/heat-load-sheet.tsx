@@ -38,6 +38,7 @@ import { normalizeSheetCellValue, normalizeSheetRowValues } from "./heat-load-sh
 import { SectionTable } from "./heat-load-sheet-tables";
 import { SummaryTable } from "./heat-load-summary-table";
 import type { HeatLoadSheetProps, Row, Section, SheetValues } from "./heat-load-sheet-types";
+import { manualSelectMarkerKey, manualSelectMarkerValue } from "./progress-tracking";
 import { useHeatLoadAutoFill } from "./use-heat-load-auto-fill";
 import { useHeatLoadCalculations } from "./use-heat-load-calculations";
 
@@ -107,12 +108,17 @@ export function HeatLoadSheet({
   function handleCellChange(sectionNumber: string, rowId: string, key: string, value: string) {
     const section = sections.find((item) => item.number === sectionNumber);
     const row = section?.rows.find((item) => item.id === rowId);
+    const column = section?.columns.find((item) => item.key === key);
     const normalizedValue = row ? normalizeSheetCellValue(row, key, value) : value;
     const updates: Record<string, string> = { [`${rowId}_${key}`]: normalizedValue };
 
     if (!row) {
       onSheetChange(`${rowId}_${key}`, normalizedValue);
       return;
+    }
+
+    if (column && cellHasSelectOptions(row, column)) {
+      updates[manualSelectMarkerKey(`${rowId}_${key}`)] = manualSelectMarkerValue(normalizedValue);
     }
 
     updateDependentValues({
@@ -136,6 +142,7 @@ export function HeatLoadSheet({
         <SectionTable
           key={section.number}
           {...section}
+          displayNumber={String(Number.parseInt(section.number, 10) + 1)}
           unitSystem={unitSystem}
           sheetValues={sheetValues}
           onCellChange={handleCellChange}
@@ -150,6 +157,10 @@ export function HeatLoadSheet({
       />
     </div>
   );
+}
+
+function cellHasSelectOptions(row: Row, column: Section["columns"][number]) {
+  return Boolean(column.selectOptions?.length || row.selectOptions?.[column.key]?.length);
 }
 
 function updateDependentValues(input: {
