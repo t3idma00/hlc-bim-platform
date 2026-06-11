@@ -171,9 +171,8 @@ export default function HeatLoadWorkspace() {
   }, []);
 
   const handleFormChange = (name: string, value: string) => {
-    setProjectData((prev) => ({
-      ...prev,
-      rooms: prev.rooms.map((room) =>
+    setProjectData((prev) => {
+      const nextRooms = prev.rooms.map((room) =>
         room.id === activeRoomId
           ? {
               ...room,
@@ -181,14 +180,18 @@ export default function HeatLoadWorkspace() {
               sheetValues: applyFormValueToSheetValues(room.sheetValues ?? {}, name, value),
             }
           : room
-      ),
-    }));
+      );
+
+      return {
+        ...prev,
+        rooms: synchronizeSharedWallBoundaries(nextRooms),
+      };
+    });
   };
 
   const handleSheetChange = (name: string, value: string) => {
-    setProjectData((prev) => ({
-      ...prev,
-      rooms: prev.rooms.map((room) => {
+    setProjectData((prev) => {
+      const nextRooms = prev.rooms.map((room) => {
         if (room.id === activeRoomId) {
           const nextSheetValues = applyLinkedRoofSheetValue(room.sheetValues ?? {}, name, value);
 
@@ -199,8 +202,13 @@ export default function HeatLoadWorkspace() {
           };
         }
         return room;
-      }),
-    }));
+      });
+
+      return {
+        ...prev,
+        rooms: synchronizeSharedWallBoundaries(nextRooms),
+      };
+    });
   };
 
   const handleAddRoom = () => {
@@ -224,9 +232,8 @@ export default function HeatLoadWorkspace() {
     const ownWall = OPPOSITE_ROOM_WALL[addRoomTargetWall];
     const offsetMeters = parseSignedRoomNumber(addRoomOffset);
 
-    setProjectData((prev) => ({
-      ...prev,
-      rooms: [
+    setProjectData((prev) => {
+      const nextRooms = [
         ...prev.rooms,
         {
           id: newRoomId,
@@ -245,8 +252,13 @@ export default function HeatLoadWorkspace() {
             offsetMeters,
           },
         },
-      ],
-    }));
+      ];
+
+      return {
+        ...prev,
+        rooms: synchronizeSharedWallBoundaries(nextRooms),
+      };
+    });
     setActiveRoomId(newRoomId);
     setShowAddRoomModal(false);
   };
@@ -511,7 +523,7 @@ export default function HeatLoadWorkspace() {
     setProjectData({
       version: "1.2",
       lastSaved: saved.lastSaved || new Date().toISOString(),
-      rooms: resolveRoomPlacements(rooms),
+      rooms: resolveRoomPlacements(synchronizeSharedWallBoundaries(rooms)),
     });
 
     setCurrentProjectId(project.id);
@@ -1001,6 +1013,38 @@ export default function HeatLoadWorkspace() {
 
 // ==================== HELPER FUNCTIONS ====================
 
+function synchronizeSharedWallBoundaries(rooms: ProjectData["rooms"]): ProjectData["rooms"] {
+  const normalizedRooms = rooms.map((room) => ({
+    ...room,
+    formValues: { ...room.formValues },
+  }));
+  const roomsById = new Map(normalizedRooms.map((room) => [room.id, room]));
+
+  normalizedRooms.forEach((room) => {
+    const attachedRoomId = room.placement?.attachToRoomId;
+
+    if (!attachedRoomId) {
+      return;
+    }
+
+    const targetRoom = roomsById.get(attachedRoomId);
+    if (!targetRoom) {
+      return;
+    }
+
+    const targetWall = getPlacementWall(room.placement?.targetWall ?? room.placement?.targetAnchor, "East");
+    const ownWall = getPlacementWall(
+      room.placement?.ownWall ?? room.placement?.ownAnchor,
+      OPPOSITE_ROOM_WALL[targetWall]
+    );
+
+    room.formValues[getWallBoundaryFieldName(ownWall)] = "Interior";
+    targetRoom.formValues[getWallBoundaryFieldName(targetWall)] = "Interior";
+  });
+
+  return normalizedRooms;
+}
+
 function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"] {
   const placedRooms: ProjectData["rooms"] = [];
   let cursorX = 0;
@@ -1029,7 +1073,13 @@ function resolveRoomPlacements(rooms: ProjectData["rooms"]): ProjectData["rooms"
     const ownWall = getPlacementWall(room.placement?.ownWall ?? room.placement?.ownAnchor, OPPOSITE_ROOM_WALL[targetWall]);
     const offsetMeters = parseSignedRoomNumber(room.placement?.offsetMeters?.toString());
 
-    const attachedPosition = getAttachedRoomPosition(targetRoom, room.formValues, targetWall, offsetMeters);
+    const attachedPosition = getAttachedRoomPosition(
+      targetRoom,
+      room.formValues,
+      targetWall,
+      ownWall,
+      offsetMeters
+    );
 
     const placement = {
       ...room.placement,
@@ -1055,14 +1105,16 @@ function getRoomPlanWidth(formValues: FormValues | undefined) {
   if (!formValues) return 6;
   const north = parsePositiveRoomNumber(formValues.wallNorthLength);
   const south = parsePositiveRoomNumber(formValues.wallSouthLength);
-  return Math.max(north, south, 5);
+  const resolvedWidth = Math.max(north, south);
+  return resolvedWidth > 0 ? resolvedWidth : 5;
 }
 
 function getRoomPlanDepth(formValues: FormValues | undefined) {
   if (!formValues) return 6;
   const east = parsePositiveRoomNumber(formValues.wallEastLength);
   const west = parsePositiveRoomNumber(formValues.wallWestLength);
-  return Math.max(east, west, 5);
+  const resolvedDepth = Math.max(east, west);
+  return resolvedDepth > 0 ? resolvedDepth : 5;
 }
 
 function getRoomPlanWallThickness(formValues: FormValues | undefined, wall: RoomWall) {
@@ -1073,22 +1125,119 @@ function getAttachedRoomPosition(
   targetRoom: ProjectData["rooms"][number],
   formValues: FormValues,
   targetWall: RoomWall,
+  ownWall: RoomWall,
   offsetMeters: number
 ) {
   const targetPlacement = targetRoom.placement ?? { x: 0, y: 0 };
-  const targetWidth = getRoomPlanWidth(targetRoom.formValues);
-  const targetDepth = getRoomPlanDepth(targetRoom.formValues);
-  const targetWallThickness = getRoomPlanWallThickness(targetRoom.formValues, targetWall);
-  const roomWidth = getRoomPlanWidth(formValues);
-  const roomDepth = getRoomPlanDepth(formValues);
+  const targetMetrics = getRoomAttachmentMetrics(targetRoom.formValues);
+  const roomMetrics = getRoomAttachmentMetrics(formValues);
 
   switch (targetWall) {
-    case "North": return { x: targetPlacement.x + offsetMeters, y: targetPlacement.y - targetWallThickness - roomDepth };
-    case "East": return { x: targetPlacement.x + targetWidth + targetWallThickness, y: targetPlacement.y + offsetMeters };
-    case "South": return { x: targetPlacement.x + offsetMeters, y: targetPlacement.y + targetDepth + targetWallThickness };
-    case "West": return { x: targetPlacement.x - targetWallThickness - roomWidth, y: targetPlacement.y + offsetMeters };
-    default: return { x: targetPlacement.x, y: targetPlacement.y };
+    case "North":
+      return {
+        x:
+          targetPlacement.x +
+          getHorizontalWallSpanStart(targetMetrics) +
+          offsetMeters -
+          getHorizontalWallSpanStart(roomMetrics),
+        y:
+          targetPlacement.y +
+          getHorizontalWallBandStart(targetMetrics, "North") -
+          getHorizontalWallBandStart(roomMetrics, ownWall),
+      };
+    case "East":
+      return {
+        x:
+          targetPlacement.x +
+          getVerticalWallBandStart(targetMetrics, "East") -
+          getVerticalWallBandStart(roomMetrics, ownWall),
+        y:
+          targetPlacement.y +
+          getVerticalWallSpanStart(targetMetrics) +
+          offsetMeters -
+          getVerticalWallSpanStart(roomMetrics),
+      };
+    case "South":
+      return {
+        x:
+          targetPlacement.x +
+          getHorizontalWallSpanStart(targetMetrics) +
+          offsetMeters -
+          getHorizontalWallSpanStart(roomMetrics),
+        y:
+          targetPlacement.y +
+          getHorizontalWallBandStart(targetMetrics, "South") -
+          getHorizontalWallBandStart(roomMetrics, ownWall),
+      };
+    case "West":
+      return {
+        x:
+          targetPlacement.x +
+          getVerticalWallBandStart(targetMetrics, "West") -
+          getVerticalWallBandStart(roomMetrics, ownWall),
+        y:
+          targetPlacement.y +
+          getVerticalWallSpanStart(targetMetrics) +
+          offsetMeters -
+          getVerticalWallSpanStart(roomMetrics),
+      };
+    default:
+      return { x: targetPlacement.x, y: targetPlacement.y };
   }
+}
+
+function getRoomAttachmentMetrics(formValues: FormValues | undefined) {
+  const width = getRoomPlanWidth(formValues);
+  const depth = getRoomPlanDepth(formValues);
+  const northThickness = getRoomPlanWallThickness(formValues, "North");
+  const eastThickness = getRoomPlanWallThickness(formValues, "East");
+  const southThickness = getRoomPlanWallThickness(formValues, "South");
+  const westThickness = getRoomPlanWallThickness(formValues, "West");
+
+  return {
+    width,
+    depth,
+    innerWestOffset: westThickness,
+    innerNorthOffset: northThickness,
+    northThickness,
+    eastThickness,
+    southThickness,
+    westThickness,
+  };
+}
+
+function getHorizontalWallSpanStart(
+  metrics: ReturnType<typeof getRoomAttachmentMetrics>
+) {
+  return metrics.innerWestOffset;
+}
+
+function getVerticalWallSpanStart(
+  metrics: ReturnType<typeof getRoomAttachmentMetrics>
+) {
+  return metrics.innerNorthOffset;
+}
+
+function getHorizontalWallBandStart(
+  metrics: ReturnType<typeof getRoomAttachmentMetrics>,
+  wall: RoomWall
+) {
+  if (wall === "South") {
+    return metrics.innerNorthOffset + metrics.depth;
+  }
+
+  return 0;
+}
+
+function getVerticalWallBandStart(
+  metrics: ReturnType<typeof getRoomAttachmentMetrics>,
+  wall: RoomWall
+) {
+  if (wall === "East") {
+    return metrics.innerWestOffset + metrics.width;
+  }
+
+  return 0;
 }
 
 function getPlacementWall(value: string | undefined, fallback: RoomWall = "East"): RoomWall {
@@ -1155,6 +1304,10 @@ function getWallTypeFieldName(wall: RoomWall) {
 
 function getWallWidthFieldName(wall: RoomWall) {
   return `wall${wall}Width`;
+}
+
+function getWallBoundaryFieldName(wall: RoomWall) {
+  return `wall${wall}Boundary`;
 }
 
 function applySheetValueToFormValues(formValues: FormValues, sheetKey: string, sheetValue: string): FormValues {
