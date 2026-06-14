@@ -38,11 +38,13 @@ export type SolarStateLike = {
 export function useThreeRoom(
   roomModel: ThreeRoomModel | null,
   solarState?: SolarStateLike,
-  activeTool: ThreeRoomTool = "orbit"
+  activeTool: ThreeRoomTool = "orbit",
+  isVisible = true
 ): UseThreeRoomResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const roomGroupRef = useRef<THREE.Group | null>(null);
   const axesHelperRef = useRef<THREE.Group | null>(null);
@@ -179,6 +181,7 @@ export function useThreeRoom(
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(Math.max(container.clientWidth, 1), Math.max(container.clientHeight, 1), false);
+    rendererRef.current = renderer;
     renderer.domElement.style.display = "block";
     renderer.domElement.style.width = "100%";
     renderer.domElement.style.height = "100%";
@@ -276,10 +279,41 @@ export function useThreeRoom(
 
       sceneRef.current = null;
       cameraRef.current = null;
+      rendererRef.current = null;
       controlsRef.current = null;
       directionalLightRef.current = null;
     };
   }, [clearSelection]);
+
+  useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
+
+    const container = containerRef.current;
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+
+    if (!container || !renderer || !camera || !controls) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const nextWidth = Math.max(container.clientWidth, 1);
+      const nextHeight = Math.max(container.clientHeight, 1);
+
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(nextWidth, nextHeight, false);
+      camera.aspect = nextWidth / nextHeight;
+      camera.updateProjectionMatrix();
+      controls.update();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [isVisible]);
 
   useEffect(() => {
     const container = containerRef.current;

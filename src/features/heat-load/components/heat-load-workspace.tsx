@@ -88,6 +88,8 @@ export default function HeatLoadWorkspace() {
   const [currentProjectName, setCurrentProjectName] = useState<string>("");
 
   const [activeView, setActiveView] = useState<WorkspaceView>("2d");
+  const [activeMobilePane, setActiveMobilePane] = useState<"form" | "workspace">("form");
+  const [isDesktopWorkspaceLayout, setIsDesktopWorkspaceLayout] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [, setLoading] = useState(true);
 
@@ -150,6 +152,24 @@ export default function HeatLoadWorkspace() {
       document.body.style.userSelect = "auto";
     };
   }, [isDragging]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(min-width: 1280px)");
+    const applyLayoutMode = () => {
+      setIsDesktopWorkspaceLayout(mediaQuery.matches);
+    };
+
+    applyLayoutMode();
+    mediaQuery.addEventListener("change", applyLayoutMode);
+
+    return () => {
+      mediaQuery.removeEventListener("change", applyLayoutMode);
+    };
+  }, []);
 
   // Auth listener
   useEffect(() => {
@@ -574,10 +594,11 @@ export default function HeatLoadWorkspace() {
   };
 
   const placedRooms = resolveRoomPlacements(projectData.rooms);
+  const isWorkspaceVisible = isDesktopWorkspaceLayout || activeMobilePane === "workspace";
 
   return (
-    <div className="h-screen overflow-hidden bg-[#fff4f6] text-slate-900">
-      <div className="flex h-screen w-full flex-col overflow-hidden">
+    <div className="h-dvh min-h-screen overflow-hidden bg-[#fff4f6] text-slate-900">
+      <div className="flex h-full w-full flex-col overflow-hidden">
         <header className="flex flex-col gap-4 border-b border-rose-100 bg-[#fffafb] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center bg-[#9f1239] text-lg font-semibold text-white">H</div>
@@ -587,7 +608,7 @@ export default function HeatLoadWorkspace() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             {user && (
               <>
                 <span className="hidden text-sm text-slate-600 md:block">{user.email}</span>
@@ -626,8 +647,42 @@ export default function HeatLoadWorkspace() {
           </div>
         </header>
 
-        <main ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden relative">
-          <div style={{ width: `${leftWidthPercent}%` }} className="flex-shrink-0 flex flex-col h-full overflow-hidden">
+        <div className="border-b border-rose-100 bg-white px-4 py-3 xl:hidden">
+          <div className="inline-flex w-full overflow-hidden rounded-xl border border-rose-200 bg-rose-50 p-1 shadow-sm shadow-rose-100/50">
+            <button
+              type="button"
+              onClick={() => setActiveMobilePane("form")}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                activeMobilePane === "form"
+                  ? "bg-[#be123c] text-white shadow-sm"
+                  : "text-slate-600 hover:bg-white hover:text-[#9f1239]"
+              }`}
+              aria-pressed={activeMobilePane === "form"}
+            >
+              Input Form
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMobilePane("workspace")}
+              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                activeMobilePane === "workspace"
+                  ? "bg-[#be123c] text-white shadow-sm"
+                  : "text-slate-600 hover:bg-white hover:text-[#9f1239]"
+              }`}
+              aria-pressed={activeMobilePane === "workspace"}
+            >
+              {activeView === "2d" ? "2D Workspace" : "3D Workspace"}
+            </button>
+          </div>
+        </div>
+
+        <main ref={containerRef} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
+          <div
+            style={isDesktopWorkspaceLayout ? { width: `${leftWidthPercent}%` } : undefined}
+            className={`min-h-0 flex-col overflow-hidden xl:flex xl:h-full xl:flex-shrink-0 ${
+              activeMobilePane === "form" ? "flex" : "hidden"
+            }`}
+          >
             <div className="flex border-b border-rose-200 bg-[#fff8fa] overflow-x-auto min-h-[40px] items-end px-2">
               {projectData.rooms.map((room) => (
                 <button
@@ -660,19 +715,24 @@ export default function HeatLoadWorkspace() {
 
           <div
             onMouseDown={handleMouseDown}
-            className="w-2 cursor-ew-resize bg-rose-100 hover:bg-[#be123c] active:bg-[#9f1239] transition-colors z-10 flex-shrink-0 flex flex-col items-center justify-center group shadow-sm"
+            className="hidden w-2 cursor-ew-resize bg-rose-100 transition-colors z-10 xl:flex xl:flex-shrink-0 xl:flex-col xl:items-center xl:justify-center xl:shadow-sm hover:bg-[#be123c] active:bg-[#9f1239] group"
             title="Drag to resize panels"
           >
             <div className="h-8 w-[2px] bg-rose-400 group-hover:bg-white rounded-full"></div>
           </div>
 
-          <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+          <div
+            className={`min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
+              activeMobilePane === "workspace" ? "flex" : "hidden"
+            } xl:flex xl:h-full`}
+          >
             {activeView === "2d" ? (
               <HeatLoadCanvasPanel
                 formValues={projectData.rooms.find((r) => r.id === activeRoomId)?.formValues || initialFormValues}
                 rooms={placedRooms}
                 activeRoomId={activeRoomId}
                 activeView={activeView}
+                isVisible={isWorkspaceVisible}
                 onViewChange={setActiveView}
                 onFieldChange={handleFormChange}
               />
@@ -683,15 +743,13 @@ export default function HeatLoadWorkspace() {
                 rooms={placedRooms}
                 activeRoomId={activeRoomId}
                 activeView={activeView}
+                isVisible={isWorkspaceVisible}
                 onViewChange={setActiveView}
               />
             )}
           </div>
         </main>
 
-        <footer className="border-t border-rose-100 bg-[#fffafb] px-5 py-2 text-center text-xs text-rose-600">
-          HLC Platform - Thesis Project
-        </footer>
       </div>
 
       {/* Add Room Modal */}

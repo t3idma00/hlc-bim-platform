@@ -32,6 +32,7 @@ type HeatLoad3DPanelProps = {
   rooms?: RoomData[];
   activeRoomId?: string;
   activeView: WorkspaceView;
+  isVisible: boolean;
   onViewChange: (view: WorkspaceView) => void;
 };
 
@@ -283,6 +284,7 @@ export function HeatLoad3DPanel({
   rooms,
   activeRoomId,
   activeView,
+  isVisible,
   onViewChange,
 }: HeatLoad3DPanelProps) {
   const [solarState, setSolarState] = useState<SolarState>({
@@ -427,6 +429,7 @@ export function HeatLoad3DPanel({
             rooms={rooms}
             activeRoomId={activeRoomId}
             solarState={solarState}
+            isVisible={isVisible}
           />
         </div>
       </div>

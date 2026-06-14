@@ -20,6 +20,7 @@ type ThreeRoomViewProps = {
   rooms?: ThreeRoomSceneRoom[];
   activeRoomId?: string;
   solarState?: SolarStateLike;
+  isVisible: boolean;
 };
 
 export function ThreeRoomView({
@@ -28,6 +29,7 @@ export function ThreeRoomView({
   rooms,
   activeRoomId,
   solarState,
+  isVisible,
 }: ThreeRoomViewProps) {
   const [activeTool, setActiveTool] = useState<ThreeRoomTool>("orbit");
   const [roofAndCeilingVisible, setRoofAndCeilingVisible] = useState(false);
@@ -35,7 +37,12 @@ export function ThreeRoomView({
     () => buildSceneRoomModel(rooms, activeRoomId, formValues, sheetValues),
     [activeRoomId, formValues, rooms, sheetValues]
   );
-  const { containerRef, controls } = useThreeRoom(roomModel, solarState, activeTool);
+  const { containerRef, controls } = useThreeRoom(
+    roomModel,
+    solarState,
+    activeTool,
+    isVisible
+  );
   const isReady = roomModel !== null;
   const viewTools: Array<{
     key: ThreeRoomCameraPreset;
@@ -47,9 +54,9 @@ export function ThreeRoomView({
   ];
 
   return (
-    <div className="flex h-full w-full min-h-0 overflow-hidden">
-      <div className="z-10 w-14 shrink-0 border-r border-[#44536a] bg-[#5d6b7d]/97 shadow-lg shadow-slate-900/18 backdrop-blur">
-        <div className="flex h-full w-full flex-col items-center gap-1 pt-2">
+    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden sm:flex-row">
+      <div className="z-10 shrink-0 border-b border-[#44536a] bg-[#5d6b7d]/97 shadow-lg shadow-slate-900/18 backdrop-blur sm:w-14 sm:border-r sm:border-b-0">
+        <div className="flex h-full w-full items-center gap-1 overflow-x-auto px-2 py-2 sm:flex-col sm:items-center sm:gap-1 sm:px-0 sm:pt-2 sm:pb-0">
           <button
             type="button"
             aria-label="Select"
@@ -67,7 +74,7 @@ export function ThreeRoomView({
           >
             <ThreeToolbarIcon tool="select" />
           </button>
-          <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
+          <div className="mx-1 h-8 w-px shrink-0 bg-[#8ea2bf]/45 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
           <button
             type="button"
             aria-label="Reset camera"
@@ -77,7 +84,7 @@ export function ThreeRoomView({
           >
             <ThreeToolbarIcon tool="reset" />
           </button>
-          <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
+          <div className="mx-1 h-8 w-px shrink-0 bg-[#8ea2bf]/45 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
           <button
             type="button"
             aria-label="Zoom in"
@@ -96,7 +103,7 @@ export function ThreeRoomView({
           >
             <ThreeToolbarIcon tool="zoomOut" />
           </button>
-          <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
+          <div className="mx-1 h-8 w-px shrink-0 bg-[#8ea2bf]/45 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
           {viewTools.map((tool) => (
             <button
               key={tool.key}
@@ -109,7 +116,7 @@ export function ThreeRoomView({
               <ThreeToolbarIcon tool={tool.key} />
             </button>
           ))}
-          <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
+          <div className="mx-1 h-8 w-px shrink-0 bg-[#8ea2bf]/45 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
           <button
             type="button"
             aria-label={roofAndCeilingVisible ? "Hide roof and ceiling" : "Show roof and ceiling"}
@@ -135,7 +142,7 @@ export function ThreeRoomView({
       <div className="relative min-w-0 flex-1">
         <div ref={containerRef} className="absolute inset-0" />
 
-        <div className="pointer-events-none absolute left-4 top-4 rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs text-slate-600 shadow-sm shadow-slate-200/70 backdrop-blur">
+        <div className="pointer-events-none absolute left-3 top-3 rounded-xl border border-slate-200 bg-white/90 px-2.5 py-2 text-[11px] text-slate-600 shadow-sm shadow-slate-200/70 backdrop-blur sm:left-4 sm:top-4 sm:px-3 sm:text-xs">
           <p className="font-semibold text-slate-900">3D controls</p>
           <p className="mt-1">Drag to orbit</p>
           <p>Scroll to zoom</p>

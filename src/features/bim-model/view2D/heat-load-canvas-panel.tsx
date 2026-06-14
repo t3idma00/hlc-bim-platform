@@ -353,6 +353,7 @@ export function HeatLoadCanvasPanel({
   rooms,
   activeRoomId,
   activeView,
+  isVisible,
   onViewChange,
   onFieldChange,
 }: {
@@ -360,6 +361,7 @@ export function HeatLoadCanvasPanel({
   rooms?: CanvasRoom[];
   activeRoomId?: string;
   activeView: WorkspaceView;
+  isVisible: boolean;
   onViewChange: (view: WorkspaceView) => void;
   onFieldChange: (name: string, value: string) => void;
 }) {
@@ -401,6 +403,7 @@ export function HeatLoadCanvasPanel({
   const undoStackRef = useRef<EditorSnapshot[]>([]);
   const redoStackRef = useRef<EditorSnapshot[]>([]);
   const suppressFormReseedCountRef = useRef(0);
+  const shouldAutoFitOnVisibleRef = useRef(true);
 
   const refreshEditorUi = useCallback(() => {
     setWallSummary(
@@ -705,6 +708,73 @@ export function HeatLoadCanvasPanel({
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
     };
   }, []);
+
+  const fitCanvasToDrawnArea = useCallback(() => {
+    const canvas = canvasRef.current;
+
+    if (!canvas || canvas.clientWidth <= 0 || canvas.clientHeight <= 0) {
+      return;
+    }
+
+    const metrics = getRenderedRoomPlanMetrics(
+      canvas.clientWidth,
+      canvas.clientHeight,
+      BASE_GRID_SIZE,
+      0,
+      0,
+      rooms,
+      activeRoomId,
+      formValues
+    );
+
+    offsetRef.current = { x: 0, y: 0 };
+
+    if (metrics.roomPlans.length === 0) {
+      setScale(1);
+      refreshEditorUi();
+      return;
+    }
+
+    const horizontalPadding = Math.min(120, Math.max(56, metrics.drawWidth * 0.14));
+    const verticalPadding = Math.min(100, Math.max(48, metrics.drawHeight * 0.14));
+    const availableWidth = Math.max(metrics.drawWidth - horizontalPadding * 2, 80);
+    const availableHeight = Math.max(metrics.drawHeight - verticalPadding * 2, 80);
+    const targetPixelsPerMeter = Math.min(
+      availableWidth / metrics.planWidth,
+      availableHeight / metrics.planHeight
+    );
+
+    setScale(clampCanvasScale(targetPixelsPerMeter / BASE_GRID_SIZE));
+    refreshEditorUi();
+  }, [activeRoomId, formValues, refreshEditorUi, rooms]);
+
+  useEffect(() => {
+    if (!isVisible) {
+      shouldAutoFitOnVisibleRef.current = true;
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const canvas = canvasRef.current;
+      const shouldAutoFit =
+        shouldAutoFitOnVisibleRef.current &&
+        !!canvas &&
+        canvas.clientWidth > 0 &&
+        canvas.clientWidth < 900;
+
+      if (shouldAutoFit) {
+        fitCanvasToDrawnArea();
+      } else {
+        setEditorRevision((previousValue) => previousValue + 1);
+      }
+
+      shouldAutoFitOnVisibleRef.current = false;
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [fitCanvasToDrawnArea, isVisible]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -2061,7 +2131,14 @@ export function HeatLoadCanvasPanel({
       }
     };
 
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+
     resize();
+    resizeObserver?.observe(canvas);
+    if (canvas.parentElement) {
+      resizeObserver?.observe(canvas.parentElement);
+    }
     window.addEventListener("resize", resize);
     window.addEventListener("keydown", handleKeyDown);
     canvas.addEventListener("wheel", handleWheel, { passive: false });
@@ -2072,6 +2149,7 @@ export function HeatLoadCanvasPanel({
     canvas.addEventListener("mousemove", handleMouseMove);
 
     return () => {
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", resize);
       window.removeEventListener("keydown", handleKeyDown);
       canvas.removeEventListener("wheel", handleWheel);
@@ -2133,42 +2211,7 @@ export function HeatLoadCanvasPanel({
   };
 
   const handleFitDrawnArea = () => {
-    const canvas = canvasRef.current;
-
-    if (!canvas || canvas.clientWidth <= 0 || canvas.clientHeight <= 0) {
-      return;
-    }
-
-    const metrics = getRenderedRoomPlanMetrics(
-      canvas.clientWidth,
-      canvas.clientHeight,
-      BASE_GRID_SIZE,
-      0,
-      0,
-      rooms,
-      activeRoomId,
-      formValues
-    );
-
-    offsetRef.current = { x: 0, y: 0 };
-
-    if (metrics.roomPlans.length === 0) {
-      setScale(1);
-      refreshEditorUi();
-      return;
-    }
-
-    const horizontalPadding = Math.min(120, Math.max(56, metrics.drawWidth * 0.14));
-    const verticalPadding = Math.min(100, Math.max(48, metrics.drawHeight * 0.14));
-    const availableWidth = Math.max(metrics.drawWidth - horizontalPadding * 2, 80);
-    const availableHeight = Math.max(metrics.drawHeight - verticalPadding * 2, 80);
-    const targetPixelsPerMeter = Math.min(
-      availableWidth / metrics.planWidth,
-      availableHeight / metrics.planHeight
-    );
-
-    setScale(clampCanvasScale(targetPixelsPerMeter / BASE_GRID_SIZE));
-    refreshEditorUi();
+    fitCanvasToDrawnArea();
   };
 
   return (
@@ -2193,10 +2236,10 @@ export function HeatLoadCanvasPanel({
       <div className="flex min-h-0 flex-1 flex-col p-4">
         <div
           ref={canvasFrameRef}
-          className="flex h-full w-full flex-1 overflow-hidden border border-sky-100 bg-[#dbeafe]"
+          className="flex h-full w-full flex-1 flex-col overflow-hidden border border-sky-100 bg-[#dbeafe] sm:flex-row"
         >
-          <div className="relative z-20 w-14 overflow-visible border-r border-[#44536a] bg-[#5d6b7d]/97 shadow-lg shadow-slate-900/18 backdrop-blur">
-            <div className="flex h-full w-full flex-col items-center gap-1 pt-2">
+          <div className="relative z-20 overflow-visible border-b border-[#44536a] bg-[#5d6b7d]/97 shadow-lg shadow-slate-900/18 backdrop-blur sm:w-14 sm:border-r sm:border-b-0">
+            <div className="flex h-full w-full items-center gap-1 overflow-x-auto px-2 py-2 sm:flex-col sm:items-center sm:gap-1 sm:px-0 sm:py-2">
               {TOOL_OPTIONS.map((tool) => {
                 const isActive = editorTool === tool.key;
 
@@ -2217,7 +2260,7 @@ export function HeatLoadCanvasPanel({
                   </button>
                 );
               })}
-              <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
+              <div className="mx-1 h-8 w-px shrink-0 bg-[#8ea2bf]/45 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
               <button
                 type="button"
                 aria-label="Undo"
@@ -2250,7 +2293,7 @@ export function HeatLoadCanvasPanel({
               >
                 <HistoryToolIcon action="redo" />
               </button>
-              <div className="my-1 h-px w-8 bg-[#8ea2bf]/45" />
+              <div className="mx-1 h-8 w-px shrink-0 bg-[#8ea2bf]/45 sm:mx-0 sm:my-1 sm:h-px sm:w-8" />
               <div className="relative overflow-visible">
                 <div className="flex overflow-hidden rounded-md border border-[#8ea2bf]/35 shadow-sm">
                   <button
@@ -2293,7 +2336,7 @@ export function HeatLoadCanvasPanel({
                 </div>
 
                 {showObjectMenu ? (
-                  <div className="absolute bottom-0 left-full z-50 ml-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl shadow-slate-900/20">
+                  <div className="absolute bottom-full left-0 z-50 mb-2 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl shadow-slate-900/20 sm:bottom-0 sm:left-full sm:mb-0 sm:ml-2">
                     {OBJECT_TOOL_OPTIONS.map((option) => {
                       const isSelected = option.key === selectedObjectKind;
 
@@ -2352,8 +2395,8 @@ export function HeatLoadCanvasPanel({
               ref={canvasRef}
               className={`h-full w-full ${canvasCursorClass}`}
             />
-            <div className="pointer-events-none absolute right-16 top-6">
-              <CompassOverlay marker={compassMarker} />
+            <div className="pointer-events-none absolute right-14 top-4 sm:right-16 sm:top-6">
+              <CompassOverlay marker={compassMarker} className="h-16 w-16 sm:h-24 sm:w-24" />
             </div>
           </div>
         </div>
